@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import ValidationError
 
-from app.api.session_cookie import clear_session_cookie
+from app.api.session_cookie import build_clear_session_cookie_header, clear_session_cookie
 from app.api.dependencies import (
     get_current_auth_session,
     get_runtime_settings,
@@ -67,7 +67,7 @@ async def get_refreshed_session_after_non_actionable_write(
             session_store=session_store,
             settings=settings,
         )
-        raise_invalid_session_http_error(err)
+        raise_invalid_session_http_error(err, settings)
     except InternalAdminContractError as err:
         await invalidate_stale_session(
             request=request,
@@ -75,7 +75,7 @@ async def get_refreshed_session_after_non_actionable_write(
             session_store=session_store,
             settings=settings,
         )
-        raise_invalid_session_http_error(err)
+        raise_invalid_session_http_error(err, settings)
     except Exception as err:
         raise_bff_http_error(err)
 
@@ -100,10 +100,11 @@ def build_email_verification_challenge_from_session(
     )
 
 
-def raise_invalid_session_http_error(err: Exception) -> None:
+def raise_invalid_session_http_error(err: Exception, settings: Settings) -> NoReturn:
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Session is no longer valid.",
+        headers={"set-cookie": build_clear_session_cookie_header(settings)},
     ) from err
 
 
@@ -124,7 +125,7 @@ async def get_valid_auth_session_user_id(
             session_store=session_store,
             settings=settings,
         )
-        raise_invalid_session_http_error(err)
+        raise_invalid_session_http_error(err, settings)
 
 
 @router.get("", response_model=SessionSchema)
@@ -152,7 +153,7 @@ async def get_session(
             session_store=session_store,
             settings=settings,
         )
-        raise_invalid_session_http_error(err)
+        raise_invalid_session_http_error(err, settings)
     except InternalAdminContractError as err:
         await invalidate_stale_session(
             request=request,
@@ -160,7 +161,7 @@ async def get_session(
             session_store=session_store,
             settings=settings,
         )
-        raise_invalid_session_http_error(err)
+        raise_invalid_session_http_error(err, settings)
     except Exception as err:
         raise_bff_http_error(err)
 
@@ -190,7 +191,7 @@ async def accept_rules(
             session_store=session_store,
             settings=settings,
         )
-        raise_invalid_session_http_error(err)
+        raise_invalid_session_http_error(err, settings)
     except InternalAdminContractError as err:
         await invalidate_stale_session(
             request=request,
@@ -198,7 +199,7 @@ async def accept_rules(
             session_store=session_store,
             settings=settings,
         )
-        raise_invalid_session_http_error(err)
+        raise_invalid_session_http_error(err, settings)
     except Exception as err:
         raise_bff_http_error(err)
 
@@ -237,7 +238,7 @@ async def snooze_web_account_link_prompt(
             session_store=session_store,
             settings=settings,
         )
-        raise_invalid_session_http_error(err)
+        raise_invalid_session_http_error(err, settings)
     except InternalAdminContractError as err:
         await invalidate_stale_session(
             request=request,
@@ -245,7 +246,7 @@ async def snooze_web_account_link_prompt(
             session_store=session_store,
             settings=settings,
         )
-        raise_invalid_session_http_error(err)
+        raise_invalid_session_http_error(err, settings)
     except Exception as err:
         raise_bff_http_error(err)
 
@@ -287,7 +288,7 @@ async def handoff_web_account_password(
             session_store=session_store,
             settings=settings,
         )
-        raise_invalid_session_http_error(err)
+        raise_invalid_session_http_error(err, settings)
     except InternalAdminContractError as err:
         await invalidate_stale_session(
             request=request,
@@ -295,7 +296,7 @@ async def handoff_web_account_password(
             session_store=session_store,
             settings=settings,
         )
-        raise_invalid_session_http_error(err)
+        raise_invalid_session_http_error(err, settings)
     except Exception as err:
         raise_bff_http_error(err)
 
@@ -338,7 +339,7 @@ async def issue_web_account_email_verification_challenge(
             session_store=session_store,
             settings=settings,
         )
-        raise_invalid_session_http_error(err)
+        raise_invalid_session_http_error(err, settings)
     except InternalAdminContractError as err:
         await invalidate_stale_session(
             request=request,
@@ -346,7 +347,7 @@ async def issue_web_account_email_verification_challenge(
             session_store=session_store,
             settings=settings,
         )
-        raise_invalid_session_http_error(err)
+        raise_invalid_session_http_error(err, settings)
     except Exception as err:
         raise_bff_http_error(err)
 
@@ -388,7 +389,7 @@ async def complete_web_account_email_verification(
             session_store=session_store,
             settings=settings,
         )
-        raise_invalid_session_http_error(err)
+        raise_invalid_session_http_error(err, settings)
     except InternalAdminContractError as err:
         await invalidate_stale_session(
             request=request,
@@ -396,6 +397,6 @@ async def complete_web_account_email_verification(
             session_store=session_store,
             settings=settings,
         )
-        raise_invalid_session_http_error(err)
+        raise_invalid_session_http_error(err, settings)
     except Exception as err:
         raise_bff_http_error(err)

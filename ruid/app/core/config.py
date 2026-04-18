@@ -15,6 +15,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     app_name: str = Field(default="ruid-user-service")
@@ -26,6 +27,7 @@ class Settings(BaseSettings):
     rezeis_host: str = Field(default="rezeis-admin-api", validation_alias="REZEIS_HOST")
     rezeis_port: int = Field(default=3000, validation_alias="REZEIS_PORT")
     rezeis_internal_api_key: str = Field(
+        default="",
         validation_alias=AliasChoices("REZEIS_ADMIN_INTERNAL_API_KEY", "REZEIS_INTERNAL_API_KEY"),
     )
     ruid_public_web_url: str | None = Field(default=None, validation_alias="RUID_PUBLIC_WEB_URL")
@@ -35,19 +37,19 @@ class Settings(BaseSettings):
     )
     telegram_bot_token: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("TELEGRAM_BOT_TOKEN", "BOT_TOKEN"),
+        validation_alias=AliasChoices("BOT_TOKEN", "TELEGRAM_BOT_TOKEN"),
     )
     telegram_bot_secret_token: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("TELEGRAM_BOT_SECRET_TOKEN", "BOT_SECRET_TOKEN"),
+        validation_alias=AliasChoices("BOT_SECRET_TOKEN", "TELEGRAM_BOT_SECRET_TOKEN"),
     )
     telegram_support_username: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("TELEGRAM_SUPPORT_USERNAME", "BOT_SUPPORT_USERNAME"),
+        validation_alias=AliasChoices("BOT_SUPPORT_USERNAME", "TELEGRAM_SUPPORT_USERNAME"),
     )
     telegram_mini_app_url: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("TELEGRAM_MINI_APP_URL", "BOT_MINI_APP"),
+        validation_alias=AliasChoices("BOT_MINI_APP", "TELEGRAM_MINI_APP_URL"),
     )
     telegram_auth_max_age_seconds: int = Field(
         default=DEFAULT_TELEGRAM_AUTH_MAX_AGE_SECONDS,

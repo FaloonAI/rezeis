@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +10,7 @@ from app.api.dependencies import set_internal_admin_client_state, set_session_st
 from app.core.config import Settings, get_settings
 
 
+@asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     set_internal_admin_client_state(app)
     set_session_store_state(app)

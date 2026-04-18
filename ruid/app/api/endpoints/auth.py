@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response
 
+from app.api.session_cookie import get_cookie_samesite
 from app.api.dependencies import (
     get_runtime_settings,
     get_session_service,
@@ -69,7 +70,7 @@ async def bootstrap_telegram_session(
         max_age=settings.ruid_session_ttl_seconds,
         httponly=True,
         secure=settings.ruid_session_cookie_secure,
-        samesite=settings.ruid_session_cookie_samesite,
+        samesite=get_cookie_samesite(settings.ruid_session_cookie_samesite),
         domain=settings.ruid_session_cookie_domain,
         path=settings.ruid_session_cookie_path,
     )

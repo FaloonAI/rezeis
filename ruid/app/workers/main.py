@@ -9,7 +9,7 @@ from app.core.config import get_settings
 settings = get_settings()
 logger = logging.getLogger("ruid-worker")
 
-result_backend: RedisAsyncResultBackend = RedisAsyncResultBackend(redis_url=settings.redis_url)
+result_backend: RedisAsyncResultBackend[object] = RedisAsyncResultBackend(redis_url=settings.redis_url)
 broker: ListQueueBroker = ListQueueBroker(url=settings.redis_url).with_result_backend(result_backend)
 
 

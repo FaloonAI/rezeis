@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
-from app.api.session_cookie import clear_session_cookie
+from app.api.session_cookie import build_clear_session_cookie_header, clear_session_cookie
 from app.api.dependencies import (
     get_current_auth_session,
     get_runtime_settings,
@@ -41,6 +41,7 @@ async def get_subscription(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session is no longer valid.",
+            headers={"set-cookie": build_clear_session_cookie_header(settings)},
         ) from err
     except Exception as err:
         raise_bff_http_error(err)

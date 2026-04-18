@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, NoReturn, cast
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from redis.asyncio import Redis
 
-from app.api.session_cookie import clear_session_cookie
+from app.api.session_cookie import build_clear_session_cookie_header, clear_session_cookie
 from app.core.config import Settings, get_settings
 from app.schemas.auth_session import AuthSessionSchema
 from app.services.internal_admin_client import (
@@ -30,7 +30,7 @@ from app.services.telegram_auth_service import (
 
 
 def get_internal_admin_client(request: Request) -> InternalAdminClient:
-    return request.app.state.internal_admin_client
+    return cast(InternalAdminClient, request.app.state.internal_admin_client)
 
 
 def set_internal_admin_client_state(app: FastAPI) -> None:
@@ -44,7 +44,7 @@ def set_internal_admin_client_state(app: FastAPI) -> None:
 
 
 def get_redis_client(request: Request) -> Redis:
-    return request.app.state.redis_client
+    return cast(Redis, request.app.state.redis_client)
 
 
 def set_session_store_state(app: FastAPI) -> None:
@@ -66,7 +66,7 @@ def get_runtime_settings() -> Settings:
 
 
 def get_session_store(request: Request) -> RedisSessionStore:
-    return request.app.state.session_store
+    return cast(RedisSessionStore, request.app.state.session_store)
 
 
 def get_telegram_auth_service(
@@ -163,11 +163,12 @@ async def get_current_auth_session(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session is missing or expired.",
+            headers={"set-cookie": build_clear_session_cookie_header(settings)},
         )
     return auth_session
 
 
-def raise_bff_http_error(err: Exception) -> None:
+def raise_bff_http_error(err: Exception) -> NoReturn:
     if isinstance(
         err,
         (InvalidTelegramInitDataError, ExpiredTelegramInitDataError, ReplayTelegramInitDataError),

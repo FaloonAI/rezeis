@@ -154,11 +154,13 @@ class InternalAdminClient:
         params: Mapping[str, str] | None = None,
         body: object | None = None,
     ) -> object:
-        request_kwargs: dict[str, object] = {"method": method, "url": path, "params": params}
-        if body is not None:
-            request_kwargs["json"] = body
         try:
-            response = await self._client.request(**request_kwargs)
+            response = await self._client.request(
+                method=method,
+                url=path,
+                params=params,
+                json=body,
+            )
             response.raise_for_status()
         except httpx.TimeoutException as err:
             raise InternalAdminTimeoutError from err

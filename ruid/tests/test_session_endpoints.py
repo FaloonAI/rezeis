@@ -123,7 +123,7 @@ def test_session_routes_invalidates_malformed_backing_session_object(
 
     with TestClient(app) as client:
         client.cookies.set("ruid_session", "stored-session-id")
-        response = getattr(client, method)(path, json=json_body)
+        response = client.request(method.upper(), path, json=json_body)
 
     assert response.status_code == 401
     assert response.json() == {"detail": "Session is no longer valid."}
@@ -1063,7 +1063,7 @@ def test_web_account_email_verification_challenge_endpoint_invalidates_session_w
         (
             "patch",
             "/api/v1/session/web-account-password",
-            {"password": "new-password-123"},
+            {"login": "user-login", "password": "new-password-123"},
         ),
         (
             "patch",
@@ -1127,7 +1127,7 @@ def test_session_routes_invalidates_malformed_upstream_session_payload(
 
     with TestClient(app) as client:
         client.cookies.set("ruid_session", "stored-session-id")
-        response = getattr(client, method)(path, json=json_body)
+        response = client.request(method.upper(), path, json=json_body)
 
     assert response.status_code == 401
     assert response.json() == {"detail": "Session is no longer valid."}
