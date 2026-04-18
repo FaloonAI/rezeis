@@ -103,7 +103,8 @@ describe('GET /api/admin/users/search', () => {
       .expect(200);
     assert.equal(searchCalls.length, 1);
     assert.equal(searchCalls[0]?.query instanceof AdminUserSearchQueryDto, true);
-    assert.deepStrictEqual(searchCalls[0]?.query, { email: 'user@example.com' });
+    assert.equal(searchCalls[0]?.query.email, 'user@example.com');
+    assert.equal(searchCalls[0]?.query.login, undefined);
     assert.deepStrictEqual(response.body, buildSearchResult());
   });
 
@@ -115,7 +116,8 @@ describe('GET /api/admin/users/search', () => {
       .expect(200);
     assert.equal(searchCalls.length, 1);
     assert.equal(searchCalls[0]?.query instanceof AdminUserSearchQueryDto, true);
-    assert.deepStrictEqual(searchCalls[0]?.query, { login: 'User_Login' });
+    assert.equal(searchCalls[0]?.query.email, undefined);
+    assert.equal(searchCalls[0]?.query.login, 'User_Login');
     assert.deepStrictEqual(response.body, buildSearchResult());
   });
 

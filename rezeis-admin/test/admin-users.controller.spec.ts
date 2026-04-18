@@ -52,7 +52,7 @@ function buildSearchResult(): AdminUserSearchResultInterface {
       isTrial: false,
       plan: {
         name: 'Premium',
-        type: PlanType.SUBSCRIPTION,
+        type: PlanType.TRAFFIC,
       },
       trafficLimit: 2048,
       deviceLimit: 3,

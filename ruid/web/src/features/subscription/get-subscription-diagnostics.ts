@@ -40,7 +40,6 @@ export function getSubscriptionDiagnostics(subscription: SubscriptionRecord): Su
   const stateDescription: string = getStateDescription({ subscription, hasExpired, isUpcoming })
   const timingLabel: string = getTimingLabel({ subscription, hasExpired, isUpcoming, isExpiringSoon, expiresAtDate })
   const timingDescription: string = getTimingDescription({
-    subscription,
     hasExpired,
     hasExplicitExpiryStatus,
     isDisabled,
@@ -169,7 +168,6 @@ function getTimingLabel({
 }
 
 function getTimingDescription({
-  subscription,
   hasExpired,
   hasExplicitExpiryStatus,
   isDisabled,
@@ -180,7 +178,6 @@ function getTimingDescription({
   startedAtDate,
   expiresAtDate,
 }: {
-  readonly subscription: SubscriptionRecord
   readonly hasExpired: boolean
   readonly hasExplicitExpiryStatus: boolean
   readonly isDisabled: boolean

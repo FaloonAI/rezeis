@@ -313,6 +313,10 @@ function EmailVerificationStateCard({
   const isPendingStateVisible: boolean = challenge !== null
   const canShowIssueButton: boolean = canIssueChallenge && (!isSecondary || isPendingStateVisible)
   const verificationCodeInputId = useId()
+  const pendingChallengeDescription =
+    challenge === null
+      ? null
+      : `Verification email issued for ${challenge.email ?? emailAddress}. Check that mailbox later. The current challenge expires ${formatDate(challenge.challengeExpiresAt)}.`
   return (
     <article className="rounded-3xl border border-border/70 bg-card/95 p-6 shadow-sm">
       <p className="text-sm font-medium text-primary">Linked email verification</p>
@@ -332,8 +336,8 @@ function EmailVerificationStateCard({
           ? 'The linked web-account email is already verified in the current session state.'
           : emailAddress === null
             ? 'This linked web account does not currently expose an email address, so an optional verification challenge cannot be issued yet.'
-          : isPendingStateVisible
-            ? `Verification email issued for ${challenge.email ?? emailAddress}. Check that mailbox later. The current challenge expires ${formatDate(challenge.challengeExpiresAt)}.`
+          : pendingChallengeDescription !== null
+            ? pendingChallengeDescription
             : isSecondary
               ? 'Finish the linked login and password handoff first. Optional linked-email verification can follow afterward without leaving the authenticated shell.'
               : 'Issue or re-issue optional linked-email verification without leaving the authenticated shell after the linked credentials are already in place.'}

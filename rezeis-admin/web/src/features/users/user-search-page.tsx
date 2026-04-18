@@ -64,6 +64,11 @@ function readFormErrorMessage(message: string | undefined): string | null {
   return typeof message === 'string' ? message : null
 }
 
+function readFieldErrorMessage(message: string | undefined): string | null {
+  const formErrorMessage: string | null = readFormErrorMessage(message)
+  return formErrorMessage === EXACTLY_ONE_IDENTIFIER_ERROR ? null : formErrorMessage
+}
+
 function renderSummaryItems(items: readonly SummaryItem[]): JSX.Element {
   return (
     <dl className="space-y-3">
@@ -154,6 +159,10 @@ export function UserSearchPage(): JSX.Element {
   const generalIdentifierErrorMessage: string | null = [form.formState.errors.userId, form.formState.errors.telegramId, form.formState.errors.email, form.formState.errors.login]
     .map((error) => readFormErrorMessage(error?.message))
     .find((message: string | null): boolean => message === EXACTLY_ONE_IDENTIFIER_ERROR) ?? null
+  const userIdErrorMessage: string | null = readFieldErrorMessage(form.formState.errors.userId?.message)
+  const telegramIdErrorMessage: string | null = readFieldErrorMessage(form.formState.errors.telegramId?.message)
+  const emailErrorMessage: string | null = readFieldErrorMessage(form.formState.errors.email?.message)
+  const loginErrorMessage: string | null = readFieldErrorMessage(form.formState.errors.login?.message)
   const sessionSummaryItems: readonly SummaryItem[] | null = currentResult
     ? [
         { label: t('users.searchPage.fields.userId'), value: currentResult.session.id },
@@ -242,29 +251,29 @@ export function UserSearchPage(): JSX.Element {
               <div className="space-y-2">
                 <Label htmlFor="userId">{t('users.searchPage.form.userIdLabel')}</Label>
                 <Input id="userId" placeholder={t('users.searchPage.form.userIdPlaceholder')} {...form.register('userId')} />
-                {form.formState.errors.userId && form.formState.errors.userId.message !== EXACTLY_ONE_IDENTIFIER_ERROR ? (
-                  <p className="text-sm text-destructive">{t(form.formState.errors.userId.message)}</p>
+                {userIdErrorMessage ? (
+                  <p className="text-sm text-destructive">{t(userIdErrorMessage)}</p>
                 ) : null}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="telegramId">{t('users.searchPage.form.telegramIdLabel')}</Label>
                 <Input id="telegramId" inputMode="numeric" placeholder={t('users.searchPage.form.telegramIdPlaceholder')} {...form.register('telegramId')} />
-                {form.formState.errors.telegramId && form.formState.errors.telegramId.message !== EXACTLY_ONE_IDENTIFIER_ERROR ? (
-                  <p className="text-sm text-destructive">{t(form.formState.errors.telegramId.message)}</p>
+                {telegramIdErrorMessage ? (
+                  <p className="text-sm text-destructive">{t(telegramIdErrorMessage)}</p>
                 ) : null}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">{t('users.searchPage.form.emailLabel')}</Label>
                 <Input id="email" autoComplete="email" placeholder={t('users.searchPage.form.emailPlaceholder')} {...form.register('email')} />
-                {form.formState.errors.email && form.formState.errors.email.message !== EXACTLY_ONE_IDENTIFIER_ERROR ? (
-                  <p className="text-sm text-destructive">{t(form.formState.errors.email.message)}</p>
+                {emailErrorMessage ? (
+                  <p className="text-sm text-destructive">{t(emailErrorMessage)}</p>
                 ) : null}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="login">{t('users.searchPage.form.loginLabel')}</Label>
                 <Input id="login" autoComplete="username" placeholder={t('users.searchPage.form.loginPlaceholder')} {...form.register('login')} />
-                {form.formState.errors.login && form.formState.errors.login.message !== EXACTLY_ONE_IDENTIFIER_ERROR ? (
-                  <p className="text-sm text-destructive">{t(form.formState.errors.login.message)}</p>
+                {loginErrorMessage ? (
+                  <p className="text-sm text-destructive">{t(loginErrorMessage)}</p>
                 ) : null}
               </div>
             </div>

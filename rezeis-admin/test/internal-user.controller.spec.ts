@@ -3,8 +3,9 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { RequestMethod, RouteParamtypes } from '@nestjs/common';
+import { RequestMethod } from '@nestjs/common';
 import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA, ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
+import { RouteParamtypes } from '@nestjs/common/enums/route-paramtypes.enum';
 import { Locale, PlanType, SubscriptionStatus, UserRole } from '@prisma/client';
 
 import { InternalAdminAuthGuard } from '../src/modules/auth/guards/internal-admin-auth.guard';

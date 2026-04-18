@@ -213,7 +213,7 @@ describe('SettingsService', () => {
       channelId: BigInt('987654321'),
       accessMode: AccessMode.INVITED,
       inviteModeStartedAt,
-      defaultCurrency: Currency.EUR,
+      defaultCurrency: Currency.USDT,
       updatedAt: new Date('2026-04-16T15:30:00.000Z'),
     };
     const transactionClient: MockPrismaService = {
@@ -272,7 +272,7 @@ describe('SettingsService', () => {
         channelId: '987654321',
         accessMode: AccessMode.INVITED,
         inviteModeStartedAt: inviteModeStartedAt.toISOString(),
-        defaultCurrency: Currency.EUR,
+        defaultCurrency: Currency.USDT,
       },
     });
     assert.equal(actualTransactionClient, transactionClient);
@@ -289,7 +289,7 @@ describe('SettingsService', () => {
           channelId: BigInt('987654321'),
           accessMode: AccessMode.INVITED,
           inviteModeStartedAt,
-          defaultCurrency: Currency.EUR,
+          defaultCurrency: Currency.USDT,
         },
       });
     assert.deepStrictEqual(actualAuditEntries, [
@@ -318,7 +318,7 @@ describe('SettingsService', () => {
       channelLink: 'https://t.me/old',
       accessMode: AccessMode.INVITED,
       inviteModeStartedAt: inviteModeStartedAt.toISOString(),
-      defaultCurrency: Currency.EUR,
+      defaultCurrency: Currency.USDT,
       updatedAt: updatedSettings.updatedAt.toISOString(),
     });
   });

@@ -121,7 +121,7 @@ describe('SettingsController', () => {
       socket: {
         remoteAddress: '127.0.0.2',
       },
-    } as Request;
+    } as unknown as Request;
     const actualSettings = await controller.updatePlatformSettings(
       updatePlatformSettingsDto,
       currentAdmin,

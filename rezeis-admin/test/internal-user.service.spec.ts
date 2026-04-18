@@ -1040,8 +1040,6 @@ describe('InternalUserService', () => {
       user: {
         findUnique: async (): Promise<unknown> => {
           findUniqueCallsCount += 1;
-          const linkPromptSnoozeUntil =
-            findUniqueCallsCount === 1 ? null : refreshedLinkPromptSnoozeUntil;
           return {
             id: 'user-1',
             telegramId: null,
@@ -1483,7 +1481,9 @@ describe('InternalUserService', () => {
               email: 'user@example.com',
               emailNormalized: 'user@example.com',
               emailVerifiedAt: null,
-              requiresPasswordChange: true,
+              login: findUniqueCallsCount === 1 ? null : 'New-Login',
+              loginNormalized: findUniqueCallsCount === 1 ? null : 'new-login',
+              requiresPasswordChange: findUniqueCallsCount === 1,
               linkPromptSnoozeUntil:
                 findUniqueCallsCount === 1 ? new Date('2026-04-20T05:00:00.000Z') : null,
               credentialsBootstrappedAt,
@@ -1511,6 +1511,7 @@ describe('InternalUserService', () => {
       const service = new InternalUserService(
         prismaService as never,
         passwordHashService as PasswordHashService,
+        createEmailServiceMock(),
       );
       const actualSession = await service.setWebAccountPassword({
         userId: '11111111-1111-1111-1111-111111111111',
@@ -1615,6 +1616,7 @@ describe('InternalUserService', () => {
     const service = new InternalUserService(
       prismaService as never,
       passwordHashService as PasswordHashService,
+      createEmailServiceMock(),
     );
     await service.setWebAccountPassword({
       userId: '11111111-1111-1111-1111-111111111111',
@@ -1704,6 +1706,7 @@ describe('InternalUserService', () => {
     const service = new InternalUserService(
       prismaService as never,
       passwordHashService as PasswordHashService,
+      createEmailServiceMock(),
     );
     await assert.rejects(
       async (): Promise<void> => {
@@ -1796,6 +1799,7 @@ describe('InternalUserService', () => {
     const service = new InternalUserService(
       prismaService as never,
       passwordHashService as PasswordHashService,
+      createEmailServiceMock(),
     );
     await assert.rejects(
       async (): Promise<void> => {
@@ -1882,6 +1886,7 @@ describe('InternalUserService', () => {
     const service = new InternalUserService(
       prismaService as never,
       passwordHashService as PasswordHashService,
+      createEmailServiceMock(),
     );
     await assert.rejects(
       async (): Promise<void> => {
@@ -1954,6 +1959,7 @@ describe('InternalUserService', () => {
     const service = new InternalUserService(
       prismaService as never,
       passwordHashService as PasswordHashService,
+      createEmailServiceMock(),
     );
     await assert.rejects(
       async (): Promise<void> => {
@@ -2040,6 +2046,7 @@ describe('InternalUserService', () => {
     const service = new InternalUserService(
       prismaService as never,
       passwordHashService as PasswordHashService,
+      createEmailServiceMock(),
     );
     await assert.rejects(
       async (): Promise<void> => {
@@ -2102,6 +2109,7 @@ describe('InternalUserService', () => {
     const service = new InternalUserService(
       prismaService as never,
       passwordHashService as PasswordHashService,
+      createEmailServiceMock(),
     );
     await assert.rejects(
       async (): Promise<void> => {
@@ -2202,6 +2210,11 @@ describe('InternalUserService', () => {
     let findFirstCallsCount: number = 0;
     let updateCallsCount: number = 0;
     const prismaService: MockPrismaService = {
+      authChallenge: {
+        findFirst: async (): Promise<unknown> => null,
+        create: async (): Promise<unknown> => null,
+        update: async (): Promise<unknown> => null,
+      },
       plan: {
         findMany: async (): Promise<readonly unknown[]> => [],
       },
@@ -2416,7 +2429,7 @@ describe('InternalUserService', () => {
       assert.equal(authChallengeCleanupCallsCount, 1);
       assert.equal(emailSendCallsCount, 1);
       assert.ok(actualLockQuery);
-      assert.match(String(actualLockQuery), /FOR UPDATE/);
+      assert.match(String((actualLockQuery as { readonly strings: readonly string[] }).strings.join('')), /FOR UPDATE/);
       assert.deepStrictEqual(actualOperationOrder, ['cleanup', 'create']);
       assert.deepStrictEqual(actualCleanupArgs, {
         where: {
@@ -2787,13 +2800,15 @@ describe('InternalUserService', () => {
       emailService,
     );
     try {
-      const actualError = await assert.rejects(
-        async (): Promise<void> => {
-          await service.issueWebAccountEmailVerificationChallenge({
-            userId: '11111111-1111-1111-1111-111111111111',
-          });
-        },
-      );
+      let actualError: unknown;
+      try {
+        await service.issueWebAccountEmailVerificationChallenge({
+          userId: '11111111-1111-1111-1111-111111111111',
+        });
+      } catch (err: unknown) {
+        actualError = err;
+      }
+      assert.ok(actualError);
       assert.equal(actualError, deliveryError);
       assert.equal(
         (actualError as Error & { revokeError?: unknown }).revokeError,
@@ -3820,9 +3835,14 @@ describe('InternalUserService', () => {
         }),
       },
       webAccount: {
-        findUnique: async (): Promise<unknown> => null,
+        findUnique: async (): Promise<unknown> =>
+          createWebAccountRecord({
+            email: null,
+            emailNormalized: null,
+            emailVerifiedAt: null,
+          }),
       },
-      $queryRaw: async (): Promise<unknown> => [],
+      $queryRaw: async (): Promise<unknown> => [{ id: 'web-account-1' }],
     };
     const prismaService: MockPrismaService = {
       $transaction: async <T>(
@@ -3914,9 +3934,14 @@ describe('InternalUserService', () => {
         }),
       },
       webAccount: {
-        findUnique: async (): Promise<unknown> => null,
+        findUnique: async (): Promise<unknown> =>
+          createWebAccountRecord({
+            email: null,
+            emailNormalized: null,
+            emailVerifiedAt: null,
+          }),
       },
-      $queryRaw: async (): Promise<unknown> => [],
+      $queryRaw: async (): Promise<unknown> => [{ id: 'web-account-1' }],
     };
     const prismaService: MockPrismaService = {
       $transaction: async <T>(
@@ -4008,9 +4033,14 @@ describe('InternalUserService', () => {
         }),
       },
       webAccount: {
-        findUnique: async (): Promise<unknown> => null,
+        findUnique: async (): Promise<unknown> =>
+          createWebAccountRecord({
+            email: null,
+            emailNormalized: null,
+            emailVerifiedAt: null,
+          }),
       },
-      $queryRaw: async (): Promise<unknown> => [],
+      $queryRaw: async (): Promise<unknown> => [{ id: 'web-account-1' }],
     };
     const prismaService: MockPrismaService = {
       $transaction: async <T>(
@@ -4114,6 +4144,8 @@ function createInternalUserRecord(input: {
 }
 
 function createWebAccountRecord(input: {
+  readonly email?: string | null;
+  readonly emailNormalized?: string | null;
   readonly emailVerifiedAt?: Date | null;
   readonly updatedAt?: Date;
   readonly credentialsBootstrappedAt?: Date | null;
@@ -4123,8 +4155,8 @@ function createWebAccountRecord(input: {
     userId: '11111111-1111-1111-1111-111111111111',
     login: 'user-login',
     loginNormalized: 'user-login',
-    email: 'user@example.com',
-    emailNormalized: 'user@example.com',
+    email: input.email === undefined ? 'user@example.com' : input.email,
+    emailNormalized: input.emailNormalized === undefined ? 'user@example.com' : input.emailNormalized,
     emailVerifiedAt: input.emailVerifiedAt ?? null,
     requiresPasswordChange: false,
     linkPromptSnoozeUntil: null,

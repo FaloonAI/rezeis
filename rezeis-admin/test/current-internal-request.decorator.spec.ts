@@ -52,7 +52,7 @@ describe('CurrentInternalRequest', () => {
       socket: {
         remoteAddress: '127.0.0.4',
       },
-    } as Request;
+    } as unknown as Request;
     const executionContext = buildHttpExecutionContext(request);
     const actualInternalRequest = customRouteArgMetadata.factory(undefined, executionContext);
     assert.deepStrictEqual(actualInternalRequest, {

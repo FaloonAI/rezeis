@@ -6,7 +6,6 @@ import {
   PlanAvailability,
   PlanType,
   Prisma,
-  PrismaClientKnownRequestError,
   Subscription,
   SubscriptionStatus,
   User,
@@ -821,7 +820,7 @@ function shouldRevokeIssuedChallengeAfterDeliveryFailure(error: unknown): boolea
 }
 
 function isWebAccountLoginConflictError(error: unknown): boolean {
-  if (!(error instanceof PrismaClientKnownRequestError)) {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
     return false;
   }
   if (error.code !== 'P2002') {

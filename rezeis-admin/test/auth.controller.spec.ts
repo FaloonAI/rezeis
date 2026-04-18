@@ -109,7 +109,7 @@ describe('AuthController', () => {
       socket: {
         remoteAddress: '127.0.0.2',
       },
-    } as Request;
+    } as unknown as Request;
     const actualResponse = await controller.login(
       {
         login: 'admin',

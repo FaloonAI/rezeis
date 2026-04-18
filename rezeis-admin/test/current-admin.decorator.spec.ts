@@ -61,7 +61,7 @@ describe('CurrentAdmin', () => {
     const customRouteArgMetadata = readCustomRouteArgMetadata();
     const request = {
       user: currentAdmin,
-    } as Request;
+    } as unknown as Request;
     const executionContext = buildHttpExecutionContext(request);
     const actualCurrentAdmin = customRouteArgMetadata.factory(undefined, executionContext);
     assert.deepStrictEqual(actualCurrentAdmin, currentAdmin);

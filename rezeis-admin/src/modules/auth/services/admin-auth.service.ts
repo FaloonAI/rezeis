@@ -255,7 +255,7 @@ function buildAuditLogData(input: CreateAuditLogInput): Prisma.AdminAuditLogCrea
     ipAddress: input.requestMetadata.remoteAddress,
     userAgent: input.requestMetadata.userAgent,
     metadata: buildAuditMetadata(input),
-    adminUser: input.adminUserId ? { connect: { id: input.adminUserId } } : undefined,
+    ...(input.adminUserId ? { adminUser: { connect: { id: input.adminUserId } } } : {}),
   };
 }
 

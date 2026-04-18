@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { createUserSearchSchema } from './user-search-schema'
+import { createUserSearchSchema } from './user-search-schema.js'
 
 type UserSearchFormValues = z.infer<ReturnType<typeof createUserSearchSchema>>
 
