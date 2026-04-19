@@ -2,8 +2,13 @@ import { z } from 'zod'
 import { api } from '@/lib/api'
 
 const planPriceSchema = z.object({
-  currency: z.enum(['USD', 'RUB', 'USDT', 'TON', 'BTC', 'ETH']),
+  gatewayType: z.enum(['YOOKASSA', 'TELEGRAM_STARS', 'PLATEGA', 'HELEKET', 'CRYPTOMUS', 'MULENPAY']),
+  currency: z.enum(['USD', 'RUB', 'USDT', 'XTR', 'TON', 'BTC', 'ETH']),
+  originalPrice: z.string(),
   price: z.string(),
+  discountPercent: z.number(),
+  discountSource: z.enum(['NONE', 'PURCHASE', 'PERSONAL']),
+  supportedPaymentAssets: z.array(z.string()).nullable(),
 })
 
 const planDurationSchema = z.object({

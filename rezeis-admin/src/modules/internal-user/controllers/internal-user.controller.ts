@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Patch, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Query, UseGuards } from '@nestjs/common';
 
 import { InternalAdminAuthGuard } from '../../auth/guards/internal-admin-auth.guard';
 import { AcceptInternalUserRulesDto } from '../dto/accept-internal-user-rules.dto';
 import { CompleteWebAccountEmailVerificationDto } from '../dto/complete-web-account-email-verification.dto';
 import { IssueWebAccountEmailVerificationChallengeDto } from '../dto/issue-web-account-email-verification-challenge.dto';
 import { InternalUserSessionQueryDto } from '../dto/internal-user-session-query.dto';
+import { LinkedWebAccountSignInDto } from '../dto/linked-web-account-sign-in.dto';
 import { SetWebAccountPasswordDto } from '../dto/set-web-account-password.dto';
 import { SnoozeWebAccountLinkPromptDto } from '../dto/snooze-web-account-link-prompt.dto';
 import { InternalWebAccountEmailVerificationChallengeInterface } from '../interfaces/internal-web-account-email-verification-challenge.interface';
@@ -29,6 +30,16 @@ export class InternalUserController {
     @Query() query: InternalUserSessionQueryDto,
   ): Promise<InternalUserSessionInterface> {
     return this.internalUserService.getSession(query);
+  }
+
+  /**
+   * Authenticates a linked web account and returns the canonical user session payload.
+   */
+  @Post('web-account/sign-in')
+  public async signInLinkedWebAccount(
+    @Body() input: LinkedWebAccountSignInDto,
+  ): Promise<InternalUserSessionInterface> {
+    return this.internalUserService.signInLinkedWebAccount(input);
   }
 
   /**

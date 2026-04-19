@@ -31,6 +31,7 @@
     "@nestjs/swagger": "11.2.6",
     "@nestjs/terminus": "11.1.1",
     "@prisma/client": "6.19.0",
+    "@remnawave/backend-contract": "2.7.3",
     "axios": "1.15.0",
     "bullmq": "5.74.1",
     "class-transformer": "0.5.1",

@@ -73,3 +73,23 @@ describe('authApi.bootstrapTelegramSession', () => {
     expect(postSpy).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('authApi.signInLinkedWebAccount', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('posts the trimmed linked web-account credentials', async () => {
+    const postSpy: MockInstance = vi.spyOn(api, 'post').mockResolvedValue({} as Awaited<ReturnType<typeof api.post>>)
+
+    await authApi.signInLinkedWebAccount({
+      login: ' user-login ',
+      password: 'correct-password',
+    })
+
+    expect(postSpy).toHaveBeenCalledWith('/auth/web-account/sign-in', {
+      login: 'user-login',
+      password: 'correct-password',
+    })
+  })
+})

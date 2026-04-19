@@ -22,23 +22,29 @@ It does not own:
 `ruid` currently consumes the first shared internal contract from `rezeis-admin` at:
 
 - `GET /api/internal/user/session`
-- `GET /api/internal/user/plans`
+- `GET /api/internal/catalog/plans`
 - `GET /api/internal/user/subscription`
+- `POST /api/internal/subscriptions/action-policy`
+- `POST /api/internal/subscriptions/quote`
 - `GET /api/internal/settings/platform-policy`
 
 This slice stays intentionally narrow.
 
 - `ruid/web` uses a Telegram-first bootstrap model: the Mini App passes Telegram `initData`, `ruid` exchanges it through `POST /api/v1/auth/telegram/bootstrap`, and subsequent authenticated reads use the opaque cookie-backed session.
+- The first non-Telegram auth mirror is now present end to end: `POST /api/v1/auth/web-account/sign-in` accepts linked web-account login/password, asks `rezeis-admin` to verify credentials, writes the same opaque cookie session, and `/sign-in` provides the browser entry route.
 - Public plan discovery remains available without authentication, while session and subscription reads resolve identity from the authenticated cookie session instead of URL query parameters.
 - The current Telegram-first slice includes dashboard account-readiness rendering from the existing `webAccount` fields returned in the session payload.
 - The current Telegram-first slice includes dashboard platform-policy rendering from the admin-owned settings payload, including the real `AccessMode` enum value `INVITED`.
 - The current Telegram-first slice includes frontend-only subscription diagnostics rendering from the existing subscription payload.
-- The current user-facing write surface now includes four authenticated session writes:
+- The current user-facing write surface now includes five authenticated session writes:
   - `PATCH /api/v1/session/rules-acceptance`
   - `PATCH /api/v1/session/web-account-link-prompt-snooze`
   - `PATCH /api/v1/session/web-account-password`
   - `PATCH /api/v1/session/web-account-email-verification-challenge`
+  - `PATCH /api/v1/session/web-account-email-verification-completion`
 - The user shell consumes the returned session payload as the authoritative refreshed session after rules acceptance, reminder snooze, and password handoff. Email-verification challenge issuance returns a narrow challenge payload instead.
 - The internal contract is protected by the shared internal API key mechanism.
 - `ruid` exposes the user-facing mirror endpoints at `/api/v1/session`, `/api/v1/plans`, `/api/v1/platform-policy`, and `/api/v1/subscription`.
-- The dedicated `/plans` and `/subscription` routes remain the primary read surfaces, while the dashboard may also render compact summaries and diagnostics from those same read models. Broader business mutations, entitlement changes, and billing state transitions remain in `rezeis-admin` until the public-edge pattern is proven.
+- `ruid` also exposes authenticated quote reads at `POST /api/v1/subscription/action-policy` and `POST /api/v1/subscription/quote`, where `userId` is always sourced from the cookie session and never accepted from client payloads.
+- `ruid` now also exposes authenticated payment checkout/status reads at `POST /api/v1/payments/checkout` and `GET /api/v1/payments/{paymentId}`, while provider execution, webhook handling, reconciliation, and subscription mutation stay admin-owned in `rezeis-admin`.
+- The dedicated `/plans`, `/subscription`, and `/quote` routes remain the primary read surfaces, while the dashboard may also render compact summaries and diagnostics from those same read models. Broader business mutations, entitlement changes, and billing state transitions remain in `rezeis-admin` until the public-edge pattern is proven.

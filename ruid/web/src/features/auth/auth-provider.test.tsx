@@ -180,7 +180,8 @@ describe('AuthProvider', () => {
 
     expect(bootstrapSpy).not.toHaveBeenCalled()
     expect(screen.getByTestId('auth-persistence-issue')).toHaveTextContent('false')
-    expect(screen.getByText(/open this workspace from the Telegram Mini App/i)).toBeInTheDocument()
+    expect(screen.getByText(/sign in with a linked web account/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Sign in with linked account' })).toHaveAttribute('href', '/sign-in')
     expect(screen.queryByText(/this browser did not retain the cookie-backed session/i)).not.toBeInTheDocument()
   })
 
@@ -207,10 +208,9 @@ describe('AuthProvider', () => {
   })
 
   it('surfaces an error when Telegram bootstrap fails with a non-401 response', async () => {
-    vi.useFakeTimers()
     vi.mocked(getTelegramLaunchInitData).mockReturnValue('launch-init-data')
     vi.mocked(getTelegramBootstrapInitData).mockReturnValue('telegram-init-data')
-    vi.spyOn(sessionApi, 'getSession').mockResolvedValue(undefined as never)
+    vi.spyOn(sessionApi, 'getSession').mockRejectedValue(createUnauthorizedError())
     const bootstrapSpy = vi.spyOn(authApi, 'bootstrapTelegramSession').mockRejectedValue(createServerError('Bootstrap failed'))
 
     renderWithProviders(
@@ -220,11 +220,9 @@ describe('AuthProvider', () => {
       { withRouter: false },
     )
 
-    const statusPromise: Promise<void> = waitFor(() => {
+    await waitFor(() => {
       expect(screen.getByTestId('auth-status')).toHaveTextContent('error')
     })
-    await vi.advanceTimersByTimeAsync(500)
-    await statusPromise
 
     expect(bootstrapSpy).toHaveBeenCalledTimes(2)
     expect(screen.getByTestId('auth-bootstrap-error')).toHaveTextContent('Bootstrap failed')
@@ -251,6 +249,7 @@ describe('AuthProvider', () => {
     expect(bootstrapSpy).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('auth-persistence-issue')).toHaveTextContent('true')
     expect(screen.getByText(/this browser did not retain the cookie-backed session/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Sign in with linked account' })).toHaveAttribute('href', '/sign-in')
     expect(screen.getByText(/recovery path: reopen the app from your bot chat/i)).toBeInTheDocument()
   })
 })

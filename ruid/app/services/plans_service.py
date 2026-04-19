@@ -13,8 +13,11 @@ class PlansService:
     def __init__(self, client: InternalAdminClient) -> None:
         self._client = client
 
-    async def get_plans(self) -> list[PlanSchema]:
-        payload = await self._client.get_json("/api/internal/user/plans")
+    async def get_plans(self, *, user_id: str | None) -> list[PlanSchema]:
+        params = {"channel": "WEB"}
+        if user_id is not None:
+            params["userId"] = user_id
+        payload = await self._client.get_json("/api/internal/catalog/plans", params=params)
         try:
             return PLANS_SCHEMA_ADAPTER.validate_python(payload)
         except ValidationError as err:

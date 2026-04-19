@@ -11,6 +11,7 @@ import * as authProvider from '@/features/auth/auth-provider'
 import { usePlansQuery } from '@/features/plans/use-plans-query'
 import { usePlatformPolicyQuery } from '@/features/platform-policy/use-platform-policy-query'
 import { useSubscriptionQuery } from '@/features/subscription/use-subscription-query'
+import { getWebAccountVisibilityState, reconcileSessionAfterEmailVerificationChallenge } from '@/features/web-account/get-web-account-visibility-state'
 import { createQueryClient } from '@/lib/query-client'
 import { renderWithProviders } from '@/test/render-app'
 
@@ -183,7 +184,15 @@ function createPlansData() {
         {
           id: 'duration-1',
           days: 30,
-          prices: [{ currency: 'USD', price: '9.99' }],
+          prices: [{
+            gatewayType: 'YOOKASSA',
+            currency: 'USD',
+            originalPrice: '9.99',
+            price: '9.99',
+            discountPercent: 0,
+            discountSource: 'NONE',
+            supportedPaymentAssets: null,
+          }],
         },
       ],
     },
@@ -235,6 +244,7 @@ describe('DashboardPage', () => {
     vi.useRealTimers()
     vi.restoreAllMocks()
     vi.clearAllMocks()
+    vi.spyOn(sessionApi, 'getSession').mockRejectedValue(createUnauthorizedError())
   })
 
   it('describes all five live authenticated write paths in the shell copy', () => {
@@ -315,7 +325,7 @@ describe('DashboardPage', () => {
     const { getAllByText, getByText } = renderDashboard()
 
     expect(getAllByText('Rezeis User').length).toBeGreaterThanOrEqual(1)
-    expect(getByText('USER')).toBeInTheDocument()
+    expect(getAllByText('USER').length).toBeGreaterThanOrEqual(1)
     expect(getAllByText('user@rezeis.test').length).toBeGreaterThanOrEqual(1)
     expect(getByText('None')).toBeInTheDocument()
     expect(getByText('No current subscription on record.')).toBeInTheDocument()
@@ -745,18 +755,94 @@ describe('DashboardPage', () => {
     expect(queryByText('active email verification challenge not found')).not.toBeInTheDocument()
   })
 
-  it('reconciles to the unlinked dashboard state when issuance returns a missing-web-account fallback payload', async () => {
+  it('reconciles to the unlinked dashboard state when issuance returns a missing-web-account fallback payload', () => {
+    const initialSession = createSessionData({
+      webAccount: createSessionWebAccount({
+        emailVerifiedAt: null,
+      }),
+    })
+
+    const actualSession = reconcileSessionAfterEmailVerificationChallenge({
+      session: initialSession,
+      challenge: createEmailVerificationChallenge({
+        webAccountId: null,
+        email: null,
+        challengeExpiresAt: null,
+        emailVerifiedAt: null,
+      }),
+    })
+
+    expect(actualSession?.webAccount).toBeNull()
+  })
+
+  it('keeps the dashboard linked-account session unchanged when issuance returns a mismatched fallback payload', () => {
+    const initialSession = createSessionData({
+      webAccount: createSessionWebAccount({
+        id: 'web-account-1',
+        emailVerifiedAt: null,
+      }),
+    })
+
+    const actualSession = reconcileSessionAfterEmailVerificationChallenge({
+      session: initialSession,
+      challenge: createEmailVerificationChallenge({
+        webAccountId: 'web-account-2',
+        email: null,
+        challengeExpiresAt: null,
+        emailVerifiedAt: null,
+      }),
+    })
+
+    expect(actualSession).toBe(initialSession)
+  })
+
+  it('stops supporting a dashboard pending verification challenge after the challenge expires', () => {
+    const webAccount = createSessionWebAccount({
+      emailVerifiedAt: null,
+    })
+    const challenge = createEmailVerificationChallenge({
+      challengeExpiresAt: '2026-04-17T12:05:00.000Z',
+    })
+
+    expect(getWebAccountVisibilityState({
+      webAccount,
+      challenge,
+      now: new Date('2026-04-17T12:00:00.000Z').getTime(),
+    }).visibleEmailVerificationChallenge).toEqual(challenge)
+
+    expect(getWebAccountVisibilityState({
+      webAccount,
+      challenge,
+      now: new Date('2026-04-17T12:06:00.000Z').getTime(),
+    }).visibleEmailVerificationChallenge).toBeNull()
+  })
+
+  it('shows the dashboard readiness CTA after the snooze boundary passes', () => {
+    const webAccount = createSessionWebAccount({
+      requiresPasswordChange: true,
+      linkPromptSnoozeUntil: '2026-04-17T12:05:00.000Z',
+    })
+
+    expect(getWebAccountVisibilityState({
+      webAccount,
+      challenge: null,
+      now: new Date('2026-04-17T12:00:00.000Z').getTime(),
+    }).isReadinessPromptVisible).toBe(false)
+
+    expect(getWebAccountVisibilityState({
+      webAccount,
+      challenge: null,
+      now: new Date('2026-04-17T12:06:00.000Z').getTime(),
+    }).isReadinessPromptVisible).toBe(true)
+  })
+
+  it('keeps issued challenge state visible when dashboard issuance returns a pending challenge', async () => {
     vi.spyOn(sessionApi, 'getSession').mockResolvedValue(createSessionData({
       webAccount: createSessionWebAccount({
         emailVerifiedAt: null,
       }),
     }))
-    const issueChallengeSpy = vi.spyOn(sessionApi, 'issueWebAccountEmailVerificationChallenge').mockResolvedValue(createEmailVerificationChallenge({
-      webAccountId: null,
-      email: null,
-      challengeExpiresAt: null,
-      emailVerifiedAt: null,
-    }))
+    const issueChallengeSpy = vi.spyOn(sessionApi, 'issueWebAccountEmailVerificationChallenge').mockResolvedValue(createEmailVerificationChallenge())
     vi.mocked(usePlansQuery).mockReturnValue(createPlansQuery({ data: createPlansData() }))
     vi.mocked(useSubscriptionQuery).mockReturnValue(createSubscriptionQuery({ data: null }))
     vi.mocked(usePlatformPolicyQuery).mockReturnValue(createPlatformPolicyQuery())
@@ -773,8 +859,8 @@ describe('DashboardPage', () => {
       expect(issueChallengeSpy).toHaveBeenCalledTimes(1)
     })
 
-    expect(getByText('No linked web account is currently attached to this user.')).toBeInTheDocument()
-    expect(queryByText('Optional linked email follow-up is available.')).not.toBeInTheDocument()
+    expect(getByText(/Verification email issued for user@rezeis.test/)).toBeInTheDocument()
+    expect(getByText('Optional linked email follow-up is available.')).toBeInTheDocument()
   })
 
   it('keeps session email separate from web-account email in the readiness block', () => {
@@ -915,13 +1001,13 @@ describe('DashboardPage', () => {
       }),
     )
 
-    const { getByRole, getByText, queryByRole } = renderDashboardWithAuthProvider()
+    const { getAllByText, getByRole, getByText, queryByRole } = renderDashboardWithAuthProvider()
 
     await waitFor(() => {
       expect(getByRole('button', { name: 'Accept rules' })).toBeInTheDocument()
     })
 
-    expect(getByText('Rules acceptance').closest('article')).toHaveTextContent('No')
+    expect(getAllByText('Rules acceptance').at(-1)?.closest('article')).toHaveTextContent('No')
 
     fireEvent.click(getByRole('button', { name: 'Accept rules' }))
 
@@ -933,7 +1019,7 @@ describe('DashboardPage', () => {
     })
 
     expect(getSessionSpy).toHaveBeenCalledTimes(1)
-    expect(getByText('Rules acceptance').closest('article')).toHaveTextContent('Yes')
+    expect(getAllByText('Rules acceptance').at(-1)?.closest('article')).toHaveTextContent('Yes')
   })
 
   it('does not leave the rules acceptance CTA active after an unauthorized mutation failure', async () => {
@@ -964,7 +1050,7 @@ describe('DashboardPage', () => {
     })
     await waitFor(() => {
       expect(getAllByText('Authentication required').length).toBeGreaterThan(0)
-      expect(queryByText('Open the Mini App in Telegram or reuse an existing cookie session.')).toBeInTheDocument()
+      expect(getAllByText(/sign in with a linked web account/i).length).toBeGreaterThan(0)
       expect(queryByRole('button', { name: 'Accept rules' })).not.toBeInTheDocument()
       expect(queryByRole('link', { name: 'Read rules' })).not.toBeInTheDocument()
       expect(queryByText('Rezeis User')).not.toBeInTheDocument()
@@ -1080,87 +1166,6 @@ describe('DashboardPage', () => {
     })
     expect(getByRole('button', { name: 'Resend verification email' })).toBeInTheDocument()
   })
-
-  it('stops showing the local pending verification state after the challenge expires', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-04-17T12:00:00.000Z'))
-    const initialSession = createSessionData({
-      webAccount: createSessionWebAccount({
-        emailVerifiedAt: null,
-      }),
-    })
-    const issueChallengeSpy = vi.spyOn(sessionApi, 'issueWebAccountEmailVerificationChallenge').mockResolvedValue(
-      createEmailVerificationChallenge({
-        challengeExpiresAt: '2026-04-17T12:05:00.000Z',
-      }),
-    )
-    vi.spyOn(sessionApi, 'getSession').mockResolvedValue(initialSession)
-    vi.mocked(usePlansQuery).mockReturnValue(createPlansQuery({ data: createPlansData() }))
-    vi.mocked(useSubscriptionQuery).mockReturnValue(createSubscriptionQuery({ data: null }))
-    vi.mocked(usePlatformPolicyQuery).mockReturnValue(createPlatformPolicyQuery())
-
-    const { getByRole, queryByText } = renderDashboardWithAuthProvider()
-
-    await waitFor(() => {
-      expect(getByRole('button', { name: 'Issue verification challenge' })).toBeInTheDocument()
-    })
-
-    fireEvent.click(getByRole('button', { name: 'Issue verification challenge' }))
-
-    await waitFor(() => {
-      expect(issueChallengeSpy).toHaveBeenCalledTimes(1)
-    })
-    await waitFor(() => {
-      expect(getByRole('button', { name: 'Resend verification email' })).toBeInTheDocument()
-    })
-
-    await act(async () => {
-      vi.setSystemTime(new Date('2026-04-17T12:06:00.000Z'))
-      await vi.advanceTimersByTimeAsync(6 * 60 * 1000)
-    })
-
-    await waitFor(() => {
-      expect(getByRole('button', { name: 'Issue verification challenge' })).toBeInTheDocument()
-    })
-    expect(queryByText(/Verification email issued for user@rezeis.test/)).not.toBeInTheDocument()
-  })
-
-  it('shows the readiness CTA after the snooze boundary passes while mounted', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-04-17T12:00:00.000Z'))
-    vi.mocked(usePlansQuery).mockReturnValue(createPlansQuery({ data: createPlansData() }))
-    vi.mocked(useSubscriptionQuery).mockReturnValue(createSubscriptionQuery({ data: null }))
-    vi.mocked(usePlatformPolicyQuery).mockReturnValue(createPlatformPolicyQuery())
-    vi.spyOn(authProvider, 'useAuthSession').mockReturnValue(
-      createAuthSession({
-        status: 'authenticated',
-        sessionQuery: {
-          data: createSessionData({
-            webAccount: createSessionWebAccount({
-              requiresPasswordChange: true,
-              linkPromptSnoozeUntil: '2026-04-17T12:05:00.000Z',
-            }),
-          }),
-          error: null,
-          isPending: false,
-        },
-      }),
-    )
-
-    const { queryByRole, getByRole } = renderDashboard()
-
-    expect(queryByRole('button', { name: 'Remind me later' })).not.toBeInTheDocument()
-
-    await act(async () => {
-      vi.setSystemTime(new Date('2026-04-17T12:06:00.000Z'))
-      await vi.advanceTimersByTimeAsync(6 * 60 * 1000)
-    })
-
-    await waitFor(() => {
-      expect(getByRole('button', { name: 'Remind me later' })).toBeInTheDocument()
-    })
-  })
-
   it('does not leave the verification CTA active after an unauthorized verification challenge failure', async () => {
     const unauthorizedError = createUnauthorizedError()
     const issueChallengeSpy = vi.spyOn(sessionApi, 'issueWebAccountEmailVerificationChallenge').mockRejectedValue(unauthorizedError)

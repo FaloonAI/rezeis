@@ -18,17 +18,22 @@ from app.api.dependencies import (
 )
 from app.core.config import Settings
 from app.schemas.auth_session import AuthSessionSchema
-from app.schemas.bootstrap import TelegramBootstrapResponseSchema
+from app.schemas.bootstrap import TelegramBootstrapResponseSchema, WebAccountSignInResponseSchema
+from app.schemas.linked_web_account_sign_in import LinkedWebAccountSignInSchema
 from app.services.session_service import SessionService
-from app.services.internal_admin_client import InternalAdminError
+from app.services.internal_admin_client import (
+    InternalAdminError,
+    InternalAdminInvalidCredentialsError,
+    InternalAdminLinkedWebAccountNotReadyError,
+)
 from app.services.session_store import RedisSessionStore
 from app.services.subscription_service import SubscriptionService
 from app.services.telegram_auth_service import ReplayTelegramInitDataError, TelegramAuthService
 
-router: APIRouter = APIRouter(prefix="/auth/telegram")
+router: APIRouter = APIRouter(prefix="/auth")
 
 
-@router.post("/bootstrap", response_model=TelegramBootstrapResponseSchema)
+@router.post("/telegram/bootstrap", response_model=TelegramBootstrapResponseSchema)
 async def bootstrap_telegram_session(
     response: Response,
     _: Annotated[None, Depends(validate_browser_origin)],
@@ -79,6 +84,59 @@ async def bootstrap_telegram_session(
     except InternalAdminError:
         subscription = None
     return TelegramBootstrapResponseSchema.model_validate(
+        {
+            "session": session.model_dump(mode="json", by_alias=True),
+            "subscription": None
+            if subscription is None
+            else subscription.model_dump(mode="json", by_alias=True),
+            "expiresIn": settings.ruid_session_ttl_seconds,
+        },
+    )
+
+
+@router.post("/web-account/sign-in", response_model=WebAccountSignInResponseSchema)
+async def sign_in_linked_web_account(
+    input: LinkedWebAccountSignInSchema,
+    response: Response,
+    _: Annotated[None, Depends(validate_browser_origin)],
+    session_store: Annotated[RedisSessionStore, Depends(get_session_store)],
+    session_service: Annotated[SessionService, Depends(get_session_service)],
+    subscription_service: Annotated[SubscriptionService, Depends(get_subscription_service)],
+    settings: Annotated[Settings, Depends(get_runtime_settings)],
+) -> WebAccountSignInResponseSchema:
+    subscription = None
+    try:
+        session = await session_service.sign_in_linked_web_account(input)
+    except InternalAdminInvalidCredentialsError as err:
+        raise_bff_http_error(err)
+    except InternalAdminLinkedWebAccountNotReadyError as err:
+        raise_bff_http_error(err)
+    except Exception as err:
+        raise_bff_http_error(err)
+    session_id = await session_store.create_session(
+        AuthSessionSchema.model_validate(
+            {
+                "userId": session.id,
+                "telegramId": session.telegram_id,
+                "createdAt": datetime.now(tz=UTC),
+            },
+        ),
+    )
+    response.set_cookie(
+        key=settings.ruid_session_cookie_name,
+        value=session_id,
+        max_age=settings.ruid_session_ttl_seconds,
+        httponly=True,
+        secure=settings.ruid_session_cookie_secure,
+        samesite=get_cookie_samesite(settings.ruid_session_cookie_samesite),
+        domain=settings.ruid_session_cookie_domain,
+        path=settings.ruid_session_cookie_path,
+    )
+    try:
+        subscription = await subscription_service.get_subscription_by_user_id(session.id)
+    except InternalAdminError:
+        subscription = None
+    return WebAccountSignInResponseSchema.model_validate(
         {
             "session": session.model_dump(mode="json", by_alias=True),
             "subscription": None

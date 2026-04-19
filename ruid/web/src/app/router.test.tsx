@@ -11,6 +11,10 @@ vi.mock('@/features/auth/auth-provider', () => ({
   useAuthSession: vi.fn(),
 }))
 
+vi.mock('@/features/auth/sign-in-page', () => ({
+  SignInPage: () => <div>Sign in page</div>,
+}))
+
 vi.mock('@/features/dashboard/dashboard-page', () => ({
   DashboardPage: () => <div>Dashboard page</div>,
 }))
@@ -21,6 +25,14 @@ vi.mock('@/features/plans/plans-page', () => ({
 
 vi.mock('@/features/subscription/subscription-page', () => ({
   SubscriptionPage: () => <div>Subscription page</div>,
+}))
+
+vi.mock('@/features/quote/quote-page', () => ({
+  QuotePage: () => <div>Quote page</div>,
+}))
+
+vi.mock('@/features/payments/payment-result-page', () => ({
+  PaymentResultPage: () => <div>Payment result page</div>,
 }))
 
 vi.mock('@/features/web-account/web-account-page', () => ({
@@ -65,6 +77,7 @@ function renderRouter({ route = '/', authSession }: { readonly route?: string; r
 describe('getHeaderContextLabel', () => {
   it('returns route and session labels for the remaining branches', () => {
     expect(getHeaderContextLabel({ authSession: createAuthSession(), pathname: '/plans' })).toBe('Public plan catalog')
+    expect(getHeaderContextLabel({ authSession: createAuthSession(), pathname: '/quote' })).toBe('Subscription quote preview')
     expect(
       getHeaderContextLabel({
         authSession: createAuthSession({
@@ -101,7 +114,7 @@ describe('router shell', () => {
     expect(getByText('Plans page')).toBeInTheDocument()
     expect(getByText('Public plan catalog')).toBeInTheDocument()
     expect(getByText('Route context')).toBeInTheDocument()
-    expect(getByText('This web app reads the user API for account, plan, subscription, and platform policy data. Its live write paths now cover rules acceptance, linked web-account login and password follow-up, linked email-verification challenge issuance, and linked email-verification completion. The dedicated plans and subscription routes remain the primary read surfaces, while the dashboard may also show compact summaries and diagnostics.')).toBeInTheDocument()
+    expect(getByText('This web app reads the user API for account, plan, subscription, and platform policy data. Its live write paths now cover rules acceptance, linked web-account login and password follow-up, linked email-verification challenge issuance, and linked email-verification completion. The dedicated plans, subscription, and quote routes remain the primary read surfaces, while the dashboard may also show compact summaries and diagnostics.')).toBeInTheDocument()
     expect(getByRole('link', { name: /Dashboard/i })).not.toHaveClass('bg-primary')
     expect(getByRole('link', { name: /Plans/i })).toHaveClass('bg-primary')
   })
@@ -117,6 +130,18 @@ describe('router shell', () => {
     expect(getByRole('link', { name: /Subscription/i })).toHaveClass('bg-primary')
   })
 
+  it('renders the production quote route and only marks Quote as active on /quote', () => {
+    const { getByText, getByRole } = renderRouter({
+      route: '/quote',
+      authSession: createAuthSession(),
+    })
+
+    expect(getByText('Quote page')).toBeInTheDocument()
+    expect(getByText('Subscription quote preview')).toBeInTheDocument()
+    expect(getByRole('link', { name: /Dashboard/i })).not.toHaveClass('bg-primary')
+    expect(getByRole('link', { name: /Quote/i })).toHaveClass('bg-primary')
+  })
+
   it('renders the authenticated web-account route when navigated directly', () => {
     const { getByText } = renderRouter({
       route: '/web-account',
@@ -124,6 +149,24 @@ describe('router shell', () => {
     })
 
     expect(getByText('Web account page')).toBeInTheDocument()
+  })
+
+  it('renders the payment result route when navigated directly', () => {
+    const { getByText } = renderRouter({
+      route: '/payments/result?paymentId=payment-1',
+      authSession: createAuthSession(),
+    })
+
+    expect(getByText('Payment result page')).toBeInTheDocument()
+  })
+
+  it('renders the standalone sign-in route when navigated directly', () => {
+    const { getByText } = renderRouter({
+      route: '/sign-in',
+      authSession: createAuthSession(),
+    })
+
+    expect(getByText('Sign in page')).toBeInTheDocument()
   })
 })
 

@@ -43,6 +43,10 @@ const environmentSchema = z.object({
   REZEIS_ADMIN_JWT_SECRET: z.string().min(1),
   REZEIS_ADMIN_JWT_EXPIRES_IN: z.string().min(1).default('12h'),
   REZEIS_ADMIN_INTERNAL_API_KEY: z.string().min(1),
+  REZEIS_ADMIN_PUBLIC_BASE_URL: z.preprocess(
+    normalizeOptionalString,
+    z.string().url().optional(),
+  ),
   REZEIS_ADMIN_SMTP_HOST: z.preprocess(normalizeRequiredString, z.string().min(1)),
   REZEIS_ADMIN_SMTP_PORT: z.coerce.number().int().min(1).max(65535),
   REZEIS_ADMIN_SMTP_SECURE: z.preprocess(
@@ -65,17 +69,39 @@ const environmentSchema = z.object({
     smtpIdentityDomainSchema.optional(),
   ),
   REZEIS_ADMIN_SMTP_TIMEOUT_MS: z.coerce.number().int().min(1).default(DEFAULT_SMTP_TIMEOUT_MS),
+  REMNAWAVE_HOST: z.preprocess(normalizeOptionalString, z.string().min(1).optional()),
+  REMNAWAVE_PORT: z.preprocess(
+    normalizeOptionalString,
+    z.coerce.number().int().min(1).max(65535).optional(),
+  ),
+  REMNAWAVE_TOKEN: z.preprocess(normalizeOptionalString, z.string().min(1).optional()),
+  REMNAWAVE_WEBHOOK_SECRET: z.preprocess(normalizeOptionalString, z.string().min(1).optional()),
+  REMNAWAVE_CADDY_TOKEN: z.preprocess(normalizeOptionalString, z.string().min(1).optional()),
+  REMNAWAVE_COOKIE: z.preprocess(normalizeOptionalString, z.string().min(1).optional()),
+  RUID_PUBLIC_WEB_URL: z.preprocess(normalizeOptionalString, z.string().url().optional()),
+  BOT_TOKEN: z.preprocess(normalizeOptionalString, z.string().min(1).optional()),
 }).superRefine((environmentVariables, refinementContext): void => {
   const hasUser = environmentVariables.REZEIS_ADMIN_SMTP_USER !== undefined;
   const hasPassword = environmentVariables.REZEIS_ADMIN_SMTP_PASSWORD !== undefined;
-  if (hasUser === hasPassword) {
-    return;
+  if (hasUser !== hasPassword) {
+    refinementContext.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'REZEIS_ADMIN_SMTP_USER and REZEIS_ADMIN_SMTP_PASSWORD must be provided together',
+      path: ['REZEIS_ADMIN_SMTP_USER'],
+    });
   }
-  refinementContext.addIssue({
-    code: z.ZodIssueCode.custom,
-    message: 'REZEIS_ADMIN_SMTP_USER and REZEIS_ADMIN_SMTP_PASSWORD must be provided together',
-    path: ['REZEIS_ADMIN_SMTP_USER'],
-  });
+  const hasRemnawaveHost = environmentVariables.REMNAWAVE_HOST !== undefined;
+  const hasRemnawavePort = environmentVariables.REMNAWAVE_PORT !== undefined;
+  const hasRemnawaveToken = environmentVariables.REMNAWAVE_TOKEN !== undefined;
+  if (hasRemnawaveHost || hasRemnawavePort || hasRemnawaveToken) {
+    if (!(hasRemnawaveHost && hasRemnawavePort && hasRemnawaveToken)) {
+      refinementContext.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'REMNAWAVE_HOST, REMNAWAVE_PORT, and REMNAWAVE_TOKEN must be provided together',
+        path: ['REMNAWAVE_HOST'],
+      });
+    }
+  }
 });
 
 /**

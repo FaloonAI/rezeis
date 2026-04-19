@@ -30,6 +30,7 @@ enum Currency {
   USD
   RUB
   USDT
+  XTR
   TON
   BTC
   ETH
@@ -68,6 +69,18 @@ enum PlanAvailability {
   TRIAL
 }
 
+enum ArchivedPlanRenewMode {
+  SELF_RENEW
+  REPLACE_ON_RENEW
+}
+
+enum TrafficLimitStrategy {
+  NO_RESET
+  DAY
+  WEEK
+  MONTH
+}
+
 enum TransactionStatus {
   PENDING
   COMPLETED
@@ -96,6 +109,14 @@ enum PaymentGatewayType {
   HELEKET
   CRYPTOMUS
   MULENPAY
+}
+
+enum PaymentWebhookLifecycleStatus {
+  RECEIVED
+  ENQUEUED
+  PROCESSING
+  PROCESSED
+  FAILED
 }
 
 enum PromoCodeRewardType {
@@ -200,6 +221,7 @@ model User {
 
   // Relations
   subscriptions         Subscription[]
+  trialGrant            TrialGrant?
   transactions          Transaction[]
   promoCodeActivations  PromoCodeActivation[]
   referralsGiven        Referral[]      @relation("Referrer")
@@ -293,10 +315,28 @@ model Subscription {
   // Relations
   transactions    Transaction[]
   promoCodeActivations PromoCodeActivation[]
+  trialGrant      TrialGrant?
 
   @@index([userId])
   @@index([remnawaveId])
   @@index([status])
+}
+
+model TrialGrant {
+  id             String        @id @default(uuid())
+
+  userId         String        @unique
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  subscriptionId String?       @unique
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  source         String        @default("UNKNOWN")
+  grantedAt      DateTime      @default(now())
+  revokedAt      DateTime?
+  revokeReason   String?
+
+  @@index([grantedAt])
 }
 
 // Plans
@@ -312,6 +352,7 @@ model Plan {
   // Status
   isActive        Boolean           @default(true)
   isArchived      Boolean           @default(false)
+  archivedRenewMode ArchivedPlanRenewMode @default(SELF_RENEW)
 
   // Type
   type            PlanType          @default(TRAFFIC)
@@ -322,16 +363,18 @@ model Plan {
   // Limits
   trafficLimit    Int?              // in bytes, null = unlimited
   deviceLimit     Int               @default(1)
+  trafficLimitStrategy TrafficLimitStrategy @default(NO_RESET)
 
   // Squads
   internalSquads  String[]
-  externalSquad   String[]
+  externalSquad   String?
 
   // Upgrade rules
-  upgradeToPlanIds Int[]
+  upgradeToPlanIds String[]
+  replacementPlanIds String[]
 
   // Restriction
-  allowedUserIds  BigInt[]
+  allowedUserIds  String[]
 
   // Timestamps
   createdAt       DateTime          @default(now())
@@ -431,8 +474,8 @@ model PromoCode {
   lifetime        Int?                  // Days, null = unlimited
   maxActivations  Int?                  // Total uses, null = unlimited
   remainingUses   Int?                  // Remaining activations
-  allowedUserIds  BigInt[]
-  allowedPlanIds  Int[]
+  allowedUserIds  String[]
+  allowedPlanIds  String[]
 
   // Timestamps
   expiresAt       DateTime?
@@ -666,19 +709,31 @@ model PaymentGateway {
 model PaymentWebhookEvent {
   id          String    @id @default(uuid())
 
-  gatewayType String
+  gatewayType PaymentGatewayType
   paymentId   String
-  status      String?
+  providerEventId String
+  eventStatus String?
+  status      PaymentWebhookLifecycleStatus @default(RECEIVED)
 
   payloadHash String?
+  rawPayload  Json?
   attempts    Int       @default(0)
+  reconciliationAttempts Int @default(0)
+  replayCount Int @default(0)
   lastError   String?
+  lastTransitionAt DateTime @default(now())
+  lastReplayedAt DateTime?
 
   receivedAt  DateTime  @default(now())
   processedAt DateTime?
 
-  @@unique([gatewayType, paymentId])
+  @@unique([gatewayType, providerEventId])
   @@index([gatewayType])
+  @@index([paymentId])
+  @@index([status, receivedAt])
+  @@index([status, lastTransitionAt])
+  @@index([gatewayType, status, receivedAt])
+  @@index([paymentId, status])
 }
 
 // ============================================

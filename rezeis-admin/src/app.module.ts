@@ -8,12 +8,17 @@ import { authConfig } from './common/config/auth.config';
 import { databaseConfig } from './common/config/database.config';
 import { emailConfig } from './common/config/email.config';
 import { validateEnvironment } from './common/config/env.schema';
+import { paymentsConfig } from './common/config/payments.config';
+import { remnawaveConfig } from './common/config/remnawave.config';
 import { redisConfig } from './common/config/redis.config';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { InternalUserModule } from './modules/internal-user/internal-user.module';
+import { PaymentsModule } from './modules/payments/payments.module';
+import { PlansModule } from './modules/plans/plans.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { UsersModule } from './modules/users/users.module';
 
 /**
@@ -26,11 +31,14 @@ import { UsersModule } from './modules/users/users.module';
       cache: true,
       expandVariables: true,
       validate: validateEnvironment,
-      load: [appConfig, authConfig, databaseConfig, emailConfig, redisConfig],
+      load: [appConfig, authConfig, databaseConfig, emailConfig, paymentsConfig, redisConfig, remnawaveConfig],
     }),
     PrismaModule,
     HealthModule,
     AuthModule,
+    PlansModule,
+    SubscriptionsModule,
+    PaymentsModule,
     InternalUserModule,
     SettingsModule,
     UsersModule,

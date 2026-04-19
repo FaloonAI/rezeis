@@ -16,6 +16,7 @@ This split is logical first and deployment second. Both services can run on one 
 - Customer, subscription, billing, entitlement, and operator-managed configuration state.
 - Admin APIs, admin web, backoffice operations, support actions, and internal automation.
 - Remnawave integration policy: credentials, sync rules, webhook validation rules, provisioning decisions, and lifecycle control.
+- Payment webhook ingress, payment provider signature verification, webhook inbox/deduplication, and payment execution policy.
 - Background jobs that mutate authoritative state or execute control-plane workflows.
 
 When a rule answers "what is true" for the business, it belongs here.
@@ -33,26 +34,35 @@ When a rule answers "what is true" for the business, it belongs here.
 
 ## First Shared Contract
 
-The first concrete `ruid -> rezeis-admin` contract is the narrow `internal/user` and `internal/settings` slice:
+The first concrete `ruid -> rezeis-admin` contract is the narrow `internal/user`, `internal/catalog`, `internal/subscriptions`, and `internal/settings` slice:
 
 - `GET /api/internal/user/session` for session bootstrap and refreshed session reads.
+- `POST /api/internal/user/web-account/sign-in` for admin-owned linked web-account credential verification.
 - `PATCH /api/internal/user/session/rules-acceptance` for current-session rules acceptance.
 - `PATCH /api/internal/user/session/web-account-link-prompt-snooze` for current-session linked-account reminder snooze.
 - `PATCH /api/internal/user/session/web-account-password` for current-session linked-account password handoff.
 - `PATCH /api/internal/user/session/web-account-email-verification-challenge` for current-session linked email-verification challenge issuance.
-- `GET /api/internal/user/plans` for active plans listing.
+- `GET /api/internal/catalog/plans` for public/session-aware catalog reads.
 - `GET /api/internal/user/subscription` for current subscription status.
+- `POST /api/internal/subscriptions/action-policy` for session-scoped purchase-action eligibility reads.
+- `POST /api/internal/subscriptions/quote` for session-scoped quote preview reads.
 - `GET /api/internal/settings/platform-policy` for the user-safe platform policy projection.
 
 Contract rules for this slice:
 
 - Access is guarded by the existing internal API key mechanism.
 - Session and subscription reads resolve exactly one identifier: `userId`, `email`, or `telegramId`.
-- Current-session writes resolve only the current `userId` that `ruid` already authenticated from the cookie-backed session.
+- Standalone linked web-account sign-in resolves only the submitted linked login and password; credential truth and readiness checks remain in `rezeis-admin`.
+- Current-session writes and session-scoped quote reads resolve only the current `userId` that `ruid` already authenticated from the cookie-backed session.
 - `rezeis-admin` stays responsible for subscription, entitlement, rules-policy, platform-policy, and linked-account truth.
 - `ruid` only validates context, forwards the authenticated lookup or write, and shapes public responses.
 
 This boundary exists to validate the thin public-edge pattern before broader payment, entitlement, or billing mutations are exposed through `ruid`.
+
+## Payment Boundary
+
+- `rezeis-admin` owns payment gateway configuration, payment execution, payment webhook ingress, replay handling, inbox/dedup state, reconciliation, and subscription mutation after completed payment.
+- `ruid` may expose user-facing checkout start/status routes, but it remains a thin orchestration edge and must not own provider execution or payment state truth.
 
 ## Must Not Be Duplicated
 

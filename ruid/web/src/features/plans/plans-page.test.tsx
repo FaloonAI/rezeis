@@ -24,7 +24,15 @@ function createPlansQuery(overrides: Partial<ReturnType<typeof usePlansQuery>> =
           {
             id: 'duration-1',
             days: 30,
-            prices: [{ currency: 'USD', price: '19.99' }],
+            prices: [{
+              gatewayType: 'YOOKASSA',
+              currency: 'USD',
+              originalPrice: '19.99',
+              price: '19.99',
+              discountPercent: 0,
+              discountSource: 'NONE',
+              supportedPaymentAssets: null,
+            }],
           },
         ],
       },
@@ -59,6 +67,7 @@ describe('PlansPage', () => {
     expect(getByText('No public description provided.')).toBeInTheDocument()
     expect(getByText('Traffic limit')).toBeInTheDocument()
     expect(getByText('Unlimited', { selector: 'dd' })).toBeInTheDocument()
+    expect(getByText('YooKassa')).toBeInTheDocument()
     expect(getByText('USD 19.99')).toBeInTheDocument()
     expect(getByText("Available subscription plans loaded through the user API. This route remains a read-only plan catalog while rules acceptance stays the shell's only live write path.")).toBeInTheDocument()
   })

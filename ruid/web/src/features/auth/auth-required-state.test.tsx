@@ -30,17 +30,19 @@ describe('AuthRequiredState', () => {
     const mockedUseAuthSession: MockedFunction<typeof useAuthSession> = vi.mocked(useAuthSession)
     mockedUseAuthSession.mockReturnValue(createAuthSession({ hasSessionPersistenceIssue: true }))
 
-    const { getByText } = renderWithProviders(<AuthRequiredState />, { withRouter: false })
+    const { getByRole, getByText } = renderWithProviders(<AuthRequiredState />, { withRouter: false })
 
     expect(getByText(/Telegram bootstrap completed, but this browser did not retain the cookie-backed session/i)).toBeInTheDocument()
+    expect(getByRole('link', { name: 'Sign in with linked account' })).toHaveAttribute('href', '/sign-in')
   })
 
   it('renders the standard Telegram launch guidance when no persistence issue is present', () => {
     const mockedUseAuthSession: MockedFunction<typeof useAuthSession> = vi.mocked(useAuthSession)
     mockedUseAuthSession.mockReturnValue(createAuthSession())
 
-    const { getByText } = renderWithProviders(<AuthRequiredState />, { withRouter: false })
+    const { getByRole, getByText } = renderWithProviders(<AuthRequiredState />, { withRouter: false })
 
-    expect(getByText(/Open this workspace from the Telegram Mini App or reuse an existing browser session created by Telegram bootstrap/i)).toBeInTheDocument()
+    expect(getByText(/sign in with a linked web account/i)).toBeInTheDocument()
+    expect(getByRole('link', { name: 'Sign in with linked account' })).toHaveAttribute('href', '/sign-in')
   })
 })

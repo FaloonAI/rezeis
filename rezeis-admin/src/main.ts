@@ -10,7 +10,7 @@ import { AppModule } from './app.module';
 import { appConfig } from './common/config/app.config';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   const appConfiguration: ConfigType<typeof appConfig> = app.get(appConfig.KEY);
   const port: number = appConfiguration.port;
   const nodeEnv: string = appConfiguration.nodeEnv;

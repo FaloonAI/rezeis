@@ -1,9 +1,12 @@
 import { useEffect, useRef, type ReactElement, type ReactNode } from 'react'
-import { LayoutDashboard, Layers3, WalletCards } from 'lucide-react'
+import { LayoutDashboard, Layers3, ReceiptText, WalletCards } from 'lucide-react'
 import { NavLink, Outlet, createBrowserRouter, useLocation, type RouteObject } from 'react-router-dom'
 import { DashboardPage } from '@/features/dashboard/dashboard-page'
 import { useAuthSession } from '@/features/auth/auth-provider'
+import { PaymentResultPage } from '@/features/payments/payment-result-page'
+import { SignInPage } from '@/features/auth/sign-in-page'
 import { PlansPage } from '@/features/plans/plans-page'
+import { QuotePage } from '@/features/quote/quote-page'
 import { SubscriptionPage } from '@/features/subscription/subscription-page'
 import { WebAccountPage } from '@/features/web-account/web-account-page'
 import { getWebAccountLogin } from '@/features/web-account/get-web-account-visibility-state'
@@ -31,6 +34,11 @@ const navigationItems: readonly NavigationItem[] = [
     path: '/subscription',
     icon: <WalletCards className="size-4" />,
   },
+  {
+    label: 'Quote',
+    path: '/quote',
+    icon: <ReceiptText className="size-4" />,
+  },
 ] as const
 
 export const appRoutes: RouteObject[] = [
@@ -51,8 +59,20 @@ export const appRoutes: RouteObject[] = [
         element: <SubscriptionPage />,
       },
       {
+        path: 'quote',
+        element: <QuotePage />,
+      },
+      {
+        path: 'payments/result',
+        element: <PaymentResultPage />,
+      },
+      {
         path: 'web-account',
         element: <WebAccountPage />,
+      },
+      {
+        path: 'sign-in',
+        element: <SignInPage />,
       },
     ],
   },
@@ -83,7 +103,7 @@ export function AppShell(): ReactElement {
               <p className="text-sm font-medium text-primary">RUID user workspace</p>
               <h1 className="mt-2 text-2xl font-semibold tracking-tight">First routed shell backed by the thin user edge.</h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-                This web app reads the user API for account, plan, subscription, and platform policy data. Its live write paths now cover rules acceptance, linked web-account login and password follow-up, linked email-verification challenge issuance, and linked email-verification completion. The dedicated plans and subscription routes remain the primary read surfaces, while the dashboard may also show compact summaries and diagnostics.
+                This web app reads the user API for account, plan, subscription, and platform policy data. Its live write paths now cover rules acceptance, linked web-account login and password follow-up, linked email-verification challenge issuance, and linked email-verification completion. The dedicated plans, subscription, and quote routes remain the primary read surfaces, while the dashboard may also show compact summaries and diagnostics.
               </p>
             </div>
             <div className="rounded-2xl bg-secondary/60 px-4 py-3 text-sm">
@@ -115,7 +135,7 @@ export function AppShell(): ReactElement {
             <div className="mt-6 rounded-2xl border border-dashed border-border/80 bg-background/70 p-4 text-sm text-muted-foreground">
               <p className="font-medium text-foreground">Thin shell slice</p>
               <p className="mt-2 leading-6">
-                Plans stay public. The dedicated plans and subscription routes remain the primary read surfaces, while the dashboard can surface compact summaries from the same read models. The shell now supports rules acceptance, linked web-account login and password follow-up, linked email-verification challenge issuance, and linked email-verification completion inside the existing session boundary.
+                Plans stay public. The dedicated plans, subscription, and quote routes remain the primary read surfaces, while the dashboard can surface compact summaries from the same read models. The shell now supports rules acceptance, linked web-account login and password follow-up, linked email-verification challenge issuance, and linked email-verification completion inside the existing session boundary.
               </p>
             </div>
           </aside>
@@ -131,6 +151,9 @@ export function AppShell(): ReactElement {
 export function getHeaderContextLabel({ authSession, pathname }: { readonly authSession: ReturnType<typeof useAuthSession>; readonly pathname: string }): string {
   if (pathname === '/plans') {
     return 'Public plan catalog'
+  }
+  if (pathname === '/quote') {
+    return 'Subscription quote preview'
   }
   if (authSession.status === 'authenticated' && authSession.sessionQuery.data) {
     return getPrimarySessionIdentity(authSession.sessionQuery.data)

@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react'
+import { plansApi } from '@/features/plans/plans-api'
 import { usePlansQuery } from '@/features/plans/use-plans-query'
 import { getApiErrorMessage } from '@/lib/api'
 import { formatBytes } from '@/lib/format-bytes'
@@ -45,9 +46,22 @@ export function PlansPage(): ReactElement {
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {duration.prices.map((price) => (
-                      <span key={`${duration.id}-${price.currency}`} className="rounded-full bg-secondary px-3 py-1 text-sm font-medium text-secondary-foreground">
-                        {price.currency} {price.price}
-                      </span>
+                      <div key={`${duration.id}-${price.gatewayType}-${price.currency}`} className="rounded-2xl bg-secondary px-3 py-2 text-sm text-secondary-foreground">
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-secondary-foreground/70">{formatGatewayType(price.gatewayType)}</p>
+                        <p className="mt-1 font-medium">
+                          {price.currency} {price.price}
+                          {price.discountPercent > 0 ? (
+                            <span className="ml-2 text-xs text-secondary-foreground/70 line-through">
+                              {price.originalPrice}
+                            </span>
+                          ) : null}
+                        </p>
+                        {price.supportedPaymentAssets ? (
+                          <p className="mt-1 text-xs text-secondary-foreground/70">
+                            Assets: {price.supportedPaymentAssets.join(', ')}
+                          </p>
+                        ) : null}
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -74,4 +88,23 @@ function formatTrafficLimit(trafficLimit: number | null): string {
     return 'Unlimited'
   }
   return formatBytes(trafficLimit)
+}
+
+function formatGatewayType(gatewayType: Awaited<ReturnType<typeof plansApi.getPlans>>[number]['durations'][number]['prices'][number]['gatewayType']): string {
+  switch (gatewayType) {
+    case 'TELEGRAM_STARS':
+      return 'Telegram Stars'
+    case 'YOOKASSA':
+      return 'YooKassa'
+    case 'PLATEGA':
+      return 'Platega'
+    case 'HELEKET':
+      return 'Heleket'
+    case 'CRYPTOMUS':
+      return 'Cryptomus'
+    case 'MULENPAY':
+      return 'MulenPay'
+    default:
+      return gatewayType
+  }
 }

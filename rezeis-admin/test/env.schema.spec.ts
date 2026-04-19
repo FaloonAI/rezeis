@@ -90,6 +90,31 @@ describe('validateEnvironment', () => {
       },
     );
   });
+
+  it('requires remnawave host, port, and token together when any remnawave value is present', () => {
+    assert.throws(
+      (): void => {
+        validateEnvironment({
+          ...createValidEnvironmentVariables(),
+          REMNAWAVE_HOST: 'remnawave',
+        });
+      },
+      {
+        name: 'ZodError',
+      },
+    );
+
+    const actualEnvironment = validateEnvironment({
+      ...createValidEnvironmentVariables(),
+      REMNAWAVE_HOST: 'remnawave',
+      REMNAWAVE_PORT: '3000',
+      REMNAWAVE_TOKEN: 'secret',
+    });
+
+    assert.equal(actualEnvironment.REMNAWAVE_HOST, 'remnawave');
+    assert.equal(actualEnvironment.REMNAWAVE_PORT, 3000);
+    assert.equal(actualEnvironment.REMNAWAVE_TOKEN, 'secret');
+  });
 });
 
 function createValidEnvironmentVariables(): Record<string, unknown> {

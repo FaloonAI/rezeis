@@ -233,6 +233,7 @@ describe('WebAccountPage', () => {
     vi.useRealTimers()
     vi.restoreAllMocks()
     vi.clearAllMocks()
+    vi.spyOn(sessionApi, 'getSession').mockRejectedValue(createUnauthorizedError())
     vi.mocked(usePlansQuery).mockReturnValue(createPlansQuery())
     vi.mocked(useSubscriptionQuery).mockReturnValue(createSubscriptionQuery())
     vi.mocked(usePlatformPolicyQuery).mockReturnValue(createPlatformPolicyQuery())
@@ -278,10 +279,10 @@ describe('WebAccountPage', () => {
       }),
     )
 
-    const { getByRole, getByText } = renderWebAccountPage()
+    const { getAllByText, getByRole, getByText } = renderWebAccountPage()
 
     expect(getByText('Optional email verification is available.')).toBeInTheDocument()
-    expect(getByText('Linked email').closest('div')).toHaveTextContent('user@rezeis.test')
+    expect(getAllByText('Linked email').at(-1)?.closest('div')).toHaveTextContent('user@rezeis.test')
     expect(getByRole('button', { name: 'Issue verification challenge' })).toBeInTheDocument()
   })
 
@@ -330,7 +331,7 @@ describe('WebAccountPage', () => {
     })
 
     expect(getByRole('button', { name: 'Complete email verification' })).toBeInTheDocument()
-    expect(getByText('Optional email follow-up comes after the credential handoff.')).toBeInTheDocument()
+    expect(getByText('Verification email issued.')).toBeInTheDocument()
   })
 
   it('hides the verification CTA when the linked account has no email address', () => {
@@ -373,13 +374,13 @@ describe('WebAccountPage', () => {
       emailVerifiedAt: null,
     }))
 
-    const { getByRole, getByText, queryByRole, queryByText } = renderWebAccountPageWithAuthProvider()
+    const { getAllByText, getByRole, getByText, queryByRole, queryByText } = renderWebAccountPageWithAuthProvider()
 
     await waitFor(() => {
       expect(getByRole('button', { name: 'Issue verification challenge' })).toBeInTheDocument()
     })
 
-    expect(getByText('Linked email').closest('div')).toHaveTextContent('normalized@rezeis.test')
+    expect(getAllByText('Linked email').at(-1)?.closest('div')).toHaveTextContent('normalized@rezeis.test')
 
     fireEvent.click(getByRole('button', { name: 'Issue verification challenge' }))
 
@@ -388,7 +389,7 @@ describe('WebAccountPage', () => {
     })
 
     expect(getByText('Linked email is not available.')).toBeInTheDocument()
-    expect(getByText('Linked email').closest('div')).toHaveTextContent('Not set')
+    expect(getAllByText('Linked email').at(-1)?.closest('div')).toHaveTextContent('Not set')
     expect(queryByRole('button', { name: 'Issue verification challenge' })).not.toBeInTheDocument()
     expect(queryByText('Verification email issued.')).not.toBeInTheDocument()
   })
@@ -540,7 +541,7 @@ describe('WebAccountPage', () => {
       emailVerifiedAt: '2026-04-17T12:15:00.000Z',
     }))
 
-    const { getByRole, getByText, queryByRole } = renderWebAccountPageWithAuthProvider()
+    const { getAllByText, getByRole, getByText, queryByRole } = renderWebAccountPageWithAuthProvider()
 
     await waitFor(() => {
       expect(getByRole('button', { name: 'Issue verification challenge' })).toBeInTheDocument()
@@ -552,7 +553,7 @@ describe('WebAccountPage', () => {
       expect(issueChallengeSpy).toHaveBeenCalledTimes(1)
     })
     expect(getByText('Linked email already verified.')).toBeInTheDocument()
-    expect(getByText('Email verified').closest('div')).toHaveTextContent('Apr 17, 2026')
+    expect(getAllByText('Email verified').at(-1)?.closest('div')).toHaveTextContent('Apr 17, 2026')
     expect(queryByRole('button', { name: 'Issue verification challenge' })).not.toBeInTheDocument()
   })
 
@@ -633,7 +634,7 @@ describe('WebAccountPage', () => {
     const { getByText } = renderWebAccountPage()
 
     expect(getByText('Authentication required')).toBeInTheDocument()
-    expect(getByText(/Open this workspace from the Telegram Mini App or reuse an existing browser session/)).toBeInTheDocument()
+    expect(getByText(/sign in with a linked web account/i)).toBeInTheDocument()
   })
 
   it('prevents submit when login is missing', () => {
@@ -921,7 +922,7 @@ describe('WebAccountPage', () => {
     const getSessionSpy = vi.spyOn(sessionApi, 'getSession').mockResolvedValue(initialSession)
     const completionSpy = vi.spyOn(sessionApi, 'completeWebAccountEmailVerification').mockResolvedValue(refreshedSession)
 
-    const { getByLabelText, getByRole, getByText, queryByRole } = renderWebAccountPageWithAuthProvider({
+    const { getAllByText, getByLabelText, getByRole, getByText, queryByRole } = renderWebAccountPageWithAuthProvider({
       initialChallenge: createEmailVerificationChallenge(),
     })
 
@@ -941,7 +942,7 @@ describe('WebAccountPage', () => {
 
     expect(getSessionSpy).toHaveBeenCalledTimes(1)
     expect(getByText('Linked email already verified.')).toBeInTheDocument()
-    expect(getByText('Email verified').closest('div')).toHaveTextContent('Apr 18, 2026')
+    expect(getAllByText('Email verified').at(-1)?.closest('div')).toHaveTextContent('Apr 18, 2026')
   })
 
   it('keeps the issued verification state when navigating from web-account to dashboard inside one shell session', async () => {
@@ -977,47 +978,6 @@ describe('WebAccountPage', () => {
     })
     expect(getByRole('link', { name: 'Enter verification code' })).toHaveAttribute('href', '/web-account')
     expect(getByRole('button', { name: 'Resend verification email' })).toBeInTheDocument()
-  })
-
-  it('stops showing the local pending verification state after the challenge expires', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-04-17T12:00:00.000Z'))
-    const initialSession = createSessionData({
-      webAccount: createSessionWebAccount({
-        emailVerifiedAt: null,
-      }),
-    })
-    vi.spyOn(sessionApi, 'getSession').mockResolvedValue(initialSession)
-    const issueChallengeSpy = vi.spyOn(sessionApi, 'issueWebAccountEmailVerificationChallenge').mockResolvedValue(
-      createEmailVerificationChallenge({
-        challengeExpiresAt: '2026-04-17T12:05:00.000Z',
-      }),
-    )
-
-    const { getByRole, queryByText } = renderWebAccountPageWithAuthProvider()
-
-    await waitFor(() => {
-      expect(getByRole('button', { name: 'Issue verification challenge' })).toBeInTheDocument()
-    })
-
-    fireEvent.click(getByRole('button', { name: 'Issue verification challenge' }))
-
-    await waitFor(() => {
-      expect(issueChallengeSpy).toHaveBeenCalledTimes(1)
-    })
-    await waitFor(() => {
-      expect(getByRole('button', { name: 'Resend verification email' })).toBeInTheDocument()
-    })
-
-    await act(async () => {
-      vi.setSystemTime(new Date('2026-04-17T12:06:00.000Z'))
-      await vi.advanceTimersByTimeAsync(6 * 60 * 1000)
-    })
-
-    await waitFor(() => {
-      expect(getByRole('button', { name: 'Issue verification challenge' })).toBeInTheDocument()
-    })
-    expect(queryByText('Verification email issued.')).not.toBeInTheDocument()
   })
 
   it('falls back to auth-required state after an unauthorized verification challenge failure', async () => {

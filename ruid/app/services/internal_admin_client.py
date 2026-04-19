@@ -48,6 +48,17 @@ ACTIONABLE_PASSWORD_HANDOFF_DETAILS: frozenset[str] = frozenset(
     }
 )
 
+LINKED_WEB_ACCOUNT_SIGN_IN_NOT_READY_DETAILS: frozenset[str] = frozenset(
+    {
+        "webAccount password is not configured",
+        "webAccount password change is required",
+        "webAccount email is not verified",
+        "User is blocked",
+    }
+)
+
+LINKED_WEB_ACCOUNT_SIGN_IN_PATH = "/api/internal/user/web-account/sign-in"
+
 
 class InternalAdminError(Exception):
     """Base error raised for internal admin client failures."""
@@ -85,6 +96,18 @@ class InternalAdminActionablePasswordHandoffError(InternalAdminError):
         self.detail = detail
 
 
+class InternalAdminInvalidCredentialsError(InternalAdminError):
+    """Raised when linked web-account credentials are invalid."""
+
+
+class InternalAdminLinkedWebAccountNotReadyError(InternalAdminError):
+    """Raised when a linked web account is not ready for standalone sign-in."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
 class InternalAdminContractError(InternalAdminError):
     """Raised when the internal admin response violates the agreed contract."""
 
@@ -110,6 +133,13 @@ class InternalAdminClient:
         params: Mapping[str, str] | None = None,
     ) -> object:
         return await self._request_json(method="PATCH", path=path, params=params)
+
+    async def post_json(
+        self,
+        path: str,
+        body: object | None = None,
+    ) -> object:
+        return await self._request_json(method="POST", path=path, body=body)
 
     async def patch_web_account_password(
         self, *, user_id: str, login: str, password: str
@@ -139,6 +169,13 @@ class InternalAdminClient:
             body={"userId": user_id, "code": code},
         )
 
+    async def post_linked_web_account_sign_in(self, *, login: str, password: str) -> object:
+        return await self._request_json(
+            method="POST",
+            path=LINKED_WEB_ACCOUNT_SIGN_IN_PATH,
+            body={"login": login, "password": password},
+        )
+
     async def get_json(
         self,
         path: str,
@@ -165,6 +202,16 @@ class InternalAdminClient:
         except httpx.TimeoutException as err:
             raise InternalAdminTimeoutError from err
         except httpx.HTTPStatusError as err:
+            if self._is_invalid_credentials_error(path=path, response=err.response):
+                raise InternalAdminInvalidCredentialsError from err
+            linked_sign_in_not_ready_detail = self._get_linked_web_account_not_ready_detail(
+                path=path,
+                response=err.response,
+            )
+            if linked_sign_in_not_ready_detail is not None:
+                raise InternalAdminLinkedWebAccountNotReadyError(
+                    linked_sign_in_not_ready_detail
+                ) from err
             actionable_detail = self._get_actionable_domain_error_detail(
                 path=path,
                 response=err.response,
@@ -186,6 +233,22 @@ class InternalAdminClient:
             return response.json()
         except ValueError as err:
             raise InternalAdminContractError from err
+
+    def _is_invalid_credentials_error(self, *, path: str, response: httpx.Response) -> bool:
+        return path == LINKED_WEB_ACCOUNT_SIGN_IN_PATH and response.status_code == httpx.codes.UNAUTHORIZED
+
+    def _get_linked_web_account_not_ready_detail(
+        self,
+        *,
+        path: str,
+        response: httpx.Response,
+    ) -> str | None:
+        if path != LINKED_WEB_ACCOUNT_SIGN_IN_PATH or response.status_code != httpx.codes.BAD_REQUEST:
+            return None
+        error_message = self._get_error_message(response)
+        if error_message not in LINKED_WEB_ACCOUNT_SIGN_IN_NOT_READY_DETAILS:
+            return None
+        return error_message
 
     def _is_non_actionable_prompt_error(self, *, path: str, response: httpx.Response) -> bool:
         if response.status_code != httpx.codes.BAD_REQUEST:

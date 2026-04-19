@@ -16,6 +16,8 @@ from app.schemas.session import SessionSchema
 from app.schemas.subscription import SubscriptionSchema
 from app.services.internal_admin_client import (
     InternalAdminContractError,
+    InternalAdminInvalidCredentialsError,
+    InternalAdminLinkedWebAccountNotReadyError,
     InternalAdminNotFoundError,
     InternalAdminTimeoutError,
     InternalAdminUpstreamError,
@@ -355,6 +357,149 @@ def test_telegram_bootstrap_rejects_missing_origin(monkeypatch) -> None:
                     auth_date=datetime.now(UTC),
                 )
             },
+        )
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Browser origin header is required."}
+
+
+def test_linked_web_account_sign_in_returns_cookie_and_payload(monkeypatch) -> None:
+    expected_session = build_expected_session()
+    expected_subscription = build_expected_subscription()
+    session_store = InMemorySessionStore()
+
+    class StubSessionService:
+        async def sign_in_linked_web_account(self, input: object) -> SessionSchema:
+            assert input.model_dump() == {
+                "login": "user-login",
+                "password": "correct-password",
+            }
+            return expected_session
+
+    class StubSubscriptionService:
+        async def get_subscription_by_user_id(self, user_id: str) -> SubscriptionSchema | None:
+            assert user_id == expected_session.id
+            return expected_subscription
+
+    reset_settings_cache()
+    app.dependency_overrides[get_runtime_settings] = get_settings
+    app.dependency_overrides[get_session_service] = lambda: StubSessionService()
+    app.dependency_overrides[get_subscription_service] = lambda: StubSubscriptionService()
+    app.dependency_overrides[get_session_store] = lambda: session_store
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/auth/web-account/sign-in",
+            json={"login": " user-login ", "password": "correct-password"},
+        )
+
+    assert response.status_code == 200
+    assert response.cookies.get("ruid_session") == "stored-session-id"
+    assert "HttpOnly" in response.headers["set-cookie"]
+    assert response.json()["session"]["id"] == expected_session.id
+    assert response.json()["subscription"]["id"] == expected_subscription.id
+    assert response.json()["expiresIn"] == 604800
+    assert session_store.sessions["stored-session-id"].user_id == expected_session.id
+    assert session_store.sessions["stored-session-id"].telegram_id == expected_session.telegram_id
+
+
+def test_linked_web_account_sign_in_accepts_web_only_session_without_telegram_id(monkeypatch) -> None:
+    expected_session = build_expected_session()
+    expected_session_payload = expected_session.model_dump(mode="json", by_alias=True)
+    expected_session_payload["telegramId"] = None
+    web_only_session = SessionSchema.model_validate(expected_session_payload)
+    session_store = InMemorySessionStore()
+
+    class StubSessionService:
+        async def sign_in_linked_web_account(self, input: object) -> SessionSchema:
+            return web_only_session
+
+    class StubSubscriptionService:
+        async def get_subscription_by_user_id(self, user_id: str) -> SubscriptionSchema | None:
+            return None
+
+    reset_settings_cache()
+    app.dependency_overrides[get_runtime_settings] = get_settings
+    app.dependency_overrides[get_session_service] = lambda: StubSessionService()
+    app.dependency_overrides[get_subscription_service] = lambda: StubSubscriptionService()
+    app.dependency_overrides[get_session_store] = lambda: session_store
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/auth/web-account/sign-in",
+            json={"login": "user-login", "password": "correct-password"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["session"]["telegramId"] is None
+    assert session_store.sessions["stored-session-id"].telegram_id is None
+
+
+def test_linked_web_account_sign_in_maps_invalid_credentials(monkeypatch) -> None:
+    session_store = InMemorySessionStore()
+
+    class StubSessionService:
+        async def sign_in_linked_web_account(self, input: object) -> SessionSchema:
+            raise InternalAdminInvalidCredentialsError()
+
+    reset_settings_cache()
+    app.dependency_overrides[get_runtime_settings] = get_settings
+    app.dependency_overrides[get_session_service] = lambda: StubSessionService()
+    app.dependency_overrides[get_session_store] = lambda: session_store
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/auth/web-account/sign-in",
+            json={"login": "user-login", "password": "wrong-password"},
+        )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid login or password"}
+    assert session_store.sessions == {}
+
+
+def test_linked_web_account_sign_in_maps_not_ready_state(monkeypatch) -> None:
+    session_store = InMemorySessionStore()
+
+    class StubSessionService:
+        async def sign_in_linked_web_account(self, input: object) -> SessionSchema:
+            raise InternalAdminLinkedWebAccountNotReadyError(
+                "webAccount email is not verified"
+            )
+
+    reset_settings_cache()
+    app.dependency_overrides[get_runtime_settings] = get_settings
+    app.dependency_overrides[get_session_service] = lambda: StubSessionService()
+    app.dependency_overrides[get_session_store] = lambda: session_store
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/auth/web-account/sign-in",
+            json={"login": "user-login", "password": "correct-password"},
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "webAccount email is not verified"}
+    assert session_store.sessions == {}
+
+
+def test_linked_web_account_sign_in_rejects_missing_origin(monkeypatch) -> None:
+    session_store = InMemorySessionStore()
+
+    class StubSessionService:
+        async def sign_in_linked_web_account(self, input: object) -> SessionSchema:
+            raise AssertionError("service should not be called before origin validation")
+
+    monkeypatch.setenv("RUID_PUBLIC_WEB_URL", "https://miniapp.example.com")
+    reset_settings_cache()
+    app.dependency_overrides[get_runtime_settings] = get_settings
+    app.dependency_overrides[get_session_service] = lambda: StubSessionService()
+    app.dependency_overrides[get_session_store] = lambda: session_store
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/auth/web-account/sign-in",
+            json={"login": "user-login", "password": "correct-password"},
         )
 
     assert response.status_code == 403

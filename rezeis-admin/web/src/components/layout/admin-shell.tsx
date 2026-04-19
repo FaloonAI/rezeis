@@ -1,6 +1,6 @@
 import type { ComponentType, JSX } from 'react'
 import { useMemo, useState } from 'react'
-import { LayoutDashboard, LogOut, Menu, Megaphone, ScanSearch, Settings2, Shield, TicketPercent, UserRoundSearch, Users, Waypoints, Waves, Workflow } from 'lucide-react'
+import { CreditCard, LayoutDashboard, LogOut, Menu, Megaphone, Package, ReceiptText, ScanSearch, Settings2, Shield, TicketPercent, UserRoundSearch, Users, Waypoints, Waves, Workflow } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -134,6 +134,33 @@ export function AdminShell(): JSX.Element {
   const navigationItems: readonly NavigationItem[] = useMemo(
     () => [
       { key: 'dashboard', to: '/dashboard', label: t('nav.dashboard'), icon: LayoutDashboard },
+      {
+        key: 'catalog',
+        to: '/catalog/plans',
+        label: t('nav.catalog'),
+        icon: Package,
+        children: [{ to: '/catalog/plans', label: t('nav.catalogPlans') }],
+      },
+      {
+        key: 'subscriptions',
+        to: '/subscriptions/quote',
+        label: t('nav.subscriptions'),
+        icon: ReceiptText,
+        children: [{ to: '/subscriptions/quote', label: t('nav.subscriptionQuote') }],
+      },
+      {
+        key: 'payments',
+        to: '/payments/gateways',
+        label: t('nav.payments'),
+        icon: CreditCard,
+        children: [
+          { to: '/payments/gateways', label: t('nav.paymentGateways') },
+          { to: '/payments/transactions', label: t('nav.paymentTransactions') },
+          { to: '/payments/webhooks', label: t('nav.paymentWebhooks') },
+          { to: '/payments/reconciliation', label: t('nav.paymentReconciliation') },
+          { to: '/payments/alerts', label: t('nav.paymentAlerts') },
+        ],
+      },
       {
         key: 'users',
         to: '/users/search',

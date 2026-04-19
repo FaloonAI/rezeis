@@ -5,10 +5,18 @@ import { AdminShell } from '@/components/layout/admin-shell'
 import { AuthGuard } from '@/components/layout/auth-guard'
 import { PublicOnlyRoute } from '@/components/layout/public-only-route'
 import { DashboardPage } from '@/features/dashboard/dashboard-page'
+import { PlansPage } from '@/features/catalog/plans-page'
+import { RemnawavePage } from '@/features/remnawave/remnawave-page'
 import { SectionPlaceholderPage } from '@/features/shared/section-placeholder-page'
 import { ApiTokensPage } from '@/features/settings/api-tokens-page'
 import { PanelSettingsPage } from '@/features/settings/panel-settings-page'
+import { PaymentGatewaysPage } from '@/features/payments/payment-gateways-page'
+import { PaymentTransactionsPage } from '@/features/payments/payment-transactions-page'
+import { PaymentWebhooksPage } from '@/features/payments/payment-webhooks-page'
+import { PaymentReconciliationPage } from '@/features/payments/payment-reconciliation-page'
+import { PaymentAlertsPage } from '@/features/payments/payment-alerts-page'
 import { SettingsLayout } from '@/features/settings/settings-layout'
+import { SubscriptionQuotePage } from '@/features/subscriptions/subscription-quote-page'
 import { UsersLayout } from '@/features/users/users-layout'
 import { UsersRoutePage } from '@/features/users/users-route-page'
 import { useAuthStore } from '@/stores/auth-store'
@@ -82,6 +90,34 @@ export const router = createBrowserRouter([
         ],
       },
       {
+        path: '/catalog/plans',
+        element: <PlansPage />,
+      },
+      {
+        path: '/subscriptions/quote',
+        element: <SubscriptionQuotePage />,
+      },
+      {
+        path: '/payments/gateways',
+        element: <PaymentGatewaysPage />,
+      },
+      {
+        path: '/payments/transactions',
+        element: <PaymentTransactionsPage />,
+      },
+      {
+        path: '/payments/webhooks',
+        element: <PaymentWebhooksPage />,
+      },
+      {
+        path: '/payments/reconciliation',
+        element: <PaymentReconciliationPage />,
+      },
+      {
+        path: '/payments/alerts',
+        element: <PaymentAlertsPage />,
+      },
+      {
         path: '/broadcast',
         element: <SectionPlaceholderPage sectionKey="broadcast" />,
       },
@@ -95,7 +131,7 @@ export const router = createBrowserRouter([
       },
       {
         path: '/remnawave',
-        element: <SectionPlaceholderPage sectionKey="remnawave" />,
+        element: <RemnawavePage />,
       },
       {
         path: '/ruid',

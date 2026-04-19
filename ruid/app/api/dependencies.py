@@ -11,6 +11,8 @@ from app.schemas.auth_session import AuthSessionSchema
 from app.services.internal_admin_client import (
     InternalAdminClient,
     InternalAdminContractError,
+    InternalAdminInvalidCredentialsError,
+    InternalAdminLinkedWebAccountNotReadyError,
     InternalAdminNotFoundError,
     InternalAdminTimeoutError,
     InternalAdminUpstreamError,
@@ -18,6 +20,7 @@ from app.services.internal_admin_client import (
 )
 from app.services.platform_policy_service import PlatformPolicyService
 from app.services.plans_service import PlansService
+from app.services.payments_service import PaymentsService
 from app.services.session_service import SessionService
 from app.services.session_store import RedisSessionStore
 from app.services.subscription_service import SubscriptionService
@@ -107,6 +110,12 @@ def get_subscription_service(
     return SubscriptionService(client)
 
 
+def get_payments_service(
+    client: Annotated[InternalAdminClient, Depends(get_internal_admin_client)],
+) -> PaymentsService:
+    return PaymentsService(client)
+
+
 def get_telegram_auth_init_data(
     authorization: Annotated[str | None, Header()] = None,
 ) -> str:
@@ -168,6 +177,22 @@ async def get_current_auth_session(
     return auth_session
 
 
+async def get_optional_auth_session(
+    request: Request,
+    response: Response,
+    session_store: Annotated[RedisSessionStore, Depends(get_session_store)],
+    settings: Annotated[Settings, Depends(get_runtime_settings)],
+) -> AuthSessionSchema | None:
+    session_cookie = request.cookies.get(settings.ruid_session_cookie_name)
+    if session_cookie is None:
+        return None
+    auth_session = await session_store.get_session(session_cookie)
+    if auth_session is None:
+        clear_session_cookie(response, settings)
+        return None
+    return auth_session
+
+
 def raise_bff_http_error(err: Exception) -> NoReturn:
     if isinstance(
         err,
@@ -176,6 +201,16 @@ def raise_bff_http_error(err: Exception) -> NoReturn:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(err),
+        ) from err
+    if isinstance(err, InternalAdminInvalidCredentialsError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid login or password",
+        ) from err
+    if isinstance(err, InternalAdminLinkedWebAccountNotReadyError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=err.detail,
         ) from err
     if isinstance(err, InternalAdminNotFoundError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found") from err

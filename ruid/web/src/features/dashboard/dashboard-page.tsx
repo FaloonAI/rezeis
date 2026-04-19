@@ -77,11 +77,14 @@ export function DashboardPage(): ReactElement {
     now,
   }), [authSession.status, now, sessionQuery.data?.webAccount, webAccountEmailVerificationChallengeState.challenge])
   useEffect(() => {
+    if (authSession.status === 'loading') {
+      return
+    }
     if (webAccountEmailVerificationChallengeState.challenge === supportedChallenge) {
       return
     }
     webAccountEmailVerificationChallengeState.saveChallenge(supportedChallenge)
-  }, [supportedChallenge, webAccountEmailVerificationChallengeState.challenge, webAccountEmailVerificationChallengeState.saveChallenge])
+  }, [authSession.status, supportedChallenge, webAccountEmailVerificationChallengeState.challenge, webAccountEmailVerificationChallengeState.saveChallenge])
   const webAccountVisibilityState = useMemo(() => getWebAccountVisibilityState({
     webAccount: sessionQuery.data?.webAccount ?? null,
     challenge: supportedChallenge,
@@ -154,7 +157,7 @@ export function DashboardPage(): ReactElement {
                 canIssue: webAccountVisibilityState.canIssueEmailVerification,
                 challenge: webAccountVisibilityState.visibleEmailVerificationChallenge,
                 isPending: issueWebAccountEmailVerificationChallengeMutation.isPending,
-                error: issueWebAccountEmailVerificationChallengeMutation.error,
+    error: issueWebAccountEmailVerificationChallengeMutation.error,
                 onIssue: () => issueWebAccountEmailVerificationChallengeMutation.mutate(),
               })} />}
         </QueryPanel>
@@ -561,7 +564,7 @@ function getWebAccountEmailVerificationCta({
     emailAddress,
     challenge,
     isPending,
-    error,
+    error: shouldClearEmailVerificationChallengeForError(error) ? null : error,
     onIssue,
   }
 }

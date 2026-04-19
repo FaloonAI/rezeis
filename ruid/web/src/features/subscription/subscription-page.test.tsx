@@ -212,10 +212,10 @@ describe('SubscriptionPage', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByText('Authentication required')).toBeInTheDocument()
+      expect(screen.getAllByText('Authentication required').length).toBeGreaterThan(0)
     })
 
-    expect(screen.getByText(/open this workspace from the Telegram Mini App/i)).toBeInTheDocument()
+    expect(screen.getByText(/sign in with a linked web account/i)).toBeInTheDocument()
     expect(screen.queryByText('Unauthorized')).not.toBeInTheDocument()
     expect(screen.queryByText('Loading subscription details...')).not.toBeInTheDocument()
     expect(screen.queryByText('This user does not have a current subscription.')).not.toBeInTheDocument()

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { HttpModule } from '@nestjs/axios';
 
 import { AuthModule } from '../auth/auth.module';
 import { InternalPlatformPolicyController } from './controllers/internal-platform-policy.controller';
@@ -9,7 +10,7 @@ import { SettingsService } from './services/settings.service';
  * Registers the first business settings module for the admin backend.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, HttpModule],
   controllers: [SettingsController, InternalPlatformPolicyController],
   providers: [SettingsService],
 })

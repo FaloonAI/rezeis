@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import { useAuthSession } from '@/features/auth/auth-provider'
+import { Button } from '@/components/ui/button'
 
 export function AuthRequiredState(): ReactElement {
   const authSession = useAuthSession()
@@ -9,11 +10,14 @@ export function AuthRequiredState(): ReactElement {
       <p className="mt-2 max-w-2xl leading-6">
         {authSession.hasSessionPersistenceIssue
           ? 'Telegram bootstrap completed, but this browser did not retain the cookie-backed session. Open the app again from the Telegram Mini App on the same public origin so the session cookie can be written and read.'
-          : 'Open this workspace from the Telegram Mini App or reuse an existing browser session created by Telegram bootstrap. URL-based identity lookup is no longer supported.'}
+          : 'Open this workspace from the Telegram Mini App, reuse an existing browser session, or sign in with a linked web account. URL-based identity lookup is no longer supported.'}
       </p>
       <p className="mt-3 max-w-2xl leading-6">
         Recovery path: reopen the app from your bot chat, attachment menu entry, or the exact Mini App link configured in `BOT_MINI_APP` for this deployment.
       </p>
+      <Button asChild className="mt-4">
+        <a href="/sign-in">Sign in with linked account</a>
+      </Button>
     </div>
   )
 }

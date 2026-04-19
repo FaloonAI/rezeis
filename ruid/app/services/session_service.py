@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from app.schemas.internal_web_account_email_verification_challenge import (
     InternalWebAccountEmailVerificationChallengeSchema,
 )
+from app.schemas.linked_web_account_sign_in import LinkedWebAccountSignInSchema
 from app.schemas.session import SessionSchema
 from app.schemas.session_web_account_email_verification_completion import (
     SessionWebAccountEmailVerificationCompletionSchema,
@@ -35,6 +36,16 @@ class SessionService:
     async def get_session_by_user_id(self, user_id: str) -> SessionSchema:
         lookup = self._build_user_id_lookup(user_id)
         return await self.get_session(lookup)
+
+    async def sign_in_linked_web_account(
+        self,
+        input: LinkedWebAccountSignInSchema,
+    ) -> SessionSchema:
+        payload = await self._client.post_linked_web_account_sign_in(
+            login=input.login,
+            password=input.password,
+        )
+        return self._validate_session(payload)
 
     async def accept_rules_by_user_id(self, user_id: str) -> SessionSchema:
         lookup = self._build_user_id_lookup(user_id)

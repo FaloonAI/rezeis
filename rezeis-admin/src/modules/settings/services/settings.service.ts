@@ -1,9 +1,24 @@
-import { Injectable } from '@nestjs/common';
+import { firstValueFrom } from 'rxjs';
+import { HttpService } from '@nestjs/axios';
+import { Inject, Injectable, BadRequestException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma, Settings } from '@prisma/client';
+import { ConfigType } from '@nestjs/config';
 
+import { paymentsConfig } from '../../../common/config/payments.config';
+import {
+  PaymentOpsAlertSettingsInterface,
+} from '../../../common/interfaces/payment-ops-alert-settings.interface';
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import {
+  mergePaymentOpsAlertSettings,
+  readPaymentOpsAlertSettings,
+} from '../../../common/utils/payment-ops-alert-settings.util';
 import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.interface';
 import { RequestMetadataInterface } from '../../auth/interfaces/request-metadata.interface';
+import {
+  SendPaymentOpsAlertTestDto,
+  UpdatePaymentOpsAlertSettingsDto,
+} from '../dto/update-payment-ops-alert-settings.dto';
 import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
 import { InternalPlatformPolicyInterface } from '../interfaces/internal-platform-policy.interface';
 import { PlatformSettingsInterface } from '../interfaces/platform-settings.interface';
@@ -12,6 +27,18 @@ interface UpdatePlatformSettingsInput {
   readonly currentAdmin: CurrentAdminInterface;
   readonly requestMetadata: RequestMetadataInterface;
   readonly updatePlatformSettingsDto: UpdatePlatformSettingsDto;
+}
+
+interface UpdatePaymentOpsAlertSettingsInput {
+  readonly currentAdmin: CurrentAdminInterface;
+  readonly requestMetadata: RequestMetadataInterface;
+  readonly updatePaymentOpsAlertSettingsDto: UpdatePaymentOpsAlertSettingsDto;
+}
+
+interface SendPaymentOpsAlertTestInput {
+  readonly currentAdmin: CurrentAdminInterface;
+  readonly requestMetadata: RequestMetadataInterface;
+  readonly sendPaymentOpsAlertTestDto: SendPaymentOpsAlertTestDto;
 }
 
 interface UpdatePlatformSettingsChanges {
@@ -36,7 +63,14 @@ const DEFAULT_INTERNAL_PLATFORM_POLICY: InternalPlatformPolicyInterface = {
  */
 @Injectable()
 export class SettingsService {
-  public constructor(private readonly prismaService: PrismaService) {}
+  public constructor(
+    private readonly prismaService: PrismaService,
+    @Optional()
+    private readonly httpService?: HttpService,
+    @Inject(paymentsConfig.KEY)
+    @Optional()
+    private readonly paymentConfiguration?: ConfigType<typeof paymentsConfig>,
+  ) {}
 
   /**
    * Returns the singleton platform settings record, creating defaults when missing.
@@ -44,6 +78,98 @@ export class SettingsService {
   public async getPlatformSettings(): Promise<PlatformSettingsInterface> {
     const settings: Settings = await this.getOrCreateSettingsRecord(this.prismaService);
     return mapPlatformSettings(settings);
+  }
+
+  public async getPaymentOpsAlertSettings(): Promise<PaymentOpsAlertSettingsInterface> {
+    const settings = await this.getOrCreateSettingsRecord(this.prismaService);
+    return readPaymentOpsAlertSettings(settings.systemNotifications);
+  }
+
+  public async updatePaymentOpsAlertSettings(
+    input: UpdatePaymentOpsAlertSettingsInput,
+  ): Promise<PaymentOpsAlertSettingsInterface> {
+    const settings = await this.prismaService.$transaction(
+      async (transactionClient: Prisma.TransactionClient): Promise<Settings> => {
+        const existingSettings = await this.getOrCreateSettingsRecord(transactionClient);
+        const nextSystemNotifications = mergePaymentOpsAlertSettings({
+          systemNotifications: existingSettings.systemNotifications,
+          patch: input.updatePaymentOpsAlertSettingsDto,
+        });
+        const nextAlertSettings = readPaymentOpsAlertSettings(nextSystemNotifications);
+        validatePaymentOpsAlertSettings(nextAlertSettings);
+
+        const updatedSettings = await transactionClient.settings.update({
+          where: { id: existingSettings.id },
+          data: {
+            systemNotifications: nextSystemNotifications as Prisma.InputJsonValue,
+          },
+        });
+        await transactionClient.adminAuditLog.create({
+          data: {
+            action: 'settings.paymentOpsAlert.updated',
+            ipAddress: input.requestMetadata.remoteAddress,
+            userAgent: input.requestMetadata.userAgent,
+            metadata: buildAuditMetadata({
+              requestId: input.requestMetadata.requestId,
+              updatedFields: extractUpdatedPaymentOpsFields(
+                input.updatePaymentOpsAlertSettingsDto,
+              ),
+            }),
+            adminUser: { connect: { id: input.currentAdmin.id } },
+          },
+        });
+        return updatedSettings;
+      },
+    );
+    return readPaymentOpsAlertSettings(settings.systemNotifications);
+  }
+
+  public async sendPaymentOpsAlertTest(
+    input: SendPaymentOpsAlertTestInput,
+  ): Promise<void> {
+    const settings = await this.getPaymentOpsAlertSettings();
+    if (settings.chatId === null) {
+      throw new BadRequestException('PAYMENT_OPS_ALERT_CHAT_NOT_CONFIGURED');
+    }
+    const botToken = this.paymentConfiguration?.botToken ?? null;
+    if (botToken === null) {
+      throw new ServiceUnavailableException('BOT_TOKEN is not configured');
+    }
+    if (this.httpService === undefined) {
+      throw new ServiceUnavailableException('HTTP client is not configured');
+    }
+    const message = buildPaymentOpsAlertTestMessage({
+      settings,
+      note: input.sendPaymentOpsAlertTestDto.note ?? null,
+      adminId: input.currentAdmin.id,
+    });
+    const payload: Record<string, unknown> = {
+      chat_id: settings.chatId,
+      text: message,
+      disable_web_page_preview: true,
+    };
+    if (settings.threadId !== null) {
+      payload.message_thread_id = Number(settings.threadId);
+    }
+    await firstValueFrom(
+      this.httpService.post(
+        `https://api.telegram.org/bot${botToken}/sendMessage`,
+        payload,
+      ),
+    );
+    await this.prismaService.adminAuditLog.create({
+      data: {
+        action: 'payments.alert.test.sent',
+        ipAddress: input.requestMetadata.remoteAddress,
+        userAgent: input.requestMetadata.userAgent,
+        metadata: {
+          requestId: input.requestMetadata.requestId,
+          chatId: settings.chatId,
+          threadId: settings.threadId,
+        },
+        adminUser: { connect: { id: input.currentAdmin.id } },
+      } as never,
+    });
   }
 
   /**
@@ -209,4 +335,50 @@ function parseInviteModeStartedAt(inviteModeStartedAt: string | null | undefined
     return null;
   }
   return new Date(inviteModeStartedAt);
+}
+
+function validatePaymentOpsAlertSettings(
+  settings: PaymentOpsAlertSettingsInterface,
+): void {
+  if (settings.enabled && settings.chatId === null) {
+    throw new BadRequestException('PAYMENT_OPS_ALERT_CHAT_REQUIRED');
+  }
+}
+
+function extractUpdatedPaymentOpsFields(
+  dto: UpdatePaymentOpsAlertSettingsDto,
+): readonly string[] {
+  const fields: string[] = [];
+  if (hasOwnField(dto, 'enabled')) {
+    fields.push('enabled');
+  }
+  if (hasOwnField(dto, 'chatId')) {
+    fields.push('chatId');
+  }
+  if (hasOwnField(dto, 'threadId')) {
+    fields.push('threadId');
+  }
+  if (hasOwnField(dto, 'hashtag')) {
+    fields.push('hashtag');
+  }
+  return fields;
+}
+
+function buildPaymentOpsAlertTestMessage(input: {
+  readonly settings: PaymentOpsAlertSettingsInterface;
+  readonly note: string | null;
+  readonly adminId: string;
+}): string {
+  const note = input.note?.trim();
+  const lines = [
+    input.settings.hashtag ?? '#payments_ops',
+    '#payments_ops',
+    '#event_test_alert',
+    'kind:payment_ops_test',
+    `admin_id:${input.adminId}`,
+    `chat_id:${input.settings.chatId ?? 'unknown'}`,
+    input.settings.threadId === null ? null : `thread_id:${input.settings.threadId}`,
+    note && note.length > 0 ? `note:${note.replace(/\s+/g, ' ').slice(0, 200)}` : null,
+  ].filter((line): line is string => line !== null);
+  return lines.join('\n');
 }

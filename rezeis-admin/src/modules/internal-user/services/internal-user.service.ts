@@ -1,11 +1,18 @@
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  Optional,
+  UnauthorizedException,
+} from '@nestjs/common';
 import {
   AuthChallenge,
   PlanAvailability,
   PlanType,
   Prisma,
+  PurchaseChannel,
   Subscription,
   SubscriptionStatus,
   User,
@@ -17,10 +24,13 @@ import { PasswordHashService } from '../../auth/services/password-hash.service';
 import { loginPolicy } from '../../auth/utils/login-policy.util';
 import { EmailDeliveryException } from '../../email/errors/email-delivery.exception';
 import { EmailService } from '../../email/services/email.service';
+import { PlanCatalogPriceInterface } from '../../plans/interfaces/plan-catalog.interface';
+import { PlanCatalogService } from '../../plans/services/plan-catalog.service';
 import { AcceptInternalUserRulesDto } from '../dto/accept-internal-user-rules.dto';
 import { CompleteWebAccountEmailVerificationDto } from '../dto/complete-web-account-email-verification.dto';
 import { IssueWebAccountEmailVerificationChallengeDto } from '../dto/issue-web-account-email-verification-challenge.dto';
 import { InternalUserSessionQueryDto } from '../dto/internal-user-session-query.dto';
+import { LinkedWebAccountSignInDto } from '../dto/linked-web-account-sign-in.dto';
 import { SetWebAccountPasswordDto } from '../dto/set-web-account-password.dto';
 import { SnoozeWebAccountLinkPromptDto } from '../dto/snooze-web-account-link-prompt.dto';
 import { InternalWebAccountEmailVerificationChallengeInterface } from '../interfaces/internal-web-account-email-verification-challenge.interface';
@@ -57,12 +67,34 @@ export class InternalUserService {
     private readonly prismaService: PrismaService,
     private readonly passwordHashService: PasswordHashService,
     private readonly emailService: EmailService,
+    @Optional()
+    private readonly planCatalogService?: PlanCatalogService,
   ) {}
 
   /**
    * Returns the public plans available to internal admin clients.
    */
   public async getPlans(): Promise<readonly InternalUserPlanInterface[]> {
+    if (this.planCatalogService !== undefined) {
+      const catalogPlans = await this.planCatalogService.getCatalogPlans({
+        channel: PurchaseChannel.WEB,
+      });
+      return catalogPlans.map((plan) => ({
+        id: plan.id,
+        orderIndex: plan.orderIndex,
+        name: plan.name,
+        description: plan.description,
+        tag: plan.tag,
+        type: plan.type,
+        trafficLimit: plan.trafficLimit,
+        deviceLimit: plan.deviceLimit,
+        durations: plan.durations.map((duration) => ({
+          id: duration.id,
+          days: duration.days,
+          prices: collapseLegacyCatalogPrices(duration.prices),
+        })),
+      }));
+    }
     const plans = await this.prismaService.plan.findMany({
       where: {
         isActive: true,
@@ -114,6 +146,47 @@ export class InternalUserService {
     query: InternalUserSessionQueryDto,
   ): Promise<InternalUserSessionInterface> {
     const user = await this.getRequiredUser(query);
+    return mapInternalUserSession(user);
+  }
+
+  /**
+   * Verifies linked web-account credentials and returns the canonical user session payload.
+   */
+  public async signInLinkedWebAccount(
+    input: LinkedWebAccountSignInDto,
+  ): Promise<InternalUserSessionInterface> {
+    if (!loginPolicy.isValidLogin(input.login)) {
+      throw new UnauthorizedException('Invalid login or password');
+    }
+    const loginNormalized: string = loginPolicy.normalizeLogin(input.login);
+    const webAccount = await this.prismaService.webAccount.findUnique({
+      where: {
+        loginNormalized,
+      },
+    });
+    if (webAccount === null) {
+      throw new UnauthorizedException('Invalid login or password');
+    }
+    if (webAccount.passwordHash === null) {
+      throw new BadRequestException('webAccount password is not configured');
+    }
+    if (webAccount.requiresPasswordChange) {
+      throw new BadRequestException('webAccount password change is required');
+    }
+    if (webAccount.emailVerifiedAt === null) {
+      throw new BadRequestException('webAccount email is not verified');
+    }
+    const isPasswordValid: boolean = await this.passwordHashService.verifyPassword({
+      plainTextPassword: input.password,
+      passwordHash: webAccount.passwordHash,
+    });
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid login or password');
+    }
+    const user = await this.getRequiredUserById(webAccount.userId);
+    if (user.isBlocked) {
+      throw new BadRequestException('User is blocked');
+    }
     return mapInternalUserSession(user);
   }
 
@@ -549,6 +622,24 @@ interface EmailVerificationChallengeSecret {
   readonly code: string;
   readonly codeHash: string;
   readonly tokenHash: string;
+}
+
+function collapseLegacyCatalogPrices(
+  prices: readonly PlanCatalogPriceInterface[],
+): InternalUserPlanInterface['durations'][number]['prices'] {
+  const priceByCurrency = new Map<
+    InternalUserPlanInterface['durations'][number]['prices'][number]['currency'],
+    InternalUserPlanInterface['durations'][number]['prices'][number]
+  >();
+  for (const price of prices) {
+    if (!priceByCurrency.has(price.currency)) {
+      priceByCurrency.set(price.currency, {
+        currency: price.currency,
+        price: price.price,
+      });
+    }
+  }
+  return [...priceByCurrency.values()];
 }
 
 interface IssuedEmailVerificationChallenge {

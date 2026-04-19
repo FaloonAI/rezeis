@@ -12,3 +12,11 @@ class TelegramBootstrapResponseSchema(BaseModel):
     session: SessionSchema
     subscription: SubscriptionSchema | None
     expires_in: int = Field(alias="expiresIn")
+
+
+class WebAccountSignInResponseSchema(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    session: SessionSchema
+    subscription: SubscriptionSchema | None
+    expires_in: int = Field(alias="expiresIn")

@@ -63,12 +63,6 @@ export function AuthProvider({ children }: { readonly children: ReactNode }): Re
     queryClient.removeQueries({ queryKey: ['subscription'], exact: true })
   }, [hasUnauthorizedSessionError])
   const status: AuthStatus = useMemo(() => {
-    if (hasUnauthorizedSessionError) {
-      return 'authentication-required'
-    }
-    if (sessionQuery.data) {
-      return 'authenticated'
-    }
     if (telegramRuntimeState.hasLaunch && !telegramRuntimeState.isRuntimeReady) {
       return 'loading'
     }
@@ -80,6 +74,12 @@ export function AuthProvider({ children }: { readonly children: ReactNode }): Re
     }
     if (bootstrapMutation.error && !isApiUnauthorizedError(bootstrapMutation.error)) {
       return 'error'
+    }
+    if (hasUnauthorizedSessionError) {
+      return 'authentication-required'
+    }
+    if (sessionQuery.data) {
+      return 'authenticated'
     }
     if (telegramRuntimeState.runtimeError && telegramRuntimeState.hasLaunch && telegramRuntimeState.initData === null) {
       return 'error'

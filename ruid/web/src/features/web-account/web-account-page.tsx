@@ -99,11 +99,14 @@ export function WebAccountPage(): ReactElement {
     now,
   }), [authSession.status, now, session?.webAccount, webAccountEmailVerificationChallengeState.challenge])
   useEffect(() => {
+    if (authSession.status === 'loading') {
+      return
+    }
     if (webAccountEmailVerificationChallengeState.challenge === supportedChallenge) {
       return
     }
     webAccountEmailVerificationChallengeState.saveChallenge(supportedChallenge)
-  }, [supportedChallenge, webAccountEmailVerificationChallengeState.challenge, webAccountEmailVerificationChallengeState.saveChallenge])
+  }, [authSession.status, supportedChallenge, webAccountEmailVerificationChallengeState.challenge, webAccountEmailVerificationChallengeState.saveChallenge])
   useEffect(() => {
     if (!session?.webAccount) {
       setLogin('')
@@ -188,7 +191,7 @@ export function WebAccountPage(): ReactElement {
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">{getActionDescription(session.webAccount)}</p>
                   </div>
                 </div>
-                <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
+                <form className="mt-6 space-y-4" onSubmit={handleSubmit} noValidate>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-foreground" htmlFor={loginInputId}>Login</label>
                     <input
@@ -355,7 +358,7 @@ function EmailVerificationStateCard({
         </div>
       ) : null}
       {isPendingStateVisible ? (
-        <form className="mt-5 space-y-4 rounded-2xl border border-border/70 bg-background/70 p-4" onSubmit={onVerificationSubmit}>
+        <form className="mt-5 space-y-4 rounded-2xl border border-border/70 bg-background/70 p-4" onSubmit={onVerificationSubmit} noValidate>
           <div>
             <h3 className="text-sm font-medium text-foreground">Complete verification</h3>
             <p className="mt-1 text-sm text-muted-foreground">Enter the 6-digit code from the verification email to refresh the linked-account session state in place.</p>
@@ -385,7 +388,7 @@ function EmailVerificationStateCard({
           </div>
         </form>
       ) : null}
-      {mutation.error && !isApiUnauthorizedError(mutation.error) ? <p className="mt-4 rounded-2xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{getApiErrorMessage(mutation.error)}</p> : null}
+      {mutation.error && !isApiUnauthorizedError(mutation.error) && !shouldClearEmailVerificationChallengeForError(mutation.error) ? <p className="mt-4 rounded-2xl bg-destructive/10 px-4 py-3 text-sm text-destructive">{getApiErrorMessage(mutation.error)}</p> : null}
     </article>
   )
 }

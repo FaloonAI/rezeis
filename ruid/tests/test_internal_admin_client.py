@@ -9,6 +9,8 @@ from app.services.internal_admin_client import (
     InternalAdminActionablePasswordHandoffError,
     InternalAdminActionableEmailVerificationCompletionError,
     InternalAdminContractError,
+    InternalAdminInvalidCredentialsError,
+    InternalAdminLinkedWebAccountNotReadyError,
     InternalAdminNonActionablePromptError,
     InternalAdminNotFoundError,
     InternalAdminTimeoutError,
@@ -225,6 +227,135 @@ async def test_internal_admin_client_sends_web_account_email_verification_comple
     assert json.loads(captured_content) == {
         "userId": "11111111-1111-1111-1111-111111111111",
         "code": "123456",
+    }
+
+
+@pytest.mark.asyncio
+async def test_internal_admin_client_sends_linked_web_account_sign_in_post_request() -> None:
+    captured_method: str | None = None
+    captured_path: str | None = None
+    captured_query: str | None = None
+    captured_content: bytes | None = None
+
+    async def handle_request(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_method, captured_path, captured_query, captured_content
+        captured_method = request.method
+        captured_path = request.url.path
+        captured_query = request.url.query.decode("utf-8")
+        captured_content = request.content
+        return httpx.Response(status_code=200, json={"ok": True})
+
+    transport = httpx.MockTransport(handle_request)
+    client = build_internal_admin_client(
+        base_url="http://rezeis-admin-api:3000",
+        internal_api_key="secret-key",
+        transport=transport,
+    )
+
+    await client.post_linked_web_account_sign_in(
+        login="user-login",
+        password="correct-password",
+    )
+    await client.close()
+
+    assert captured_method == "POST"
+    assert captured_path == "/api/internal/user/web-account/sign-in"
+    assert captured_query == ""
+    assert json.loads(captured_content) == {
+        "login": "user-login",
+        "password": "correct-password",
+    }
+
+
+@pytest.mark.asyncio
+async def test_internal_admin_client_sends_subscription_action_policy_post_request() -> None:
+    captured_method: str | None = None
+    captured_path: str | None = None
+    captured_query: str | None = None
+    captured_content: bytes | None = None
+
+    async def handle_request(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_method, captured_path, captured_query, captured_content
+        captured_method = request.method
+        captured_path = request.url.path
+        captured_query = request.url.query.decode("utf-8")
+        captured_content = request.content
+        return httpx.Response(status_code=200, json={"ok": True})
+
+    transport = httpx.MockTransport(handle_request)
+    client = build_internal_admin_client(
+        base_url="http://rezeis-admin-api:3000",
+        internal_api_key="secret-key",
+        transport=transport,
+    )
+
+    await client.post_json(
+        "/api/internal/subscriptions/action-policy",
+        body={
+            "userId": "11111111-1111-1111-1111-111111111111",
+            "subscriptionId": "22222222-2222-2222-2222-222222222222",
+            "channel": "WEB",
+        },
+    )
+    await client.close()
+
+    assert captured_method == "POST"
+    assert captured_path == "/api/internal/subscriptions/action-policy"
+    assert captured_query == ""
+    assert json.loads(captured_content) == {
+        "userId": "11111111-1111-1111-1111-111111111111",
+        "subscriptionId": "22222222-2222-2222-2222-222222222222",
+        "channel": "WEB",
+    }
+
+
+@pytest.mark.asyncio
+async def test_internal_admin_client_sends_subscription_quote_post_request() -> None:
+    captured_method: str | None = None
+    captured_path: str | None = None
+    captured_query: str | None = None
+    captured_content: bytes | None = None
+
+    async def handle_request(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_method, captured_path, captured_query, captured_content
+        captured_method = request.method
+        captured_path = request.url.path
+        captured_query = request.url.query.decode("utf-8")
+        captured_content = request.content
+        return httpx.Response(status_code=200, json={"ok": True})
+
+    transport = httpx.MockTransport(handle_request)
+    client = build_internal_admin_client(
+        base_url="http://rezeis-admin-api:3000",
+        internal_api_key="secret-key",
+        transport=transport,
+    )
+
+    await client.post_json(
+        "/api/internal/subscriptions/quote",
+        body={
+            "userId": "11111111-1111-1111-1111-111111111111",
+            "purchaseType": "NEW",
+            "subscriptionId": "22222222-2222-2222-2222-222222222222",
+            "planId": "33333333-3333-3333-3333-333333333333",
+            "durationDays": 30,
+            "channel": "WEB",
+            "gatewayType": "YOOKASSA",
+        },
+    )
+    await client.close()
+
+    assert captured_method == "POST"
+    assert captured_path == "/api/internal/subscriptions/quote"
+    assert captured_query == ""
+    assert json.loads(captured_content) == {
+        "userId": "11111111-1111-1111-1111-111111111111",
+        "purchaseType": "NEW",
+        "subscriptionId": "22222222-2222-2222-2222-222222222222",
+        "planId": "33333333-3333-3333-3333-333333333333",
+        "durationDays": 30,
+        "channel": "WEB",
+        "gatewayType": "YOOKASSA",
     }
 
 
@@ -506,6 +637,76 @@ async def test_internal_admin_client_raises_actionable_completion_error_for_emai
 
 
 @pytest.mark.asyncio
+async def test_internal_admin_client_raises_invalid_credentials_for_linked_web_account_sign_in_401() -> (
+    None
+):
+    async def handle_request(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code=401,
+            json={
+                "statusCode": 401,
+                "message": "Invalid login or password",
+                "error": "Unauthorized",
+            },
+        )
+
+    transport = httpx.MockTransport(handle_request)
+    client = build_internal_admin_client(
+        base_url="http://rezeis-admin-api:3000",
+        internal_api_key="secret-key",
+        transport=transport,
+    )
+
+    with pytest.raises(InternalAdminInvalidCredentialsError):
+        await client.post_linked_web_account_sign_in(
+            login="user-login",
+            password="wrong-password",
+        )
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message",
+    [
+        "webAccount password is not configured",
+        "webAccount password change is required",
+        "webAccount email is not verified",
+        "User is blocked",
+    ],
+)
+async def test_internal_admin_client_raises_not_ready_for_linked_web_account_sign_in_400(
+    message: str,
+) -> None:
+    async def handle_request(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            status_code=400,
+            json={
+                "statusCode": 400,
+                "message": message,
+                "error": "Bad Request",
+            },
+        )
+
+    transport = httpx.MockTransport(handle_request)
+    client = build_internal_admin_client(
+        base_url="http://rezeis-admin-api:3000",
+        internal_api_key="secret-key",
+        transport=transport,
+    )
+
+    with pytest.raises(InternalAdminLinkedWebAccountNotReadyError) as actual_error:
+        await client.post_linked_web_account_sign_in(
+            login="user-login",
+            password="correct-password",
+        )
+
+    assert actual_error.value.detail == message
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_internal_admin_client_raises_timeout_error_for_timeout() -> None:
     async def handle_request(request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("timed out", request=request)
@@ -657,13 +858,15 @@ async def test_internal_admin_client_keeps_unexpected_email_verification_challen
 @pytest.mark.asyncio
 async def test_plans_service_raises_contract_error_for_schema_drift() -> None:
     class StubInternalAdminClient:
-        async def get_json(self, path: str) -> object:
+        async def get_json(self, path: str, params: dict[str, str] | None = None) -> object:
+            assert path == "/api/internal/catalog/plans"
+            assert params == {"channel": "WEB", "userId": "user-1"}
             return [{"id": "plan-1", "name": "Starter"}]
 
     service = PlansService(StubInternalAdminClient())
 
     with pytest.raises(InternalAdminContractError):
-        await service.get_plans()
+        await service.get_plans(user_id="user-1")
 
 
 @pytest.mark.asyncio
