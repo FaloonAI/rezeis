@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" fill="none">
+  <rect width="80" height="80" rx="16" fill="#1a1a2e"/>
+  <path d="M20 55V25l20 15-20 15z" fill="#4ade80" opacity="0.9"/>
+  <path d="M35 55V25l20 15-20 15z" fill="#22d3ee" opacity="0.7"/>
+  <path d="M50 55V25l20 15-20 15z" fill="#a78bfa" opacity="0.5"/>
+  <text x="40" y="72" text-anchor="middle" font-family="system-ui" font-size="8" font-weight="700" fill="#e2e8f0">REZEIS</text>
+</svg>
