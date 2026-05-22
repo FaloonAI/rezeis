@@ -18,6 +18,8 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { CountUp } from '@/components/CountUp'
+import { SpotlightCard } from '@/components/effects/SpotlightCard'
+import { Noise } from '@/components/effects/Noise'
 
 import type { DashboardSummaryInterface } from './dashboard-api'
 
@@ -102,23 +104,26 @@ interface KpiItem {
 
 function KpiCard({ title, value, description, icon: Icon, trend }: KpiItem): JSX.Element {
   return (
-    <Card className="relative overflow-hidden">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
-        <Icon className="h-4 w-4 text-muted-foreground" />
-      </CardHeader>
-      <CardContent>
-        <div className="flex items-center gap-2">
-          <span className="text-2xl font-bold">
-            {typeof value === 'number' ? <CountUp value={value} /> : value}
-          </span>
-          {trend === 'up' && <TrendingUp className="h-4 w-4 text-emerald-500" />}
-          {trend === 'down' && <TrendingDown className="h-4 w-4 text-red-500" />}
-        </div>
-        {description !== undefined ? (
-          <p className="text-xs text-muted-foreground mt-1">{description}</p>
-        ) : null}
-      </CardContent>
-    </Card>
+    <SpotlightCard className="rounded-lg">
+      <Card className="relative overflow-hidden">
+        <Noise opacity={0.03} />
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+          <Icon className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2">
+            <span className="text-2xl font-bold">
+              {typeof value === 'number' ? <CountUp value={value} /> : value}
+            </span>
+            {trend === 'up' && <TrendingUp className="h-4 w-4 text-emerald-500" />}
+            {trend === 'down' && <TrendingDown className="h-4 w-4 text-red-500" />}
+          </div>
+          {description !== undefined ? (
+            <p className="text-xs text-muted-foreground mt-1">{description}</p>
+          ) : null}
+        </CardContent>
+      </Card>
+    </SpotlightCard>
   )
 }

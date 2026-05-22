@@ -199,6 +199,14 @@ export const en = {
           'Animations and transitions across the panel. The OS-level reduced-motion preference always wins.',
         toggleLabel: 'Enable animations',
       },
+      effects: {
+        title: 'Effects',
+        description: 'Visual effects: spotlight, shiny text, aurora and glass blur. Can be disabled to save resources.',
+        visualEffectsLabel: 'Visual effects',
+        glassBlurLabel: 'Glass blur',
+        blurIntensityLabel: 'Blur intensity',
+        glassOpacityLabel: 'Glass opacity',
+      },
       selected: 'Selected',
     },
     preview: {

@@ -515,6 +515,76 @@ const ORANGE_CSS = `:root {
   --sidebar-ring: oklch(0.646 0.222 41.116);
 }`
 
+// ── Liquid Glass — translucent frosted-glass aesthetic ────────────────────────
+const LIQUID_GLASS_CSS = `:root {
+  --background: oklch(0.97 0.01 240 / 85%);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0 / 60%);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0 / 80%);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.546 0.245 262.881);
+  --primary-foreground: oklch(0.984 0.018 246.232);
+  --secondary: oklch(0.97 0.005 240 / 70%);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0.005 240 / 50%);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0.01 240 / 60%);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 30%);
+  --input: oklch(1 0 0 / 40%);
+  --ring: oklch(0.546 0.245 262.881);
+  --chart-1: oklch(0.546 0.245 262.881);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.98 0.005 240 / 70%);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.546 0.245 262.881);
+  --sidebar-primary-foreground: oklch(0.984 0.018 246.232);
+  --sidebar-accent: oklch(0.97 0.005 240 / 60%);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(1 0 0 / 25%);
+  --sidebar-ring: oklch(0.546 0.245 262.881);
+}
+.dark {
+  --background: oklch(0.15 0.02 260 / 90%);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.2 0.015 260 / 50%);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.2 0.015 260 / 70%);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.623 0.214 259.815);
+  --primary-foreground: oklch(0.984 0.018 246.232);
+  --secondary: oklch(0.25 0.02 260 / 50%);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.25 0.02 260 / 40%);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.25 0.02 260 / 50%);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.623 0.214 259.815);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.12 0.02 260 / 70%);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.623 0.214 259.815);
+  --sidebar-primary-foreground: oklch(0.984 0.018 246.232);
+  --sidebar-accent: oklch(0.25 0.02 260 / 50%);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.623 0.214 259.815);
+}`
+
 export const THEME_PRESETS: ThemePreset[] = [
   {
     id: 'default',
@@ -564,6 +634,13 @@ export const THEME_PRESETS: ThemePreset[] = [
     description: 'Vibrant pink accent',
     swatch: 'oklch(0.645 0.246 16.439)',
     css: ROSE_CSS,
+  },
+  {
+    id: 'liquid-glass',
+    name: 'Liquid Glass',
+    description: 'Frosted translucent glass with blur effects',
+    swatch: 'oklch(0.546 0.245 262.881)',
+    css: LIQUID_GLASS_CSS,
   },
 ]
 
