@@ -19,16 +19,28 @@ interface AppearanceState {
   density: UiDensity;
   fontSize: UiFontSize;
   animationsEnabled: boolean;
+  visualEffects: boolean;
+  glassBlur: boolean;
+  blurIntensity: number;
+  glassOpacity: number;
   setDensity: (density: UiDensity) => void;
   setFontSize: (fontSize: UiFontSize) => void;
   setAnimationsEnabled: (enabled: boolean) => void;
+  setVisualEffects: (enabled: boolean) => void;
+  setGlassBlur: (enabled: boolean) => void;
+  setBlurIntensity: (intensity: number) => void;
+  setGlassOpacity: (opacity: number) => void;
   reset: () => void;
 }
 
-const DEFAULTS: Pick<AppearanceState, 'density' | 'fontSize' | 'animationsEnabled'> = {
+const DEFAULTS: Pick<AppearanceState, 'density' | 'fontSize' | 'animationsEnabled' | 'visualEffects' | 'glassBlur' | 'blurIntensity' | 'glassOpacity'> = {
   density: 'comfortable',
   fontSize: 'default',
   animationsEnabled: true,
+  visualEffects: true,
+  glassBlur: true,
+  blurIntensity: 12,
+  glassOpacity: 60,
 };
 
 export const useAppearanceStore = create<AppearanceState>()(
@@ -38,6 +50,10 @@ export const useAppearanceStore = create<AppearanceState>()(
       setDensity: (density) => set({ density }),
       setFontSize: (fontSize) => set({ fontSize }),
       setAnimationsEnabled: (animationsEnabled) => set({ animationsEnabled }),
+      setVisualEffects: (visualEffects) => set({ visualEffects }),
+      setGlassBlur: (glassBlur) => set({ glassBlur }),
+      setBlurIntensity: (blurIntensity) => set({ blurIntensity }),
+      setGlassOpacity: (glassOpacity) => set({ glassOpacity }),
       reset: () => set({ ...DEFAULTS }),
     }),
     {

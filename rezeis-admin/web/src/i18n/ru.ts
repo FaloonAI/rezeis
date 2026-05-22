@@ -199,6 +199,14 @@
           'Анимации и переходы по всей панели. Системная настройка reduced-motion всегда имеет приоритет.',
         toggleLabel: 'Включить анимации',
       },
+      effects: {
+        title: 'Эффекты',
+        description: 'Визуальные эффекты: spotlight, блеск текста, aurora и стеклянное размытие. Можно отключить для экономии ресурсов.',
+        visualEffectsLabel: 'Визуальные эффекты',
+        glassBlurLabel: 'Стеклянное размытие',
+        blurIntensityLabel: 'Интенсивность размытия',
+        glassOpacityLabel: 'Прозрачность стекла',
+      },
       selected: 'Выбрано',
     },
     preview: {

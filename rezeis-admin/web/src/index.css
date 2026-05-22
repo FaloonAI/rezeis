@@ -281,6 +281,81 @@
   animation: status-pulse 2s ease-in-out infinite;
 }
 
+/* ── Liquid Glass — backdrop-filter effects ────────────────────────────────
+ * Applied when the Liquid Glass preset is active. The glass effect uses
+ * CSS custom properties so users can tune blur intensity and opacity
+ * from the Appearance page.
+ */
+:root {
+  --glass-blur: 12px;
+  --glass-opacity: 60%;
+}
+
+:root[data-glass-blur="on"] .glass-card,
+:root[data-glass-blur="on"] .rounded-lg.border.bg-card {
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.5);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.5);
+  box-shadow:
+    0 0 0 1px oklch(1 0 0 / 15%) inset,
+    0 4px 24px oklch(0 0 0 / 8%);
+}
+
+/* Disable visual effects (React Bits animations, spotlight, aurora, etc.) */
+:root[data-effects="off"] .spotlight-effect,
+:root[data-effects="off"] .shiny-text-effect,
+:root[data-effects="off"] .aurora-bg,
+:root[data-effects="off"] .glare-hover-effect,
+:root[data-effects="off"] .animated-content-effect {
+  animation: none !important;
+  backdrop-filter: none !important;
+  filter: none !important;
+}
+
+/* Respect prefers-reduced-motion at OS level */
+@media (prefers-reduced-motion: reduce) {
+  .spotlight-effect,
+  .shiny-text-effect,
+  .aurora-bg,
+  .glare-hover-effect,
+  .animated-content-effect {
+    animation: none !important;
+    backdrop-filter: none !important;
+    filter: none !important;
+  }
+}
+
+/* ── Aurora keyframes ─────────────────────────────────────────────────────── */
+@keyframes aurora-1 {
+  0%, 100% { transform: translate(0%, 0%) scale(1); }
+  25% { transform: translate(10%, -15%) scale(1.1); }
+  50% { transform: translate(-5%, 10%) scale(0.95); }
+  75% { transform: translate(-10%, -5%) scale(1.05); }
+}
+@keyframes aurora-2 {
+  0%, 100% { transform: translate(0%, 0%) scale(1); }
+  25% { transform: translate(-15%, 10%) scale(1.05); }
+  50% { transform: translate(10%, -10%) scale(1.1); }
+  75% { transform: translate(5%, 15%) scale(0.9); }
+}
+@keyframes aurora-3 {
+  0%, 100% { transform: translate(0%, 0%) scale(1); }
+  25% { transform: translate(5%, 15%) scale(0.95); }
+  50% { transform: translate(-10%, -5%) scale(1.1); }
+  75% { transform: translate(15%, -10%) scale(1); }
+}
+
+/* ── Shiny text sweep ─────────────────────────────────────────────────────── */
+@keyframes shiny-text {
+  0% { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+
+/* Tailwind utility classes for the animations */
+.animate-aurora-1 { animation: aurora-1 12s ease-in-out infinite; }
+.animate-aurora-2 { animation: aurora-2 15s ease-in-out infinite; }
+.animate-aurora-3 { animation: aurora-3 18s ease-in-out infinite; }
+.animate-shiny-text { animation: shiny-text 3s linear infinite; }
+
 /* ── Number input spinners ──────────────────────────────────────────────
  * Chromium renders the native step buttons of `<input type="number">`
  * with the OS' light-grey chrome, which clashes with the OKLCH dark

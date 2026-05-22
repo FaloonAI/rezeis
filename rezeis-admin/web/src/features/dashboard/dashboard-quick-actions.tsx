@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { GlareHover } from '@/components/effects/GlareHover'
 
 export function DashboardQuickActions(): JSX.Element {
   const { t } = useTranslation()
@@ -65,17 +66,18 @@ export function DashboardQuickActions(): JSX.Element {
       <CardContent>
         <div className="flex flex-wrap gap-2">
           {actions.map((action) => (
-            <Button
-              key={action.path + action.label}
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              onClick={() => navigate(action.path)}
-              aria-label={action.label}
-            >
-              <action.icon className="h-4 w-4" />
-              {action.label}
-            </Button>
+            <GlareHover key={action.path + action.label} className="rounded-md">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => navigate(action.path)}
+                aria-label={action.label}
+              >
+                <action.icon className="h-4 w-4" />
+                {action.label}
+              </Button>
+            </GlareHover>
           ))}
         </div>
       </CardContent>

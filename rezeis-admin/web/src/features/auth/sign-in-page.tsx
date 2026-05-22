@@ -13,6 +13,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Aurora } from '@/components/effects/Aurora'
+import { SplitText } from '@/components/effects/SplitText'
 
 import { useAuth } from './auth-provider'
 import { getAuthStatus, loginApi, registerApi } from './auth-api'
@@ -77,15 +79,20 @@ export default function SignInPage() {
 function PageShell({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <div className="w-full max-w-md space-y-6">
-        <div className="flex flex-col items-center gap-2">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
-            <Shield className="h-6 w-6 text-primary-foreground" />
+    <div className="relative min-h-screen overflow-hidden">
+      <Aurora />
+      <div className="relative z-10 flex min-h-screen items-center justify-center p-4">
+        <div className="w-full max-w-md space-y-6">
+          <div className="flex flex-col items-center gap-2">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
+              <Shield className="h-6 w-6 text-primary-foreground" />
+            </div>
+            <h1 className="text-xl font-bold">
+              <SplitText text={t('signInPage.appName')} />
+            </h1>
           </div>
-          <h1 className="text-xl font-bold">{t('signInPage.appName')}</h1>
+          {children}
         </div>
-        {children}
       </div>
     </div>
   )
