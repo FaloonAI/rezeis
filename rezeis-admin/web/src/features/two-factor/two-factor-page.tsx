@@ -205,10 +205,15 @@ export default function TwoFactorPage() {
         </Card>
       )}
 
-      {/* Change Password */}
+      {/* Change Password + Passkey + Auth Providers */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <ChangePasswordSection />
-        <PasskeySection />
+        <div className="space-y-6">
+          <ChangePasswordSection />
+        </div>
+        <div className="space-y-6">
+          <PasskeySection />
+          <AuthProvidersInline />
+        </div>
       </div>
     </div>
   )
@@ -532,4 +537,67 @@ function bufferToBase64url(buffer: ArrayBuffer): string {
     binary += String.fromCharCode(bytes[i])
   }
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+}
+
+// ── Auth Providers Inline (inside Security tab) ──────────────────────────────
+
+function AuthProvidersInline() {
+  const { t } = useTranslation()
+  const { data: providers, isLoading } = useQuery({
+    queryKey: ['oauth', 'config'],
+    queryFn: async () => {
+      const { api } = await import('@/lib/api')
+      const res = await api.get<Array<{ type: string; displayName: string; isEnabled: boolean }>>('/admin/oauth/config')
+      return res.data
+    },
+    staleTime: 30_000,
+  })
+
+  const queryClient = useQueryClient()
+  const toggleMutation = useMutation({
+    mutationFn: async ({ type, enabled }: { type: string; enabled: boolean }) => {
+      const { api } = await import('@/lib/api')
+      await api.put(`/admin/oauth/config/${type}`, { isEnabled: enabled })
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['oauth', 'config'] }),
+  })
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{t('twoFactorPage.authProviders.title')}</CardTitle>
+        <CardDescription>{t('twoFactorPage.authProviders.description')}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {isLoading ? (
+          <Skeleton className="h-24 w-full" />
+        ) : (
+          providers?.map((p) => (
+            <div key={p.type} className="flex items-center justify-between rounded-md border px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">{p.displayName}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs ${p.isEnabled ? 'text-emerald-500' : 'text-muted-foreground'}`}>
+                  {p.isEnabled ? t('twoFactorPage.authProviders.on') : t('twoFactorPage.authProviders.off')}
+                </span>
+                <button
+                  type="button"
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${p.isEnabled ? 'bg-emerald-500' : 'bg-muted'}`}
+                  onClick={() => toggleMutation.mutate({ type: p.type, enabled: !p.isEnabled })}
+                  disabled={toggleMutation.isPending}
+                  aria-label={`Toggle ${p.displayName}`}
+                >
+                  <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition-transform ${p.isEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+        <p className="text-xs text-muted-foreground pt-2">
+          {t('twoFactorPage.authProviders.hint')}
+        </p>
+      </CardContent>
+    </Card>
+  )
 }

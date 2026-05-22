@@ -4813,6 +4813,13 @@ export const en = {
       registered: 'Registered {{date}}',
       lastUsed: 'last used {{date}}',
     },
+    authProviders: {
+      title: 'Authentication Methods',
+      description: 'OAuth2 providers for admin login.',
+      on: 'On',
+      off: 'Off',
+      hint: 'Configure provider details in the full Auth Providers settings page.',
+    },
   },
   botConfigPage: {
     title: 'Bot Configuration',
