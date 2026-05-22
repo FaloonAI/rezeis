@@ -13,12 +13,19 @@
 
 services:
   rezeis:
-    image: ghcr.io/dizzzable/rezeis:0.1.3
+    build: .
     container_name: rezeis
     hostname: rezeis
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      - DATABASE_HOST=rezeis-db
+      - DATABASE_URL=postgresql://rezeis:rezeis_secret@rezeis-db:5432/rezeis
+      - REDIS_HOST=rezeis-redis
+      - REDIS_PASSWORD=rezeis
+      - NODE_ENV=production
+      - BACKUP_LOCATION=/app/data/backups
     ports:
       - '127.0.0.1:8000:8000'
     volumes:
@@ -32,14 +39,20 @@ services:
       - remnawave-network
 
   rezeis-worker:
-    image: ghcr.io/dizzzable/rezeis:0.1.3
+    build: .
     container_name: rezeis-worker
     hostname: rezeis-worker
     restart: unless-stopped
     env_file:
       - .env
     environment:
+      - DATABASE_HOST=rezeis-db
+      - DATABASE_URL=postgresql://rezeis:rezeis_secret@rezeis-db:5432/rezeis
+      - REDIS_HOST=rezeis-redis
+      - REDIS_PASSWORD=rezeis
+      - NODE_ENV=production
       - RUID_PROCESS_ROLE=worker
+      - BACKUP_LOCATION=/app/data/backups
     command: ["node", "dist/worker.js"]
     volumes:
       - rezeis-data:/app/data
@@ -57,13 +70,13 @@ services:
     hostname: rezeis-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-rezeis}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rezeis}
-      POSTGRES_DB: ${POSTGRES_DB:-rezeis}
+      POSTGRES_USER: rezeis
+      POSTGRES_PASSWORD: rezeis_secret
+      POSTGRES_DB: rezeis
     volumes:
       - rezeis-db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rezeis}"]
+      test: ["CMD-SHELL", "pg_isready -U rezeis"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -77,9 +90,12 @@ services:
     restart: unless-stopped
     command: >
       redis-server
-      --requirepass ${REDIS_PASSWORD:-rezeis}
-      --maxmemory 256mb
-      --maxmemory-policy allkeys-lru
+      --requirepass rezeis
+      --maxmemory 512mb
+      --maxmemory-policy volatile-lru
+      --save 60 1000
+      --appendonly yes
+      --appendfsync everysec
     volumes:
       - rezeis-redis-data:/data
     networks:

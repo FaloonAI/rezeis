@@ -2,9 +2,11 @@ import { Type } from 'class-transformer';
 import {
   IsEnum,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { BroadcastAudience } from '@prisma/client';
@@ -56,4 +58,22 @@ export class UpdateBroadcastDraftDto {
   @ValidateNested()
   @Type((): typeof BroadcastPayloadDto => BroadcastPayloadDto)
   public payload?: BroadcastPayloadDto;
+}
+
+export class SendBroadcastDto {
+  /** Optional delay in minutes for scheduled sends. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  public delayMinutes?: number;
+}
+
+export class EditBroadcastDto {
+  @IsString()
+  @MaxLength(4096)
+  public text!: string;
+
+  @IsOptional()
+  @IsIn(['HTML', 'MarkdownV2'])
+  public parseMode?: 'HTML' | 'MarkdownV2' | null;
 }

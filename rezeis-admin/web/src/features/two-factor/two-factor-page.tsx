@@ -204,7 +204,98 @@ export default function TwoFactorPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Change Password */}
+      <ChangePasswordSection />
     </div>
+  )
+}
+
+// ── Change Password Section ──────────────────────────────────────────────────
+
+function ChangePasswordSection() {
+  const { t } = useTranslation()
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await (await import('@/lib/api')).api.post('/admin/auth/password', {
+        currentPassword,
+        newPassword,
+      })
+      return res.data
+    },
+    onSuccess: () => {
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      // eslint-disable-next-line no-alert
+      alert(t('twoFactorPage.password.success'))
+    },
+    onError: (err: any) => {
+      // eslint-disable-next-line no-alert
+      alert(err.response?.data?.message ?? t('twoFactorPage.password.failed'))
+    },
+  })
+
+  const canSubmit =
+    currentPassword.length >= 1 &&
+    newPassword.length >= 8 &&
+    newPassword === confirmPassword &&
+    !mutation.isPending
+
+  return (
+    <Card className="max-w-2xl">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Shield className="h-5 w-5" />
+          {t('twoFactorPage.password.title')}
+        </CardTitle>
+        <CardDescription>{t('twoFactorPage.password.description')}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="current-pw">{t('twoFactorPage.password.current')}</Label>
+          <Input
+            id="current-pw"
+            type="password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            autoComplete="current-password"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="new-pw">{t('twoFactorPage.password.new')}</Label>
+          <Input
+            id="new-pw"
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            autoComplete="new-password"
+          />
+          <p className="text-[11px] text-muted-foreground">{t('twoFactorPage.password.hint')}</p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="confirm-pw">{t('twoFactorPage.password.confirm')}</Label>
+          <Input
+            id="confirm-pw"
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            autoComplete="new-password"
+          />
+          {confirmPassword.length > 0 && newPassword !== confirmPassword && (
+            <p className="text-[11px] text-destructive">{t('twoFactorPage.password.mismatch')}</p>
+          )}
+        </div>
+        <Button onClick={() => mutation.mutate()} disabled={!canSubmit}>
+          {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {t('twoFactorPage.password.submit')}
+        </Button>
+      </CardContent>
+    </Card>
   )
 }
 

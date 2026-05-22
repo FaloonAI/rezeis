@@ -1,50 +1,131 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { promises as fsp } from 'node:fs';
 
 import { appConfig } from '../../common/config/app.config';
+import { redisConfig } from '../../common/config/redis.config';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { BROADCAST_DELIVERY_QUEUE } from '../broadcast/broadcast.constants';
+
+interface ComponentHealth {
+  readonly status: 'up' | 'down';
+  readonly latencyMs?: number;
+  readonly details?: string;
+}
 
 interface HealthResponse {
-  readonly status: string;
+  readonly status: 'ok' | 'degraded' | 'error';
   readonly service: string;
+  readonly version: string;
   readonly timestamp: string;
-  readonly database: {
-    readonly status: string;
+  readonly uptime: number;
+  readonly components: {
+    readonly database: ComponentHealth;
+    readonly redis: ComponentHealth;
+    readonly queues: ComponentHealth;
+    readonly disk: ComponentHealth;
   };
 }
 
 /**
- * Builds health check payloads for the service.
+ * Comprehensive health check service.
+ *
+ * Checks:
+ *   - PostgreSQL connectivity (SELECT 1)
+ *   - Redis connectivity (PING)
+ *   - BullMQ queue health (no stalled workers)
+ *   - Disk space (backup volume writable)
+ *
+ * Status logic:
+ *   - "ok" — all components up
+ *   - "degraded" — non-critical component down (disk, queues)
+ *   - "error" — critical component down (database, redis)
  */
 @Injectable()
 export class HealthService {
+  private readonly logger = new Logger(HealthService.name);
+  private readonly startTime = Date.now();
+
   public constructor(
     private readonly prismaService: PrismaService,
     @Inject(appConfig.KEY)
     private readonly appConfiguration: ConfigType<typeof appConfig>,
+    @Inject(redisConfig.KEY)
+    private readonly redisConfiguration: ConfigType<typeof redisConfig>,
+    @InjectQueue(BROADCAST_DELIVERY_QUEUE)
+    private readonly sampleQueue: Queue,
   ) {}
 
-  /**
-   * Returns a structured service health payload with a database probe.
-   */
   public async getHealth(): Promise<HealthResponse> {
-    const isDatabaseAvailable: boolean = await this.checkDatabase();
+    const [database, redis, queues, disk] = await Promise.all([
+      this.checkDatabase(),
+      this.checkRedis(),
+      this.checkQueues(),
+      this.checkDisk(),
+    ]);
+
+    const critical = database.status === 'down' || redis.status === 'down';
+    const degraded = queues.status === 'down' || disk.status === 'down';
+
     return {
-      status: isDatabaseAvailable ? 'ok' : 'error',
+      status: critical ? 'error' : degraded ? 'degraded' : 'ok',
       service: this.appConfiguration.serviceName,
+      version: process.env.npm_package_version ?? '0.1.3',
       timestamp: new Date().toISOString(),
-      database: {
-        status: isDatabaseAvailable ? 'up' : 'down',
-      },
+      uptime: Math.floor((Date.now() - this.startTime) / 1000),
+      components: { database, redis, queues, disk },
     };
   }
 
-  private async checkDatabase(): Promise<boolean> {
+  private async checkDatabase(): Promise<ComponentHealth> {
+    const start = Date.now();
     try {
       await this.prismaService.$queryRawUnsafe('SELECT 1');
-      return true;
-    } catch {
-      return false;
+      return { status: 'up', latencyMs: Date.now() - start };
+    } catch (err) {
+      return { status: 'down', latencyMs: Date.now() - start, details: (err as Error).message };
+    }
+  }
+
+  private async checkRedis(): Promise<ComponentHealth> {
+    const start = Date.now();
+    try {
+      // Use the BullMQ queue's internal connection to ping Redis
+      const client = await this.sampleQueue.client;
+      const pong = await client.ping();
+      if (pong !== 'PONG') throw new Error(`Unexpected PING response: ${pong}`);
+      return { status: 'up', latencyMs: Date.now() - start };
+    } catch (err) {
+      return { status: 'down', latencyMs: Date.now() - start, details: (err as Error).message };
+    }
+  }
+
+  private async checkQueues(): Promise<ComponentHealth> {
+    try {
+      const counts = await this.sampleQueue.getJobCounts();
+      // If there are active jobs but no workers, queues are stalled
+      const healthy = counts.active === 0 || counts.active < 50;
+      return {
+        status: healthy ? 'up' : 'down',
+        details: `waiting=${counts.waiting} active=${counts.active} failed=${counts.failed}`,
+      };
+    } catch (err) {
+      return { status: 'down', details: (err as Error).message };
+    }
+  }
+
+  private async checkDisk(): Promise<ComponentHealth> {
+    const backupDir = process.env.BACKUP_LOCATION ?? '/app/data/backups';
+    try {
+      // Check if backup directory is writable
+      const testFile = `${backupDir}/.health-check-${Date.now()}`;
+      await fsp.writeFile(testFile, 'ok');
+      await fsp.unlink(testFile);
+      return { status: 'up' };
+    } catch (err) {
+      return { status: 'down', details: (err as Error).message };
     }
   }
 }

@@ -1,9 +1,7 @@
 import { BullModule } from '@nestjs/bullmq';
 import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
-import { ConfigType } from '@nestjs/config';
 
-import { redisConfig } from '../../common/config/redis.config';
 import { AuthModule } from '../auth/auth.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { AdminWebhooksController } from './controllers/admin-webhooks.controller';
@@ -35,12 +33,6 @@ import { WEBHOOK_DELIVERY_QUEUE } from './webhooks.constants';
     AuthModule,
     RbacModule,
     HttpModule,
-    BullModule.forRootAsync({
-      inject: [redisConfig.KEY],
-      useFactory: (configuration: ConfigType<typeof redisConfig>) => ({
-        connection: { url: configuration.url },
-      }),
-    }),
     BullModule.registerQueue({ name: WEBHOOK_DELIVERY_QUEUE }),
   ],
   controllers: [AdminWebhooksController],

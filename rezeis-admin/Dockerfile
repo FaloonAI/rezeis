@@ -43,7 +43,11 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Install PostgreSQL client tools (pg_dump, psql) for backup/restore
+RUN apk add --no-cache postgresql16-client
+
 COPY package.json ./
+COPY prisma.config.ts ./
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=build-backend /app/dist ./dist
 COPY --from=build-backend /app/prisma ./prisma

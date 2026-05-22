@@ -38,6 +38,7 @@ import {
   UserX,
   Wallet,
   Wifi,
+  ClipboardList,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -698,6 +699,8 @@ function SubscriptionsTab({ user, telegramId, queryKey }: { user: any; telegramI
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
   const [showGiveSub, setShowGiveSub] = useState(false)
+  const [showAssignPlan, setShowAssignPlan] = useState(false)
+  const [assignPlanId, setAssignPlanId] = useState('')
   const [openSubId, setOpenSubId] = useState<string | null>(null)
 
   const grantTrialMutation = useMutation({
@@ -780,7 +783,48 @@ function SubscriptionsTab({ user, telegramId, queryKey }: { user: any; telegramI
           )}
           {t('userDetailPanel.subscriptions.syncAll')}
         </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setShowAssignPlan(!showAssignPlan)}
+        >
+          <ClipboardList className="mr-1 h-3.5 w-3.5" />
+          {t('userDetailPanel.subscriptions.assignPlan', 'Назначить план')}
+        </Button>
       </div>
+
+      {showAssignPlan && plans && (
+        <div className="flex items-center gap-2 rounded-md border border-primary/30 p-2">
+          <Select value={assignPlanId} onValueChange={setAssignPlanId}>
+            <SelectTrigger className="flex-1 h-8 text-xs" aria-label={t('userDetailPanel.subscriptions.selectPlan', 'Select plan')}>
+              <SelectValue placeholder={t('userDetailPanel.subscriptions.selectPlan', 'Выберите план')} />
+            </SelectTrigger>
+            <SelectContent>
+              {assignablePlans.map((plan: any) => (
+                <SelectItem key={plan.id} value={String(plan.id)} className="text-xs">
+                  {plan.name} {plan.trafficLimit ? `(${plan.trafficLimit} GB)` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            size="sm"
+            className="h-8"
+            onClick={() => {
+              // Assign to all subs that don't have a plan
+              const unassigned = subs.filter((s: any) => !s.planSnapshot?.planId && s.status !== 'DELETED')
+              if (unassigned.length > 0) {
+                api.post('/admin/imports/assign-plan', { planId: assignPlanId, userIds: [user.id] })
+                  .then(() => { queryClient.invalidateQueries({ queryKey }); toast.success(t('userDetailPanel.subscriptions.planAssigned', 'Plan assigned')); setShowAssignPlan(false); setAssignPlanId('') })
+                  .catch(() => toast.error('Failed'))
+              }
+            }}
+            disabled={!assignPlanId}
+          >
+            {t('userDetailPanel.subscriptions.assign', 'Назначить')}
+          </Button>
+        </div>
+      )}
 
       {subs.length === 0 ? (
         <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">{t('userDetailPanel.subscriptions.noSubs')}</CardContent></Card>

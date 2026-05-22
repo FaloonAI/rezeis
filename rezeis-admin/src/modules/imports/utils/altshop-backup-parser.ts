@@ -109,7 +109,7 @@ function extractDataFromJson(json: Record<string, unknown>): AltshopBackupData {
 
   // Map altshop subscription format: `plan` field → `plan_snapshot`
   const mappedSubscriptions: AltshopSubscription[] = subscriptions.map((sub) => {
-    const raw = sub as Record<string, unknown>;
+    const raw = sub as unknown as Record<string, unknown>;
     return {
       ...sub,
       plan_snapshot: (raw.plan ?? raw.plan_snapshot ?? null) as Record<string, unknown> | null,

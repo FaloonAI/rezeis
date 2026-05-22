@@ -19,6 +19,8 @@ import { redisConfig } from './common/config/redis.config';
 import { webhookConfig } from './common/config/webhook.config';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { RawCacheModule } from './common/cache/raw-cache.module';
+import { QueueModule } from './common/queue/queue.module';
+import { ThrottleModule } from './common/throttle/throttle.module';
 import { SystemEventsModule } from './common/services/system-events.module';
 import { AddOnsModule } from './modules/add-ons/add-ons.module';
 import { AntiFraudModule } from './modules/anti-fraud/anti-fraud.module';
@@ -43,6 +45,7 @@ import { HealthModule } from './modules/health/health.module';
 import { ImportsModule } from './modules/imports/imports.module';
 import { InternalUserModule } from './modules/internal-user/internal-user.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { EmailDeliveryModule } from './modules/email/email.module';
 import { PartnersModule } from './modules/partners/partners.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { PlansModule } from './modules/plans/plans.module';
@@ -80,6 +83,8 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     }),
     PrismaModule,
     RawCacheModule,
+    QueueModule,
+    ThrottleModule,
     ScheduleModule.forRoot(),
     SystemEventsModule,
     AddOnsModule,
@@ -103,6 +108,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     FaqModule,
     ImportsModule,
     NotificationsModule,
+    EmailDeliveryModule,
     PartnersModule,
     ProfileSyncModule,
     PromocodesModule,

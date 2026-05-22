@@ -1,10 +1,8 @@
 import { HttpModule } from '@nestjs/axios';
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
-import { ConfigType } from '@nestjs/config';
 
 import { AuthModule } from '../auth/auth.module';
-import { redisConfig } from '../../common/config/redis.config';
 import { RemnawaveModule } from '../remnawave/remnawave.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { PAYMENT_RECONCILIATION_QUEUE } from './constants/payment-reconciliation.constant';
@@ -16,6 +14,7 @@ import { InternalPaymentWebhooksController } from './controllers/internal-paymen
 import { InternalPaymentsController } from './controllers/internal-payments.controller';
 import { PublicPaymentWebhooksController } from './controllers/public-payment-webhooks.controller';
 import { PaymentReconciliationProcessor } from './processors/payment-reconciliation.processor';
+import { PaymentAutoRetryService } from './services/payment-auto-retry.service';
 import { PaymentOpsAlertService } from './services/payment-ops-alert.service';
 import { PaymentProviderExecutionService } from './services/payment-provider-execution.service';
 import { PaymentGatewayRegistryService } from './services/payment-gateway-registry.service';
@@ -36,14 +35,6 @@ import { TelegramStarsWebhookService } from './services/telegram-stars-webhook.s
     HttpModule,
     RemnawaveModule,
     SubscriptionsModule,
-    BullModule.forRootAsync({
-      inject: [redisConfig.KEY],
-      useFactory: (configuration: ConfigType<typeof redisConfig>) => ({
-        connection: {
-          url: configuration.url,
-        },
-      }),
-    }),
     BullModule.registerQueue({
       name: PAYMENT_RECONCILIATION_QUEUE,
     }),
@@ -72,6 +63,7 @@ import { TelegramStarsWebhookService } from './services/telegram-stars-webhook.s
     PaymentSubscriptionMutationService,
     PaymentReconciliationService,
     PaymentReconciliationProcessor,
+    PaymentAutoRetryService,
   ],
 })
 export class PaymentsModule {}

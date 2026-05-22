@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, UserX, UserCheck, Copy, Save, Send, RefreshCw, Plus, Minus, Trash2, Power, PowerOff, Clock, HardDrive, Smartphone, Loader2 } from 'lucide-react'
+import { ArrowLeft, UserX, UserCheck, Copy, Save, Send, RefreshCw, Plus, Minus, Trash2, Power, PowerOff, Clock, HardDrive, Smartphone, Loader2, ClipboardList } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
@@ -448,6 +448,8 @@ function SubscriptionsTab({
   const queryClient = useQueryClient()
   const [showGiveSub, setShowGiveSub] = useState(false)
   const [showDevices, setShowDevices] = useState<number | null>(null)
+  const [showAssignPlan, setShowAssignPlan] = useState(false)
+  const [assignPlanId, setAssignPlanId] = useState<string>('')
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: any }) =>
@@ -495,6 +497,31 @@ function SubscriptionsTab({
       toast.error(err.response?.data?.message ?? t('userDetailPage.trialGrantFailed')),
   })
 
+  const { data: plans } = useQuery({
+    queryKey: ['admin', 'plans'],
+    queryFn: async () => {
+      const response = await api.get('/admin/plans')
+      return (response.data as any[]).filter((p: any) => p.isActive)
+    },
+    enabled: showAssignPlan,
+  })
+
+  const assignPlanMutation = useMutation({
+    mutationFn: (planId: string) =>
+      api.post('/admin/imports/assign-plan', {
+        planId,
+        userIds: [user.id],
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey })
+      toast.success(t('userDetailPage.subscriptions.planAssigned'))
+      setShowAssignPlan(false)
+      setAssignPlanId('')
+    },
+    onError: (err: any) =>
+      toast.error(err.response?.data?.message ?? t('userDetailPage.subscriptions.planAssignFailed')),
+  })
+
   const subs = user.subscriptions ?? []
   const dateLocale = locale === 'ru' ? 'ru-RU' : 'en-US'
 
@@ -513,7 +540,59 @@ function SubscriptionsTab({
           <RefreshCw className="h-3.5 w-3.5 mr-1" />{' '}
           {t('userDetailPage.subscriptions.grantTrial')}
         </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setShowAssignPlan(true)}
+        >
+          <ClipboardList className="h-3.5 w-3.5 mr-1" />{' '}
+          {t('userDetailPage.subscriptions.assignPlan')}
+        </Button>
       </div>
+
+      {showAssignPlan && (
+        <Card className="border-primary/30">
+          <CardContent className="pt-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Select value={assignPlanId} onValueChange={setAssignPlanId}>
+                <SelectTrigger className="flex-1" aria-label={t('userDetailPage.subscriptions.selectPlan')}>
+                  <SelectValue placeholder={t('userDetailPage.subscriptions.selectPlan')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {(plans ?? []).map((plan: any) => (
+                    <SelectItem key={plan.id} value={plan.id}>
+                      {plan.name}
+                      {plan.trafficLimit !== null && ` (${plan.trafficLimit} GB)`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                onClick={() => assignPlanMutation.mutate(assignPlanId)}
+                disabled={!assignPlanId || assignPlanMutation.isPending}
+              >
+                {assignPlanMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ClipboardList className="h-3.5 w-3.5 mr-1" />
+                )}
+                {t('userDetailPage.subscriptions.assignPlanConfirm')}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => { setShowAssignPlan(false); setAssignPlanId('') }}
+              >
+                {t('userDetailPage.subscriptions.cancel')}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t('userDetailPage.subscriptions.assignPlanHint')}
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {subs.length === 0 ? (
         <Card>
@@ -622,7 +701,17 @@ function SubscriptionsTab({
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-3 md:grid-cols-4 text-sm mb-3">
+              <div className="grid gap-3 md:grid-cols-5 text-sm mb-3">
+                <div>
+                  <span className="text-muted-foreground">
+                    {t('userDetailPage.subscriptions.labels.profile')}
+                  </span>{' '}
+                  <span className="font-mono text-xs font-medium">
+                    {sub.userRemnaId
+                      ? `rz_${user.username ?? user.telegramId?.toString() ?? user.id?.slice(0, 8)}_sub${subs.indexOf(sub) > 0 ? `_${subs.indexOf(sub)}` : ''}`
+                      : '—'}
+                  </span>
+                </div>
                 <div>
                   <span className="text-muted-foreground">
                     {t('userDetailPage.subscriptions.labels.traffic')}

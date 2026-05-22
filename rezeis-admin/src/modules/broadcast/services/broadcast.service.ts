@@ -89,6 +89,13 @@ export class BroadcastService {
     return mapBroadcast(updated);
   }
 
+  public async updateStatus(broadcastId: string, status: BroadcastStatus): Promise<void> {
+    await this.prismaService.broadcast.update({
+      where: { id: broadcastId },
+      data: { status },
+    });
+  }
+
   public async previewAudience(
     broadcastId: string,
   ): Promise<BroadcastAudiencePreviewInterface> {

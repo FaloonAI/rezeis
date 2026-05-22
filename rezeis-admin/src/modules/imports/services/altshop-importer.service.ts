@@ -8,6 +8,7 @@ import {
   PurchaseChannel,
   PurchaseType,
   SubscriptionStatus,
+  SyncAction,
   TransactionStatus,
 } from '@prisma/client';
 
@@ -231,7 +232,7 @@ export class AltshopImporterService {
           subscriptionsUpdated,
           transactionsProcessed: (transactions ?? []).length,
           errors,
-        } satisfies Prisma.InputJsonValue,
+        },
         errorMessage: errors.length === 0 ? null : errors.slice(0, 5).join('; '),
         createdBy,
         committedAt: new Date(),
@@ -342,8 +343,8 @@ export class AltshopImporterService {
           tag: sub.tag,
           trafficLimitStrategy: sub.traffic_limit_strategy,
           deviceType: sub.device_type,
-          originalPlanSnapshot: sub.plan_snapshot,
-        } satisfies Prisma.InputJsonValue,
+          originalPlanSnapshot: sub.plan_snapshot as Prisma.InputJsonValue,
+        },
       };
 
       if (existing) {
@@ -378,10 +379,25 @@ export class AltshopImporterService {
             tag: sub.tag,
             trafficLimitStrategy: sub.traffic_limit_strategy,
             deviceType: sub.device_type,
-            originalPlanSnapshot: sub.plan_snapshot,
-          } satisfies Prisma.InputJsonValue,
+            originalPlanSnapshot: sub.plan_snapshot as Prisma.InputJsonValue,
+          },
         },
       });
+
+      // Create a ProfileSyncJob so the worker syncs with Remnawave.
+      // Altshop subscriptions already have remnawaveId → UPDATE to ensure consistency.
+      if (status === SubscriptionStatus.ACTIVE || status === SubscriptionStatus.LIMITED) {
+        await this.prismaService.profileSyncJob.create({
+          data: {
+            subscriptionId: newSub.id,
+            action: sub.user_remna_id ? SyncAction.UPDATE : SyncAction.CREATE,
+            payload: {
+              importedFrom: 'altshop',
+              originalId: sub.id,
+            } satisfies Prisma.InputJsonValue,
+          },
+        });
+      }
 
       // Set as current subscription if user doesn't have one
       const user = await this.prismaService.user.findUnique({
@@ -430,9 +446,9 @@ export class AltshopImporterService {
         channel: this.mapChannel(tx.channel),
         planSnapshot: {
           importedFrom: 'altshop',
-          originalPricing: tx.pricing,
-          originalPlanSnapshot: tx.plan_snapshot,
-        } satisfies Prisma.InputJsonValue,
+          originalPricing: tx.pricing as Prisma.InputJsonValue,
+          originalPlanSnapshot: tx.plan_snapshot as Prisma.InputJsonValue,
+        },
         createdAt: tx.created_at ? new Date(tx.created_at) : new Date(),
       },
     });

@@ -12,6 +12,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { appConfig } from './common/config/app.config';
 import { AdminSafeExceptionFilter } from './common/filters/admin-safe-exception.filter';
+import { RequestTimeoutMiddleware } from './common/middleware/request-timeout.middleware';
 import { SystemLogsService } from './modules/system-logs/services/system-logs.service';
 
 async function bootstrap(): Promise<void> {
@@ -30,6 +31,11 @@ async function bootstrap(): Promise<void> {
   const host: string = appConfiguration.host;
 
   app.use(helmet());
+  // Request timeout middleware — 30s default, 120s for uploads/downloads
+  const timeoutMiddleware = new RequestTimeoutMiddleware();
+  app.use((req: unknown, res: unknown, next: unknown) =>
+    timeoutMiddleware.use(req as never, res as never, next as never),
+  );
   // Trust the first proxy hop so `req.ip` reflects the real client IP
   // when rezeis-admin runs behind nginx / Caddy in docker-compose.
   // The `BlockedIpGuard` and audit log rely on this for accurate IPs.

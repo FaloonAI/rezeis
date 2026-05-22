@@ -93,6 +93,18 @@ export class AdminBackupController {
     await this.backupService.deleteBackup(id);
   }
 
+  @Post('restore/:filename')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @RequirePermission('backups', 'create')
+  @ApiOperation({ summary: 'Restore database from a backup file (async via BullMQ)' })
+  public async restore(
+    @Param('filename') filename: string,
+    @CurrentAdmin() admin: CurrentAdminInterface,
+  ): Promise<{ jobId: string; message: string }> {
+    const { jobId } = await this.backupService.restoreBackup(filename, admin.id);
+    return { jobId, message: 'Restore job enqueued' };
+  }
+
   @Get('download/:filename')
   @RequirePermission('backups', 'view')
   @ApiOperation({ summary: 'Streams a backup file by filename' })

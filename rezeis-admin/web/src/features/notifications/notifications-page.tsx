@@ -6,11 +6,13 @@ import {
   Edit2,
   Hash,
   Loader2,
+  Mail,
   MessageSquare,
   Power,
   Save,
   Send,
   Settings2,
+  Shield,
   Smartphone,
   Sparkles,
   Users,
@@ -519,6 +521,240 @@ function DeliverySettingsTab() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Email SMTP Settings */}
+      <EmailDeliverySettings />
     </div>
+  )
+}
+
+
+// ── Email SMTP Delivery Settings ─────────────────────────────────────────────
+
+interface SmtpSettings {
+  enabled: boolean
+  host: string | null
+  port: number
+  username: string | null
+  password: string | null
+  fromAddress: string
+  fromName: string
+  useTls: boolean
+  useSsl: boolean
+  passwordSet?: boolean
+}
+
+function EmailDeliverySettings() {
+  const { t } = useTranslation()
+
+  const { data, isLoading } = useQuery<SmtpSettings>({
+    queryKey: ['admin', 'email', 'settings'],
+    queryFn: async () => (await api.get('/admin/email/settings')).data,
+  })
+
+  const [form, setForm] = useState<SmtpSettings>({
+    enabled: false,
+    host: '',
+    port: 587,
+    username: '',
+    password: '',
+    fromAddress: '',
+    fromName: '',
+    useTls: true,
+    useSsl: false,
+  })
+  const [hydrated, setHydrated] = useState(false)
+  const [testEmail, setTestEmail] = useState('')
+
+  if (data && !hydrated) {
+    setForm({
+      enabled: data.enabled,
+      host: data.host ?? '',
+      port: data.port,
+      username: data.username ?? '',
+      password: '', // never pre-fill password
+      fromAddress: data.fromAddress,
+      fromName: data.fromName,
+      useTls: data.useTls,
+      useSsl: data.useSsl,
+    })
+    setHydrated(true)
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: () => {
+      const payload: Record<string, unknown> = { ...form }
+      // Don't send empty password (keeps existing)
+      if (!payload.password) delete payload.password
+      return api.post('/admin/email/settings', payload)
+    },
+    onSuccess: () => toast.success(t('notificationsPage.email.toasts.saved')),
+    onError: () => toast.error(t('notificationsPage.email.toasts.saveFailed')),
+  })
+
+  const verifyMutation = useMutation({
+    mutationFn: async () => (await api.post('/admin/email/verify')).data as { success: boolean; error?: string },
+    onSuccess: (res) => {
+      if (res.success) toast.success(t('notificationsPage.email.toasts.verifyOk'))
+      else toast.error(res.error ?? t('notificationsPage.email.toasts.verifyFailed'))
+    },
+    onError: () => toast.error(t('notificationsPage.email.toasts.verifyFailed')),
+  })
+
+  const testMutation = useMutation({
+    mutationFn: async () => (await api.post('/admin/email/test', { to: testEmail })).data as { success: boolean; error?: string },
+    onSuccess: (res) => {
+      if (res.success) toast.success(t('notificationsPage.email.toasts.testSent'))
+      else toast.error(res.error ?? t('notificationsPage.email.toasts.testFailed'))
+    },
+    onError: () => toast.error(t('notificationsPage.email.toasts.testFailed')),
+  })
+
+  if (isLoading) return <Skeleton className="h-64 w-full" />
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Mail className="h-4 w-4" />
+          {t('notificationsPage.email.title')}
+        </CardTitle>
+        <CardDescription>
+          {t('notificationsPage.email.description')}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {/* Master toggle */}
+        <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Power className="h-4 w-4 text-muted-foreground" />
+            <div>
+              <Label className="font-medium">{t('notificationsPage.email.enableLabel')}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t('notificationsPage.email.enableDescription')}
+              </p>
+            </div>
+          </div>
+          <Switch checked={form.enabled} onCheckedChange={(v) => setForm((f) => ({ ...f, enabled: v }))} />
+        </div>
+
+        {/* SMTP Config */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('notificationsPage.email.host')}</Label>
+            <Input
+              value={form.host ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, host: e.target.value }))}
+              placeholder="smtp.example.com"
+              className="h-8 text-xs font-mono"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('notificationsPage.email.port')}</Label>
+            <Input
+              type="number"
+              value={form.port}
+              onChange={(e) => setForm((f) => ({ ...f, port: Number(e.target.value) }))}
+              className="h-8 text-xs font-mono"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('notificationsPage.email.username')}</Label>
+            <Input
+              value={form.username ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
+              placeholder="user@example.com"
+              className="h-8 text-xs font-mono"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('notificationsPage.email.password')}</Label>
+            <Input
+              type="password"
+              value={form.password ?? ''}
+              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+              placeholder={data?.passwordSet ? '••••••••' : ''}
+              className="h-8 text-xs font-mono"
+            />
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* From address */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('notificationsPage.email.fromAddress')}</Label>
+            <Input
+              value={form.fromAddress}
+              onChange={(e) => setForm((f) => ({ ...f, fromAddress: e.target.value }))}
+              placeholder="no-reply@yourdomain.com"
+              className="h-8 text-xs font-mono"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('notificationsPage.email.fromName')}</Label>
+            <Input
+              value={form.fromName}
+              onChange={(e) => setForm((f) => ({ ...f, fromName: e.target.value }))}
+              placeholder="Rezeis VPN"
+              className="h-8 text-xs"
+            />
+          </div>
+        </div>
+
+        {/* TLS/SSL */}
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2">
+            <Switch checked={form.useTls} onCheckedChange={(v) => setForm((f) => ({ ...f, useTls: v }))} />
+            <Label className="text-xs">
+              <Shield className="inline h-3 w-3 mr-1" />
+              STARTTLS
+            </Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch checked={form.useSsl} onCheckedChange={(v) => setForm((f) => ({ ...f, useSsl: v }))} />
+            <Label className="text-xs">
+              <Shield className="inline h-3 w-3 mr-1" />
+              SSL/TLS
+            </Label>
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* Actions */}
+        <div className="flex flex-wrap gap-3">
+          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+            {saveMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            {t('notificationsPage.email.save')}
+          </Button>
+          <Button variant="outline" onClick={() => verifyMutation.mutate()} disabled={verifyMutation.isPending || !form.host}>
+            {verifyMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Shield className="mr-2 h-4 w-4" />}
+            {t('notificationsPage.email.verify')}
+          </Button>
+        </div>
+
+        {/* Test email */}
+        <div className="flex items-center gap-2 pt-2 border-t">
+          <Input
+            type="email"
+            value={testEmail}
+            onChange={(e) => setTestEmail(e.target.value)}
+            placeholder={t('notificationsPage.email.testPlaceholder')}
+            className="h-8 text-xs max-w-64"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => testMutation.mutate()}
+            disabled={testMutation.isPending || !form.enabled || !testEmail.trim()}
+          >
+            {testMutation.isPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-2 h-3.5 w-3.5" />}
+            {t('notificationsPage.email.sendTest')}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   )
 }

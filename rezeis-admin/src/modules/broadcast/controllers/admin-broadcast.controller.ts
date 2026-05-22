@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -18,6 +19,8 @@ import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
 import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.interface';
 import {
   CreateBroadcastDraftDto,
+  EditBroadcastDto,
+  SendBroadcastDto,
   UpdateBroadcastDraftDto,
 } from '../dto/broadcast-payload.dto';
 import {
@@ -25,6 +28,7 @@ import {
   BroadcastInterface,
 } from '../interfaces/broadcast.interface';
 import { BroadcastService } from '../services/broadcast.service';
+import { BroadcastQueueService } from '../services/broadcast-queue.service';
 import {
   BroadcastMediaUploadService,
   UploadedMediaInterface,
@@ -38,7 +42,10 @@ export class AdminBroadcastController {
   public constructor(
     private readonly broadcastService: BroadcastService,
     private readonly broadcastMediaUploadService: BroadcastMediaUploadService,
+    private readonly broadcastQueueService: BroadcastQueueService,
   ) {}
+
+  // ── CRUD ────────────────────────────────────────────────────────────────
 
   @Get('drafts')
   @ApiOperation({ summary: 'List broadcast drafts and historical entries' })
@@ -80,20 +87,138 @@ export class AdminBroadcastController {
     return this.broadcastService.previewAudience(broadcastId);
   }
 
+  // ── SEND (async via BullMQ) ─────────────────────────────────────────────
+
+  @Post(':broadcastId/send')
+  @ApiOperation({ summary: 'Start async delivery (supports scheduled send via delayMinutes)' })
+  public async sendBroadcast(
+    @Param('broadcastId') broadcastId: string,
+    @Body() dto: SendBroadcastDto,
+    @CurrentAdmin() currentAdmin: CurrentAdminInterface,
+  ): Promise<{ jobId: string; message: string; scheduledFor?: string }> {
+    const broadcast = await this.broadcastService.getBroadcast(broadcastId);
+    if (broadcast.status !== 'DRAFT') {
+      throw new BadRequestException('Only draft broadcasts can be sent');
+    }
+
+    const delayMs = dto.delayMinutes ? dto.delayMinutes * 60_000 : undefined;
+    const jobId = await this.broadcastQueueService.enqueueStart(
+      { broadcastId, adminId: currentAdmin.id },
+      { delayMs },
+    );
+
+    const result: { jobId: string; message: string; scheduledFor?: string } = {
+      jobId,
+      message: delayMs ? 'Broadcast scheduled' : 'Broadcast delivery enqueued',
+    };
+    if (delayMs) {
+      result.scheduledFor = new Date(Date.now() + delayMs).toISOString();
+    }
+    return result;
+  }
+
+  // ── CANCEL ──────────────────────────────────────────────────────────────
+
+  @Post(':broadcastId/cancel')
+  @ApiOperation({ summary: 'Cancel a broadcast in progress (removes pending jobs, marks messages CANCELED)' })
+  public async cancelBroadcast(
+    @Param('broadcastId') broadcastId: string,
+    @CurrentAdmin() _currentAdmin: CurrentAdminInterface,
+  ): Promise<{ canceledMessages: number; message: string }> {
+    const broadcast = await this.broadcastService.getBroadcast(broadcastId);
+    if (broadcast.status !== 'PROCESSING' && broadcast.status !== 'DRAFT') {
+      throw new BadRequestException('Only DRAFT or PROCESSING broadcasts can be canceled');
+    }
+
+    const canceledMessages = await this.broadcastQueueService.cancelBroadcast(broadcastId);
+
+    // Update broadcast status
+    await this.broadcastService.updateStatus(broadcastId, 'CANCELED');
+
+    return { canceledMessages, message: 'Broadcast canceled' };
+  }
+
+  // ── EDIT (already-sent messages) ────────────────────────────────────────
+
+  @Post(':broadcastId/edit')
+  @ApiOperation({ summary: 'Edit already-sent messages (editMessageText/Caption in Telegram)' })
+  public async editBroadcast(
+    @Param('broadcastId') broadcastId: string,
+    @Body() dto: EditBroadcastDto,
+    @CurrentAdmin() _currentAdmin: CurrentAdminInterface,
+  ): Promise<{ batches: number; totalMessages: number; message: string }> {
+    const broadcast = await this.broadcastService.getBroadcast(broadcastId);
+    if (broadcast.status !== 'COMPLETED') {
+      throw new BadRequestException('Only completed broadcasts can be edited');
+    }
+    const sentMessages = await this.broadcastQueueService.getSentMessageIds(broadcastId);
+    if (sentMessages.length === 0) {
+      throw new BadRequestException('No sent messages found to edit');
+    }
+    const batches = await this.broadcastQueueService.enqueueEdit({
+      broadcastId,
+      newText: dto.text,
+      parseMode: dto.parseMode ?? null,
+      messageIds: sentMessages,
+    });
+    return { batches, totalMessages: sentMessages.length, message: 'Edit enqueued' };
+  }
+
+  // ── DELETE (already-sent messages) ──────────────────────────────────────
+
+  @Delete(':broadcastId/messages')
+  @ApiOperation({ summary: 'Delete already-sent messages from Telegram (within 48h window)' })
+  public async deleteBroadcastMessages(
+    @Param('broadcastId') broadcastId: string,
+    @CurrentAdmin() _currentAdmin: CurrentAdminInterface,
+  ): Promise<{ batches: number; totalMessages: number; message: string }> {
+    const broadcast = await this.broadcastService.getBroadcast(broadcastId);
+    if (broadcast.status !== 'COMPLETED') {
+      throw new BadRequestException('Only completed broadcasts can have messages deleted');
+    }
+    const sentMessages = await this.broadcastQueueService.getSentMessageIds(broadcastId);
+    if (sentMessages.length === 0) {
+      throw new BadRequestException('No sent messages found to delete');
+    }
+    const batches = await this.broadcastQueueService.enqueueDelete({
+      broadcastId,
+      messageIds: sentMessages,
+    });
+    return { batches, totalMessages: sentMessages.length, message: 'Delete enqueued' };
+  }
+
+  // ── RETRY FAILED ────────────────────────────────────────────────────────
+
+  @Post(':broadcastId/retry')
+  @ApiOperation({ summary: 'Retry all failed messages for a broadcast' })
+  public async retryFailed(
+    @Param('broadcastId') broadcastId: string,
+    @CurrentAdmin() _currentAdmin: CurrentAdminInterface,
+  ): Promise<{ batches: number; totalMessages: number; message: string }> {
+    const broadcast = await this.broadcastService.getBroadcast(broadcastId);
+    if (broadcast.status !== 'COMPLETED' && broadcast.status !== 'FAILED') {
+      throw new BadRequestException('Only completed or failed broadcasts can be retried');
+    }
+    const failedMessages = await this.broadcastQueueService.getFailedMessageIds(broadcastId);
+    if (failedMessages.length === 0) {
+      throw new BadRequestException('No failed messages to retry');
+    }
+    const batches = await this.broadcastQueueService.enqueueRetry({
+      broadcastId,
+      messageIds: failedMessages,
+    });
+
+    // Set status back to PROCESSING
+    await this.broadcastService.updateStatus(broadcastId, 'PROCESSING');
+
+    return { batches, totalMessages: failedMessages.length, message: 'Retry enqueued' };
+  }
+
+  // ── MEDIA UPLOAD ────────────────────────────────────────────────────────
+
   @Post('upload-media')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: {
-        // 50 MB hard cap (matches Telegram video limit). The service
-        // applies a stricter limit per media-type.
-        fileSize: 50 * 1024 * 1024,
-      },
-    }),
-  )
-  @ApiOperation({
-    summary:
-      'Upload a photo/video to Telegram via the bot and return the resulting file_id',
-  })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
+  @ApiOperation({ summary: 'Upload photo/video to Telegram and return file_id' })
   public async uploadMedia(
     @UploadedFile() file: Express.Multer.File | undefined,
     @CurrentAdmin() _currentAdmin: CurrentAdminInterface,

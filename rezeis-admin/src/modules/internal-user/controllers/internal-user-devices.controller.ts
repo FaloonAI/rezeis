@@ -24,7 +24,7 @@ import {
 import { SubscriptionStatus } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
-import { SystemEventsService } from '../../../common/services/system-events.service';
+import { EVENT_TYPES, SystemEventsService } from '../../../common/services/system-events.service';
 import { InternalAdminAuthGuard } from '../../auth/guards/internal-admin-auth.guard';
 import { RemnawaveApiService } from '../../remnawave/services/remnawave-api.service';
 
@@ -73,12 +73,21 @@ export class InternalUserDevicesController {
       hwid,
     );
 
+    // Resolve user info for rich Telegram notification
+    const user = await this.prismaService.user.findUnique({
+      where: { id: userId },
+      select: { telegramId: true, username: true, name: true },
+    });
+
     this.events.info(
-      'subscription.device_revoked' as any,
+      EVENT_TYPES.SUBSCRIPTION_DEVICE_REVOKED,
       'SUBSCRIPTION',
       `Device revoked by user: ${hwid}`,
       {
         userId,
+        telegramId: user?.telegramId ? String(user.telegramId) : null,
+        userName: user?.name ?? user?.username ?? userId,
+        username: user?.username ?? null,
         subscriptionId: subscription.id,
         remnawaveId: subscription.remnawaveId,
         hwid,

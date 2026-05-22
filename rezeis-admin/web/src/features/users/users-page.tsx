@@ -19,7 +19,7 @@
 
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Search, Users as UsersIcon, Plus, Loader2, ListChecks } from 'lucide-react'
 
@@ -151,8 +151,10 @@ export default function UsersPage() {
 
 function UsersListTab() {
   const { t } = useTranslation()
-  const [searchInput, setSearchInput] = useState('')
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialSearch = searchParams.get('search') ?? ''
+  const [searchInput, setSearchInput] = useState(initialSearch)
+  const [searchQuery, setSearchQuery] = useState(initialSearch)
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
   const [showCreateUser, setShowCreateUser] = useState(false)
 
@@ -193,6 +195,12 @@ function UsersListTab() {
   const handleSearch = (e: React.FormEvent): void => {
     e.preventDefault()
     setSearchQuery(searchInput)
+    const trimmed = searchInput.trim()
+    if (trimmed) {
+      setSearchParams({ search: trimmed }, { replace: true })
+    } else {
+      setSearchParams({}, { replace: true })
+    }
   }
 
   const handleSelectUser = (userId: string): void => {

@@ -1,13 +1,17 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Plus, Download, Trash2, AlertCircle, Archive, RefreshCw } from 'lucide-react';
+import { Plus, Download, Trash2, AlertCircle, Archive, RefreshCw, Settings, Send, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import {
@@ -89,12 +93,12 @@ export default function BackupPage() {
   const queryClient = useQueryClient();
   const [scope, setScope] = useState<'DB' | 'FULL'>('DB');
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [restoreFilename, setRestoreFilename] = useState<string | null>(null);
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['backups'],
     queryFn: fetchBackups,
     refetchInterval: (query) => {
-      // Auto-refresh if any backup is processing
       const items = query.state.data?.items ?? [];
       const hasProcessing = items.some((b) => Number(b.sizeBytes) === 0 && !b.errorMessage);
       return hasProcessing ? 5000 : false;
@@ -118,6 +122,15 @@ export default function BackupPage() {
       setDeleteId(null);
     },
     onError: () => toast.error(t('backupPage.toasts.deleteFailed')),
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (filename: string) => api.post(`/admin/backup/restore/${encodeURIComponent(filename)}`),
+    onSuccess: () => {
+      toast.success(t('backupPage.toasts.restoreStarted'));
+      setRestoreFilename(null);
+    },
+    onError: () => toast.error(t('backupPage.toasts.restoreFailed')),
   });
 
   async function downloadBackup(filename: string): Promise<void> {
@@ -221,6 +234,9 @@ export default function BackupPage() {
         </div>
       )}
 
+      {/* Settings */}
+      <BackupSettings />
+
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -294,6 +310,16 @@ export default function BackupPage() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          title={t('backupPage.restore')}
+                          aria-label={t('backupPage.restore')}
+                          onClick={() => setRestoreFilename(b.filename)}
+                          disabled={Number(b.sizeBytes) === 0 || !!b.errorMessage}
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           title={t('backupBadges.delete')}
                           aria-label={t('backupBadges.delete')}
                           className="text-destructive hover:text-destructive"
@@ -331,6 +357,155 @@ export default function BackupPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Restore confirmation */}
+      <AlertDialog open={!!restoreFilename} onOpenChange={(v) => !v && setRestoreFilename(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('backupPage.restoreDialog.title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('backupPage.restoreDialog.description')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('backupPage.restoreDialog.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => restoreFilename && restoreMutation.mutate(restoreFilename)}
+            >
+              {t('backupPage.restoreDialog.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
+  );
+}
+
+// ── Backup Settings Sub-component ───────────────────────────────────────────
+
+interface BackupSettingsData {
+  autoEnabled: boolean;
+  intervalHours: number;
+  maxKeep: number;
+  telegramEnabled: boolean;
+  telegramChatId: string;
+  telegramTopicId: string;
+}
+
+function BackupSettings() {
+  const { t } = useTranslation();
+  const [settings, setSettings] = useState<BackupSettingsData>({
+    autoEnabled: true,
+    intervalHours: 24,
+    maxKeep: 7,
+    telegramEnabled: false,
+    telegramChatId: '',
+    telegramTopicId: '',
+  });
+
+  // In a real implementation, these would be loaded from/saved to the backend
+  // via a settings API. For now, they reflect the env-based defaults.
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Settings className="h-5 w-5 text-muted-foreground" />
+          <CardTitle>{t('backupPage.settings.title')}</CardTitle>
+        </div>
+        <CardDescription>{t('backupPage.settings.subtitle')}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Auto-backup */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm font-medium">{t('backupPage.settings.autoBackup')}</Label>
+              <p className="text-xs text-muted-foreground">{t('backupPage.settings.autoBackupDesc')}</p>
+            </div>
+            <Switch
+              checked={settings.autoEnabled}
+              onCheckedChange={(v) => setSettings((s) => ({ ...s, autoEnabled: v }))}
+              aria-label={t('backupPage.settings.autoBackup')}
+            />
+          </div>
+
+          {settings.autoEnabled && (
+            <div className="grid grid-cols-2 gap-4 pl-4 border-l-2 border-muted">
+              <div className="space-y-1">
+                <Label className="text-xs">{t('backupPage.settings.interval')}</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={168}
+                  value={settings.intervalHours}
+                  onChange={(e) => setSettings((s) => ({ ...s, intervalHours: Number(e.target.value) }))}
+                  className="h-8"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t('backupPage.settings.retention')}</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={settings.maxKeep}
+                  onChange={(e) => setSettings((s) => ({ ...s, maxKeep: Number(e.target.value) }))}
+                  className="h-8"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <Separator />
+
+        {/* Telegram delivery */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm font-medium">{t('backupPage.settings.telegramDelivery')}</Label>
+              <p className="text-xs text-muted-foreground">{t('backupPage.settings.telegramDeliveryDesc')}</p>
+            </div>
+            <Switch
+              checked={settings.telegramEnabled}
+              onCheckedChange={(v) => setSettings((s) => ({ ...s, telegramEnabled: v }))}
+              aria-label={t('backupPage.settings.telegramDelivery')}
+            />
+          </div>
+
+          {settings.telegramEnabled && (
+            <div className="grid grid-cols-2 gap-4 pl-4 border-l-2 border-muted">
+              <div className="space-y-1">
+                <Label className="text-xs">{t('backupPage.settings.chatId')}</Label>
+                <Input
+                  value={settings.telegramChatId}
+                  onChange={(e) => setSettings((s) => ({ ...s, telegramChatId: e.target.value }))}
+                  placeholder="-100123456789"
+                  className="h-8 font-mono text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t('backupPage.settings.topicId')}</Label>
+                <Input
+                  value={settings.telegramTopicId}
+                  onChange={(e) => setSettings((s) => ({ ...s, telegramTopicId: e.target.value }))}
+                  placeholder={t('backupPage.settings.topicIdPlaceholder')}
+                  className="h-8 font-mono text-xs"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" disabled>
+            <Send className="mr-2 h-3.5 w-3.5" />
+            {t('backupPage.settings.save')}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

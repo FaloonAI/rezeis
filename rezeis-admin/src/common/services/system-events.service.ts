@@ -92,6 +92,7 @@ export const EVENT_TYPES = {
   SUBSCRIPTION_DELETED: 'subscription.deleted',
   SUBSCRIPTION_SYNCED: 'subscription.synced',
   SUBSCRIPTION_TRIAL_GRANTED: 'subscription.trial_granted',
+  SUBSCRIPTION_DEVICE_REVOKED: 'user_hwid_revoked',
 
   // Payment
   PAYMENT_CHECKOUT_CREATED: 'payment.checkout_created',
@@ -518,6 +519,18 @@ export class SystemEventsService {
       if (meta['rewardType']) promoLines.push(`• <b>Тип награды:</b> ${meta['rewardType']}`);
       if (meta['rewardValue']) promoLines.push(`• <b>Значение:</b> ${meta['rewardValue']}`);
       lines.push(`<blockquote>${promoLines.join('\n')}</blockquote>`);
+    }
+
+    // Device/HWID block
+    if (meta['hwid']) {
+      lines.push('');
+      lines.push('📱 <b>Устройство:</b>');
+      const deviceLines: string[] = [];
+      deviceLines.push(`• <b>HWID:</b> <code>${meta['hwid']}</code>`);
+      if (meta['remainingDevices'] !== undefined) deviceLines.push(`• <b>Осталось устройств:</b> ${meta['remainingDevices']}`);
+      if (meta['subscriptionId']) deviceLines.push(`• <b>Подписка:</b> <code>${String(meta['subscriptionId']).slice(0, 12)}</code>`);
+      if (meta['remnawaveId']) deviceLines.push(`• <b>Remnawave:</b> <code>${String(meta['remnawaveId']).slice(0, 12)}</code>`);
+      lines.push(`<blockquote>${deviceLines.join('\n')}</blockquote>`);
     }
 
     // Error block

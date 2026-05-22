@@ -150,6 +150,16 @@ export const USER_EVENT_WHITELIST: Readonly<Record<string, UserEventProjection>>
       };
     },
   },
+  'user_hwid_revoked': {
+    category: 'SUBSCRIPTION',
+    project: (metadata, target) => {
+      if (!matchesUser(metadata, target)) return null;
+      return {
+        hwid: asString(metadata, 'hwid'),
+        remainingDevices: asNumber(metadata, 'remainingDevices'),
+      };
+    },
+  },
 
   // Payment lifecycle
   'payment.completed': {
