@@ -206,7 +206,10 @@ export default function TwoFactorPage() {
       )}
 
       {/* Change Password */}
-      <ChangePasswordSection />
+      <div className="grid gap-6 lg:grid-cols-2">
+        <ChangePasswordSection />
+        <PasskeySection />
+      </div>
     </div>
   )
 }
@@ -392,4 +395,141 @@ function RecoveryCodesPanel({ codes }: { codes: readonly string[] }) {
       </div>
     </div>
   )
+}
+
+// ── Passkey Management Section ───────────────────────────────────────────────
+
+function PasskeySection() {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+
+  const { data: passkeys, isLoading } = useQuery({
+    queryKey: ['admin-passkeys'],
+    queryFn: async () => {
+      const { api } = await import('@/lib/api')
+      const res = await api.get<Array<{
+        id: string
+        name: string
+        credentialId: string
+        transports: string[]
+        backedUp: boolean
+        registeredAt: string
+        lastUsedAt: string | null
+      }>>('/admin/passkey/credentials')
+      return res.data
+    },
+    staleTime: 30_000,
+  })
+
+  const registerMutation = useMutation({
+    mutationFn: async () => {
+      const { api } = await import('@/lib/api')
+      // Get registration options
+      const optionsRes = await api.post('/admin/passkey/register/options', {})
+      const options = optionsRes.data
+
+      // Call WebAuthn browser API
+      const credential = await navigator.credentials.create({
+        publicKey: options as unknown as PublicKeyCredentialCreationOptions,
+      }) as PublicKeyCredential | null
+
+      if (!credential) throw new Error('Registration cancelled')
+
+      const response = credential.response as AuthenticatorAttestationResponse
+
+      // Send to backend
+      await api.post('/admin/passkey/register/verify', {
+        response: {
+          id: credential.id,
+          rawId: bufferToBase64url(credential.rawId),
+          type: credential.type,
+          response: {
+            attestationObject: bufferToBase64url(response.attestationObject),
+            clientDataJSON: bufferToBase64url(response.clientDataJSON),
+            transports: response.getTransports?.() ?? [],
+          },
+        },
+        name: `Passkey ${new Date().toLocaleDateString()}`,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-passkeys'] })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { api } = await import('@/lib/api')
+      await api.delete(`/admin/passkey/credentials/${id}`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-passkeys'] })
+    },
+  })
+
+  const passkeySupported = typeof window !== 'undefined' && 'credentials' in navigator
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{t('twoFactorPage.passkey.title')}</CardTitle>
+        <CardDescription>{t('twoFactorPage.passkey.description')}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!passkeySupported ? (
+          <p className="text-sm text-muted-foreground">{t('twoFactorPage.passkey.notSupported')}</p>
+        ) : (
+          <>
+            {isLoading ? (
+              <Skeleton className="h-16 w-full" />
+            ) : passkeys && passkeys.length > 0 ? (
+              <div className="space-y-2">
+                {passkeys.map((pk) => (
+                  <div key={pk.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+                    <div>
+                      <p className="text-sm font-medium">{pk.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {t('twoFactorPage.passkey.registered', { date: new Date(pk.registeredAt).toLocaleDateString() })}
+                        {pk.lastUsedAt && ` · ${t('twoFactorPage.passkey.lastUsed', { date: new Date(pk.lastUsedAt).toLocaleDateString() })}`}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive"
+                      onClick={() => deleteMutation.mutate(pk.id)}
+                      disabled={deleteMutation.isPending}
+                    >
+                      {t('twoFactorPage.passkey.remove')}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">{t('twoFactorPage.passkey.empty')}</p>
+            )}
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => registerMutation.mutate()}
+              disabled={registerMutation.isPending}
+            >
+              {registerMutation.isPending && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}
+              {t('twoFactorPage.passkey.register')}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function bufferToBase64url(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
 }

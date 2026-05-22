@@ -4847,6 +4847,16 @@
       success: 'Пароль успешно изменён',
       failed: 'Не удалось сменить пароль. Проверьте текущий пароль.',
     },
+    passkey: {
+      title: 'Passkey',
+      description: 'Вход по биометрии или аппаратному ключу. Без пароля.',
+      notSupported: 'Ваш браузер не поддерживает Passkey (WebAuthn).',
+      empty: 'Passkey ещё не зарегистрированы.',
+      register: 'Зарегистрировать Passkey',
+      remove: 'Удалить',
+      registered: 'Зарегистрирован {{date}}',
+      lastUsed: 'использован {{date}}',
+    },
   },
   botConfigPage: {
     title: 'Конфигурация бота',

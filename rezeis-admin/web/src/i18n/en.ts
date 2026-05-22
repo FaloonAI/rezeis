@@ -4803,6 +4803,16 @@ export const en = {
       success: 'Password changed successfully',
       failed: 'Failed to change password. Check your current password.',
     },
+    passkey: {
+      title: 'Passkeys',
+      description: 'Sign in with biometrics or a hardware security key. No password needed.',
+      notSupported: 'Your browser does not support Passkeys (WebAuthn).',
+      empty: 'No passkeys registered yet.',
+      register: 'Register new Passkey',
+      remove: 'Remove',
+      registered: 'Registered {{date}}',
+      lastUsed: 'last used {{date}}',
+    },
   },
   botConfigPage: {
     title: 'Bot Configuration',
