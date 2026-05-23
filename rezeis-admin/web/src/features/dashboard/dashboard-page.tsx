@@ -5,7 +5,7 @@ import { AlertTriangle, Loader2, LayoutDashboard } from 'lucide-react'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ShinyText } from '@/components/effects/ShinyText'
+import { TitleEffect } from '@/components/effects/TitleEffect'
 import { AnimatedContent } from '@/components/effects/AnimatedContent'
 
 import {
@@ -106,7 +106,7 @@ function DashboardHeader({ summary }: { readonly summary: DashboardSummaryInterf
     <div className="flex flex-col gap-1">
       <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
         <LayoutDashboard className="h-6 w-6" />
-        <ShinyText>{t('dashboardPage.title')}</ShinyText>
+        <TitleEffect>{t('dashboardPage.title')}</TitleEffect>
       </h1>
       <p className="text-sm text-muted-foreground">
         {t('dashboardPage.snapshotAt', { time: new Date(summary.checkedAt).toLocaleString() })}
@@ -123,9 +123,9 @@ function DashboardLoadingState(): JSX.Element {
         <Loader2 className="h-4 w-4 animate-spin" />
         <span>{t('dashboardPage.loading')}</span>
       </div>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 8 }).map((_, index) => (
-          <Skeleton key={index} className="h-28 w-full rounded-xl" />
+          <Skeleton key={index} className="h-[78px] w-full rounded-lg" />
         ))}
       </div>
       <div className="grid gap-4 lg:grid-cols-2">

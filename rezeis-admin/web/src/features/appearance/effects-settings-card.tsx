@@ -2,7 +2,7 @@
  * Effects Settings Card — UI for configuring visual effects with live previews.
  * Each category shows a mini preview demonstrating where the effect applies.
  */
-import { lazy, Suspense, useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'motion/react'
 
@@ -39,7 +39,6 @@ import {
   type ContentAnimationId,
 } from '@/lib/theme/effects-store'
 import { TitleEffect } from '@/components/effects/TitleEffect'
-import { cn } from '@/lib/utils'
 
 // ── Main component ───────────────────────────────────────────────────────────
 
@@ -101,10 +100,9 @@ export function EffectsSettingsCard() {
 // ── Text Animation Card ──────────────────────────────────────────────────────
 
 function TextAnimationCard() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const textAnimation = useEffectsStore((s) => s.textAnimation)
   const setTextAnimation = useEffectsStore((s) => s.setTextAnimation)
-  const isRu = i18n.language === 'ru'
 
   return (
     <Card>
@@ -122,7 +120,7 @@ function TextAnimationCard() {
             <SelectContent>
               {TEXT_ANIMATIONS.map((anim) => (
                 <SelectItem key={anim.id} value={anim.id}>
-                  {isRu ? anim.nameRu : anim.name}
+                  {t(`effectsSettings.options.textAnimation.${anim.id}`, { defaultValue: anim.name })}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -141,10 +139,10 @@ function TextAnimationCard() {
                 {t('effectsSettings.textAnimation.previewHint')}
               </div>
               <div className="text-xl font-bold">
-                <TitleEffect text={isRu ? 'Заголовок страницы' : 'Page Title'} />
+                <TitleEffect text={t('effectsSettings.sample.pageTitle')} />
               </div>
               <div className="mt-1 text-xs text-muted-foreground">
-                {isRu ? 'Подзаголовок с описанием' : 'Subtitle with description'}
+                {t('effectsSettings.sample.pageSubtitle')}
               </div>
             </div>
           </div>
@@ -157,10 +155,9 @@ function TextAnimationCard() {
 // ── Content Animation Card ───────────────────────────────────────────────────
 
 function ContentAnimationCard() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const contentAnimation = useEffectsStore((s) => s.contentAnimation)
   const setContentAnimation = useEffectsStore((s) => s.setContentAnimation)
-  const isRu = i18n.language === 'ru'
   const [replayKey, setReplayKey] = useState(0)
 
   return (
@@ -179,7 +176,7 @@ function ContentAnimationCard() {
             <SelectContent>
               {CONTENT_ANIMATIONS.map((anim) => (
                 <SelectItem key={anim.id} value={anim.id}>
-                  {isRu ? anim.nameRu : anim.name}
+                  {t(`effectsSettings.options.contentAnimation.${anim.id}`, { defaultValue: anim.name })}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -251,10 +248,9 @@ function ContentPreview({ animation }: { animation: ContentAnimationId }) {
 // ── Hover Effect Card ────────────────────────────────────────────────────────
 
 function HoverEffectCard() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const hoverEffect = useEffectsStore((s) => s.hoverEffect)
   const setHoverEffect = useEffectsStore((s) => s.setHoverEffect)
-  const isRu = i18n.language === 'ru'
 
   return (
     <Card>
@@ -272,7 +268,7 @@ function HoverEffectCard() {
             <SelectContent>
               {HOVER_EFFECTS.map((eff) => (
                 <SelectItem key={eff.id} value={eff.id}>
-                  {isRu ? eff.nameRu : eff.name}
+                  {t(`effectsSettings.options.hoverEffect.${eff.id}`, { defaultValue: eff.name })}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -300,6 +296,7 @@ function HoverEffectCard() {
 }
 
 function HoverPreview({ effect }: { effect: HoverEffectId }) {
+  const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const glowRef = useRef<HTMLDivElement>(null)
 
@@ -336,8 +333,8 @@ function HoverPreview({ effect }: { effect: HoverEffectId }) {
           KPI
         </div>
         <div className="flex-1">
-          <div className="text-xs font-medium">Card Title</div>
-          <div className="text-[10px] text-muted-foreground">Hover me to see the effect</div>
+          <div className="text-xs font-medium">{t('effectsSettings.sample.cardTitle')}</div>
+          <div className="text-[10px] text-muted-foreground">{t('effectsSettings.sample.cardHint')}</div>
         </div>
         <Badge variant="secondary" className="text-[9px]">
           {effect}
@@ -350,10 +347,9 @@ function HoverPreview({ effect }: { effect: HoverEffectId }) {
 // ── Cursor Effect Card ───────────────────────────────────────────────────────
 
 function CursorEffectCard() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const cursorEffect = useEffectsStore((s) => s.cursorEffect)
   const setCursorEffect = useEffectsStore((s) => s.setCursorEffect)
-  const isRu = i18n.language === 'ru'
 
   return (
     <Card>
@@ -371,7 +367,7 @@ function CursorEffectCard() {
             <SelectContent>
               {CURSOR_EFFECTS.map((eff) => (
                 <SelectItem key={eff.id} value={eff.id}>
-                  {isRu ? eff.nameRu : eff.name}
+                  {t(`effectsSettings.options.cursorEffect.${eff.id}`, { defaultValue: eff.name })}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -403,6 +399,9 @@ function CursorPreview({ effect }: { effect: CursorEffectId }) {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    // Reset trail when effect changes so old points don't linger.
+    trailRef.current = []
+
     let animId: number
 
     const draw = () => {
@@ -426,7 +425,10 @@ function CursorPreview({ effect }: { effect: CursorEffectId }) {
     }
 
     animId = requestAnimationFrame(draw)
-    return () => cancelAnimationFrame(animId)
+    return () => {
+      cancelAnimationFrame(animId)
+      trailRef.current = []
+    }
   }, [effect])
 
   const handleMouseMove = (e: React.MouseEvent) => {
@@ -461,10 +463,9 @@ function CursorPreview({ effect }: { effect: CursorEffectId }) {
 // ── Click Effect Card ────────────────────────────────────────────────────────
 
 function ClickEffectCard() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const clickEffect = useEffectsStore((s) => s.clickEffect)
   const setClickEffect = useEffectsStore((s) => s.setClickEffect)
-  const isRu = i18n.language === 'ru'
 
   return (
     <Card>
@@ -482,7 +483,7 @@ function ClickEffectCard() {
             <SelectContent>
               {CLICK_EFFECTS.map((eff) => (
                 <SelectItem key={eff.id} value={eff.id}>
-                  {isRu ? eff.nameRu : eff.name}
+                  {t(`effectsSettings.options.clickEffect.${eff.id}`, { defaultValue: eff.name })}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -514,6 +515,9 @@ function ClickPreview({ effect }: { effect: ClickEffectId }) {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    // Reset sparks when effect changes.
+    sparksRef.current = []
+
     let animId: number
 
     const draw = () => {
@@ -542,7 +546,10 @@ function ClickPreview({ effect }: { effect: ClickEffectId }) {
     }
 
     animId = requestAnimationFrame(draw)
-    return () => cancelAnimationFrame(animId)
+    return () => {
+      cancelAnimationFrame(animId)
+      sparksRef.current = []
+    }
   }, [effect])
 
   const handleClick = (e: React.MouseEvent) => {
