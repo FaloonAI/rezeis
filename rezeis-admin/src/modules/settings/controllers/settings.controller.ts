@@ -193,6 +193,33 @@ export class SettingsController {
   }
 
   /**
+   * Read the current `partnerSettings` JSON. Used by the partner program
+   * settings tab on the frontend.
+   */
+  @Get('partner')
+  public async getPartnerSettings(): Promise<Record<string, unknown>> {
+    return this.settingsService.getPartnerSettings();
+  }
+
+  /**
+   * Partial-update of `partnerSettings`. Mirrors `referral` semantics —
+   * top-level keys are replaced; `levels`, `gatewayCommissions`, and
+   * `withdrawals` are merged one level deeper.
+   */
+  @Patch('partner')
+  public async updatePartnerSettings(
+    @Body() body: Record<string, unknown>,
+    @CurrentAdmin() currentAdmin: CurrentAdminInterface,
+    @Req() request: Request,
+  ): Promise<Record<string, unknown>> {
+    return this.settingsService.updatePartnerSettings({
+      currentAdmin,
+      requestMetadata: extractRequestMetadata(request),
+      patch: body,
+    });
+  }
+
+  /**
    * Applies a partial branding update. Only the supplied fields are touched;
    * the rest stay at their previous values.
    */

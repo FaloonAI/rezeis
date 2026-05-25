@@ -88,6 +88,17 @@ interface UpdateReferralSettingsInput {
   readonly patch: Record<string, unknown>;
 }
 
+interface UpdatePartnerSettingsInput {
+  readonly currentAdmin: CurrentAdminInterface;
+  readonly requestMetadata: RequestMetadataInterface;
+  /**
+   * Partial update — any subset of the `partnerSettings` JSON. Top-level
+   * keys are merged shallow-deep so the SPA can submit one section
+   * (e.g. just commissions) without blowing away the rest.
+   */
+  readonly patch: Record<string, unknown>;
+}
+
 interface UpdatePlatformSettingsChanges {
   readonly updatedFields: readonly string[];
   readonly data: Prisma.SettingsUpdateInput;
@@ -577,6 +588,45 @@ export class SettingsService {
     return readJsonObject(settings.referralSettings);
   }
 
+  /**
+   * Partial-update the `partnerSettings` JSON column. Backs the SPA
+   * "Settings" tab on the Partners page. Top-level keys are merged
+   * shallow-deep so a subsection patch (e.g. just gateway commissions)
+   * does not erase unrelated knobs.
+   */
+  public async updatePartnerSettings(
+    input: UpdatePartnerSettingsInput,
+  ): Promise<Record<string, unknown>> {
+    return this.prismaService.$transaction(async (tx) => {
+      const settings = await this.getOrCreateSettingsRecord(tx);
+      const previous = readJsonObject(settings.partnerSettings);
+      const next = mergePartnerSettings(previous, input.patch);
+      await tx.settings.update({
+        where: { id: settings.id },
+        data: { partnerSettings: next as unknown as Prisma.InputJsonValue },
+      });
+      await tx.adminAuditLog.create({
+        data: {
+          action: 'settings.partnerSettings.update',
+          ipAddress: input.requestMetadata.remoteAddress,
+          userAgent: input.requestMetadata.userAgent,
+          metadata: {
+            requestId: input.requestMetadata.requestId,
+            patchKeys: Object.keys(input.patch),
+          },
+          adminUser: { connect: { id: input.currentAdmin.id } },
+        } as never,
+      });
+      return next;
+    });
+  }
+
+  public async getPartnerSettings(): Promise<Record<string, unknown>> {
+    const settings = await this.getSettingsRecord(this.prismaService);
+    if (!settings) return {};
+    return readJsonObject(settings.partnerSettings);
+  }
+
   private async getSettingsRecord(settingsClient: SettingsClient): Promise<Settings | null> {
     return settingsClient.settings.findFirst({
       orderBy: { updatedAt: 'asc' },
@@ -803,6 +853,30 @@ function mergeReferralSettings(
   const next = { ...previous };
   for (const [key, value] of Object.entries(patch)) {
     if ((key === 'pointsExchange' || key === 'inviteLimits') && isPlainObject(value)) {
+      next[key] = { ...readJsonObject(previous[key]), ...value };
+    } else {
+      next[key] = value;
+    }
+  }
+  return next;
+}
+
+/**
+ * Shallow-deep merge of a `partnerSettings` patch over the existing JSON.
+ * Top-level keys are replaced; the known nested objects (`levels`,
+ * `gatewayCommissions`, `withdrawals`) are spread one level deeper so
+ * the SPA can submit a single section without erasing the rest.
+ */
+function mergePartnerSettings(
+  previous: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = { ...previous };
+  for (const [key, value] of Object.entries(patch)) {
+    if (
+      (key === 'levels' || key === 'gatewayCommissions' || key === 'withdrawals') &&
+      isPlainObject(value)
+    ) {
       next[key] = { ...readJsonObject(previous[key]), ...value };
     } else {
       next[key] = value;
