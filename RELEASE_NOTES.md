@@ -1,4 +1,71 @@
-﻿# Rezeis Admin v0.3.5
+﻿# Rezeis Admin v0.3.6
+
+## Hotfix — Remnawave write-back: `reiwa_id` теперь реально пишется в description
+
+`v0.3.6` — критичный hotfix для импорта/синхронизации с Remnawave-панелью. После v0.3.3 контракт `@remnawave/backend-contract` был спинтован на `~2.7.3` чтобы соответствовать live-панели, но у нас в `RemnawaveApiService` остался **до-2.7 формат** двух методов: `createPanelUser` и `updatePanelUser`. На write слышали 200 OK, но Remnawave молча игнорировал большинство полей (или вообще возвращал 404).
+
+### Симптом
+
+Открываешь профиль в Remnawave → в `Description` нет `reiwa_id: <CUID>`, хотя оператор уже несколько раз гонял `import` и `sync`. В `import_records.result` `descriptionWritebacks: 0` для всех 76 синхронизированных профилей, даже несмотря на `recordsOk: 70`.
+
+### Root cause
+
+Два смежных breaking change в Remnawave 2.7.x контракте, которые мы не отследили при пине `^2.8.1` → `~2.7.3` (релиз v0.3.3):
+
+**1. URL для PATCH сменился.** Было `PATCH /api/users/{uuid}` (UUID в URL) → стало `PATCH /api/users` (UUID в body). Старый путь возвращает `404 "Cannot PATCH /api/users/{uuid}"`. У нас же в `try/catch` `writeBackReiwaId` warning логировался и проглатывался — поэтому в `descriptionWritebacks` всегда был ноль, а в `errors[]` тишина.
+
+**2. Названия полей в body — теперь camelCase, не snake_case.** Было `telegram_id`, `traffic_limit_bytes`, `hwid_device_limit`, `expire_at`, `traffic_limit_strategy`, `active_internal_squads`, `external_squad_uuid` → стало `telegramId`, `trafficLimitBytes`, `hwidDeviceLimit`, `expireAt`, `trafficLimitStrategy`, `activeInternalSquads`, `externalSquadUuid`. Если бы URL был верный, мы бы получали 200 OK с применённым `description`, но все остальные поля при этом тихо игнорировались — данные пользователя в Remnawave дрейфовали относительно нашей БД.
+
+### Fix
+
+В `src/modules/remnawave/services/remnawave-api.service.ts`:
+
+- `updatePanelUser`: путь `PATCH '/api/users/${uuid}'` → `PATCH '/api/users'` (UUID уже идёт в body как обязательное поле по zod-схеме).
+- `updatePanelUser`: snake_case → camelCase для всех полей.
+- `createPanelUser`: snake_case → camelCase для всех полей. Путь `POST /api/users` остался как был — он правильный для create (UUID не нужен в URL).
+
+В `src/modules/imports/services/remnawave-importer.service.ts`:
+
+- `writeBackReiwaId` больше не глотает exceptions молча. Если `updatePanelUser` упадёт — exception улетает наверх и попадает в `errors[]` итогового `ImportRecord.result`. Это observability-fix: следующий раз если что-то сломается, мы увидим конкретный URL/код в `result.errors[]`, а не молчаливый ноль в `descriptionWritebacks`.
+
+### Verification
+
+После пересборки локального стака и одного `mode: sync`:
+
+```
+fetched:    77
+updated:    70  (matched users)
+skipped:     7  (no local match in sync mode)
+writebacks: 69  (69 profiles got reiwa_id written into Remnawave description)
+errors:      0
+```
+
+(70 - 1 = 69, потому что одному профилю я вручную прописал reiwa_id в ходе диагностики; на чистом боксе цифры совпали бы.)
+
+Любой Remnawave-профиль с известным telegramId/email теперь имеет в description строку вида `reiwa_id: <CUID>` — следующий sync будет матчить его за O(1) lookup по PK без перебора.
+
+### Pre-push checklist
+
+| Check | Result |
+|---|---|
+| Backend `tsc --noEmit -p tsconfig.json` | ✅ 0 errors |
+| Backend `eslint . --quiet` | ✅ 0 warnings |
+| Local stack rebuild + redeploy | ✅ healthy, `version: "0.3.6"` |
+| Live sync against `2get.pro` panel | ✅ writebacks: 69, errors: 0 |
+
+### Migration / breaking
+
+Нет. Старые `ImportRecord`-записи остаются как были (просто в `result.descriptionWritebacks: 0`). Достаточно один раз запустить `POST /admin/imports/remnawave/sync` — все совпавшие профили получат `reiwa_id` write-back за один проход.
+
+### Docker image
+
+Пересобирается автоматически на push tag `v0.3.6` → GHCR теги `v0.3.6`, `0.3.6`, `0.3`, `latest`.
+
+**Full Changelog**: https://github.com/dizzzable/rezeis/compare/v0.3.5...v0.3.6
+
+---
+
+# Rezeis Admin v0.3.5
 
 ## Hotfix — dashboard 429 storm: removed phantom global `strict` throttler tier
 

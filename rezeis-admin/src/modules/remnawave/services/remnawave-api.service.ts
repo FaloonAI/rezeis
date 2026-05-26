@@ -115,16 +115,16 @@ export class RemnawaveApiService {
   }): Promise<RemnawavePanelUser> {
     return this.requestJsonWithBody<RemnawavePanelUser>('post', '/api/users', {
       username: input.username,
-      telegram_id: input.telegramId,
+      telegramId: input.telegramId,
       email: input.email,
       description: input.description,
       tag: input.tag,
-      expire_at: input.expireAt,
-      traffic_limit_bytes: input.trafficLimitBytes,
-      hwid_device_limit: input.hwidDeviceLimit,
-      traffic_limit_strategy: input.trafficLimitStrategy,
-      active_internal_squads: input.activeInternalSquads,
-      external_squad_uuid: input.externalSquadUuid,
+      expireAt: input.expireAt,
+      trafficLimitBytes: input.trafficLimitBytes,
+      hwidDeviceLimit: input.hwidDeviceLimit,
+      trafficLimitStrategy: input.trafficLimitStrategy,
+      activeInternalSquads: input.activeInternalSquads,
+      externalSquadUuid: input.externalSquadUuid,
     });
   }
 
@@ -148,19 +148,25 @@ export class RemnawaveApiService {
       externalSquadUuid?: string | null;
     },
   ): Promise<RemnawavePanelUser> {
+    // Remnawave 2.7.x contract: PATCH /api/users (no UUID in URL!) — the
+    // UUID lives in the request body. Field names are camelCase, not the
+    // snake_case shape we used pre-v0.3.5; sending snake_case results in
+    // a 200 OK with the description applied but every other field
+    // silently ignored, which is why writeBackReiwaId silently no-op'd
+    // for every imported user.
     const body: Record<string, unknown> = { uuid };
     if (input.status !== undefined) body['status'] = input.status;
-    if (input.telegramId !== undefined) body['telegram_id'] = input.telegramId;
+    if (input.telegramId !== undefined) body['telegramId'] = input.telegramId;
     if (input.email !== undefined) body['email'] = input.email;
     if (input.description !== undefined) body['description'] = input.description;
     if (input.tag !== undefined) body['tag'] = input.tag;
-    if (input.expireAt !== undefined) body['expire_at'] = input.expireAt;
-    if (input.trafficLimitBytes !== undefined) body['traffic_limit_bytes'] = input.trafficLimitBytes;
-    if (input.hwidDeviceLimit !== undefined) body['hwid_device_limit'] = input.hwidDeviceLimit;
-    if (input.trafficLimitStrategy !== undefined) body['traffic_limit_strategy'] = input.trafficLimitStrategy;
-    if (input.activeInternalSquads !== undefined) body['active_internal_squads'] = input.activeInternalSquads;
-    if (input.externalSquadUuid !== undefined) body['external_squad_uuid'] = input.externalSquadUuid;
-    return this.requestJsonWithBody<RemnawavePanelUser>('patch', `/api/users/${uuid}`, body);
+    if (input.expireAt !== undefined) body['expireAt'] = input.expireAt;
+    if (input.trafficLimitBytes !== undefined) body['trafficLimitBytes'] = input.trafficLimitBytes;
+    if (input.hwidDeviceLimit !== undefined) body['hwidDeviceLimit'] = input.hwidDeviceLimit;
+    if (input.trafficLimitStrategy !== undefined) body['trafficLimitStrategy'] = input.trafficLimitStrategy;
+    if (input.activeInternalSquads !== undefined) body['activeInternalSquads'] = input.activeInternalSquads;
+    if (input.externalSquadUuid !== undefined) body['externalSquadUuid'] = input.externalSquadUuid;
+    return this.requestJsonWithBody<RemnawavePanelUser>('patch', '/api/users', body);
   }
 
   /**

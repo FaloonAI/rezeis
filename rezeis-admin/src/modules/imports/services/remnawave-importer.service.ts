@@ -331,6 +331,15 @@ export class RemnawaveImporterService {
   /**
    * If the Remnawave profile's description doesn't contain reiwa_id,
    * write it back so future syncs can match instantly.
+   *
+   * Returns:
+   *   true  — successfully wrote reiwa_id
+   *   false — already had reiwa_id, nothing to do
+   *
+   * On API failure: throws so the caller can record the error against
+   * this row instead of silently swallowing the failure (which is what
+   * caused descriptionWritebacks=0 for every import on Remnawave 2.7.x
+   * before the contract URL fix).
    */
   private async writeBackReiwaId(
     userId: string,
@@ -346,14 +355,9 @@ export class RemnawaveImporterService {
       ? `${currentDescription}\nreiwa_id: ${userId}`
       : `reiwa_id: ${userId}`;
 
-    try {
-      await this.remnawaveApiService.updatePanelUser(panelUser.uuid, {
-        description: newDescription,
-      });
-      return true;
-    } catch (err) {
-      this.logger.warn(`Failed to write back reiwa_id for ${panelUser.uuid}: ${(err as Error).message}`);
-      return false;
-    }
+    await this.remnawaveApiService.updatePanelUser(panelUser.uuid, {
+      description: newDescription,
+    });
+    return true;
   }
 }
