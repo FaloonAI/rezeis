@@ -123,6 +123,8 @@ export interface AltshopTransaction {
 interface RunInput {
   readonly mode: 'import' | 'sync';
   readonly createdBy: string | null;
+  /** Pre-allocated `ImportRecord.id` to update instead of creating new. */
+  readonly importRecordId?: string | null;
   readonly users: readonly AltshopUser[];
   readonly subscriptions: readonly AltshopSubscription[];
   readonly transactions?: readonly AltshopTransaction[];
@@ -149,7 +151,7 @@ export class AltshopImporterService {
   public constructor(private readonly prismaService: PrismaService) {}
 
   public async run(input: RunInput): Promise<ImportSummary> {
-    const { users, subscriptions, transactions, mode, createdBy } = input;
+    const { users, subscriptions, transactions, mode, createdBy, importRecordId } = input;
 
     if (!users || users.length === 0) {
       throw new BadRequestException('No user records provided');
@@ -214,30 +216,48 @@ export class AltshopImporterService {
       }
     }
 
-    const importRecord = await this.prismaService.importRecord.create({
-      data: {
-        filename: `altshop-${mode}-${new Date().toISOString()}.json`,
-        sourceType: 'altshop',
-        status: errors.length === 0 ? ImportStatus.COMMITTED : ImportStatus.FAILED,
-        recordsTotal: users.length,
-        recordsOk: created + updated,
-        recordsFailed: errors.length,
-        result: {
-          mode,
-          fetched: users.length,
-          created,
-          updated,
-          skipped,
-          subscriptionsCreated,
-          subscriptionsUpdated,
-          transactionsProcessed: (transactions ?? []).length,
-          errors,
-        },
-        errorMessage: errors.length === 0 ? null : errors.slice(0, 5).join('; '),
-        createdBy,
-        committedAt: new Date(),
-      },
-    });
+    const finalStatus = errors.length === 0 ? ImportStatus.COMMITTED : ImportStatus.FAILED;
+    const resultPayload = {
+      mode,
+      fetched: users.length,
+      created,
+      updated,
+      skipped,
+      subscriptionsCreated,
+      subscriptionsUpdated,
+      transactionsProcessed: (transactions ?? []).length,
+      errors,
+    };
+    const errorMessage = errors.length === 0 ? null : errors.slice(0, 5).join('; ');
+
+    // See remnawave-importer.service.ts for rationale.
+    const importRecord = importRecordId
+      ? await this.prismaService.importRecord.update({
+          where: { id: importRecordId },
+          data: {
+            status: finalStatus,
+            recordsTotal: users.length,
+            recordsOk: created + updated,
+            recordsFailed: errors.length,
+            result: resultPayload,
+            errorMessage,
+            committedAt: new Date(),
+          },
+        })
+      : await this.prismaService.importRecord.create({
+          data: {
+            filename: `altshop-${mode}-${new Date().toISOString()}.json`,
+            sourceType: 'altshop',
+            status: finalStatus,
+            recordsTotal: users.length,
+            recordsOk: created + updated,
+            recordsFailed: errors.length,
+            result: resultPayload,
+            errorMessage,
+            createdBy,
+            committedAt: new Date(),
+          },
+        });
 
     return {
       importRecordId: importRecord.id,

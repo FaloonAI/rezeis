@@ -46,6 +46,8 @@ export interface ThreeXuiClient {
 interface RunInput {
   readonly mode: 'import' | 'sync';
   readonly createdBy: string | null;
+  /** Pre-allocated `ImportRecord.id` to update instead of creating new. */
+  readonly importRecordId?: string | null;
   readonly clients: readonly ThreeXuiClient[];
 }
 
@@ -68,7 +70,7 @@ export class ThreeXuiImporterService {
   private readonly logger = new Logger(ThreeXuiImporterService.name);
 
   public async run(input: RunInput): Promise<ImportSummary> {
-    const { clients, mode, createdBy } = input;
+    const { clients, mode, createdBy, importRecordId } = input;
 
     if (!clients || clients.length === 0) {
       throw new BadRequestException('No client records provided');
@@ -107,29 +109,49 @@ export class ThreeXuiImporterService {
       }
     }
 
-    const importRecord = await this.prismaService.importRecord.create({
-      data: {
-        filename: `3xui-${mode}-${new Date().toISOString()}.json`,
-        sourceType: '3xui',
-        status: errors.length === 0 ? ImportStatus.COMMITTED : ImportStatus.FAILED,
-        recordsTotal: clients.length,
-        recordsOk: created + updated,
-        recordsFailed: errors.length,
-        result: {
-          mode,
-          fetched: clients.length,
-          created,
-          updated,
-          skipped,
-          subscriptionsCreated,
-          subscriptionsUpdated,
-          errors,
-        } satisfies Prisma.InputJsonValue,
-        errorMessage: errors.length === 0 ? null : errors.slice(0, 5).join('; '),
-        createdBy,
-        committedAt: new Date(),
-      },
-    });
+    const finalStatus = errors.length === 0 ? ImportStatus.COMMITTED : ImportStatus.FAILED;
+    const resultPayload = {
+      mode,
+      fetched: clients.length,
+      created,
+      updated,
+      skipped,
+      subscriptionsCreated,
+      subscriptionsUpdated,
+      errors,
+    } satisfies Prisma.InputJsonValue;
+    const errorMessage = errors.length === 0 ? null : errors.slice(0, 5).join('; ');
+
+    // See remnawave-importer.service.ts for the rationale: prefer the
+    // pre-allocated record id from the queue producer so the row the
+    // SPA polls is the one we finalize. Falls back to create() for CLI/test paths.
+    const importRecord = importRecordId
+      ? await this.prismaService.importRecord.update({
+          where: { id: importRecordId },
+          data: {
+            status: finalStatus,
+            recordsTotal: clients.length,
+            recordsOk: created + updated,
+            recordsFailed: errors.length,
+            result: resultPayload,
+            errorMessage,
+            committedAt: new Date(),
+          },
+        })
+      : await this.prismaService.importRecord.create({
+          data: {
+            filename: `3xui-${mode}-${new Date().toISOString()}.json`,
+            sourceType: '3xui',
+            status: finalStatus,
+            recordsTotal: clients.length,
+            recordsOk: created + updated,
+            recordsFailed: errors.length,
+            result: resultPayload,
+            errorMessage,
+            createdBy,
+            committedAt: new Date(),
+          },
+        });
 
     return {
       importRecordId: importRecord.id,

@@ -1,4 +1,60 @@
-﻿# Rezeis Admin v0.3.8
+﻿# Rezeis Admin v0.3.9
+
+## Hotfix — бесконечная анимация модалки импорта
+
+`v0.3.9` — критичный hotfix к v0.3.8. Сразу после релиза при клике «Импорт из Remnawave» модалка показывала анимацию стейджей бесконечно: импорт фактически проходил, в `import_records` появлялась COMMITTED-запись с правильной статистикой, но **на другой `id`** — а фронт поллил тот id, который вернул enqueue-endpoint, и видел его навсегда в `DRY_RUN`.
+
+### Root cause
+
+Архитектура импорт-pipeline на v0.3.8 была кривая на стыке очередь → процессор → импортер:
+
+1. `ImportQueueService.enqueueRemnawaveImport()` создаёт `ImportRecord` (status=DRAFT) и кладёт её id в job-data.
+2. `ImportProcessor.handleRun()` поднимает status до `DRY_RUN`.
+3. `RemnawaveImporterService.run()` (а так же все остальные importer-сервисы) **игнорировал переданный id** и в конце создавал **второй** `ImportRecord` со status=COMMITTED и финальным `result`.
+
+В итоге на каждый импорт получалось две записи: одна "забытая" в DRY_RUN, вторая со всей статистикой. Фронт поллил первую и крутил спиннер вечно.
+
+### Fix
+
+Все четыре importer-сервиса (`remnawave-importer.service.ts`, `threexui-importer.service.ts`, `remnashop-importer.service.ts`, `altshop-importer.service.ts`) теперь принимают необязательный `importRecordId` через `RunInput`. Когда он передан (production-путь через очередь) — делается `prisma.importRecord.update()` на ту же строку. Когда нет (CLI/test пути) — fallback на `create()` чтобы не сломать legacy.
+
+`ImportProcessor.handleRun()` прокидывает `importRecordId` во все четыре importerа.
+
+### Cleanup
+
+В локальной БД накопилось 11 zombie DRY_RUN-записей от старых импортов. Транзакционный `DELETE` с `WHERE result IS NULL AND committed_at IS NULL AND rolled_back_at IS NULL` убрал их без вреда живым (real-data) записям.
+
+### Verification
+
+После rebuild и одного `mode: sync` через очередь:
+
+- Job встал в очередь с `importRecordId: cmpn5sfo8...`
+- Через ~30 секунд тот **же самый** id сдвинулся `DRAFT → DRY_RUN → COMMITTED`
+- В `import_records` ровно одна строка для этого импорта
+- `result.fetched: 78, updated: 78, writebacks: 0, errors: 0`
+
+### Pre-push checklist
+
+| Check | Result |
+|---|---|
+| Backend `tsc --noEmit -p tsconfig.json` | ✅ 0 errors |
+| Backend `eslint . --quiet` | ✅ 0 warnings |
+| Local stack rebuild + redeploy | ✅ healthy, `version: "0.3.9"` |
+| End-to-end sync через очередь | ✅ same id moved to COMMITTED, 1 row in DB |
+
+### Migration / breaking
+
+Нет. Изменение чисто аддитивное — `RunInput.importRecordId` опциональный, старый `create()`-путь сохранён как fallback.
+
+### Docker image
+
+Пересобирается автоматически на push tag `v0.3.9` → GHCR теги `v0.3.9`, `0.3.9`, `0.3`, `latest`.
+
+**Full Changelog**: https://github.com/dizzzable/rezeis/compare/v0.3.8...v0.3.9
+
+---
+
+# Rezeis Admin v0.3.8
 
 ## Imports UX overhaul + plan form polish + bulk-assign safety
 

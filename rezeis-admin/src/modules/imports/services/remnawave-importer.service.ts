@@ -22,6 +22,19 @@ export interface RemnawaveImportSummary {
 interface RunInput {
   readonly mode: 'import' | 'sync';
   readonly createdBy: string | null;
+  /**
+   * Optional: pre-allocated `ImportRecord.id` (created by the queue
+   * producer in DRAFT status before enqueue). When provided, the
+   * importer **updates** that row with the final stats instead of
+   * creating a brand-new record. The frontend polls this id, so
+   * creating a second record would leave the polled row stuck in
+   * DRY_RUN — that was the "infinite progress dialog" bug we hit on
+   * v0.3.8 launch.
+   *
+   * When `null` (e.g. CLI usage), the importer falls back to the old
+   * behaviour and creates a fresh record so legacy callers still work.
+   */
+  readonly importRecordId?: string | null;
 }
 
 const REIWA_ID_REGEX = /reiwa_id:\s*([a-z0-9]+)/i;
@@ -102,30 +115,51 @@ export class RemnawaveImporterService {
       }
     }
 
-    const importRecord = await this.prismaService.importRecord.create({
-      data: {
-        filename: `remnawave-${input.mode}-${new Date().toISOString()}.json`,
-        sourceType: 'remnawave',
-        status: errors.length === 0 ? ImportStatus.COMMITTED : ImportStatus.FAILED,
-        recordsTotal: panelUsers.length,
-        recordsOk: created + updated,
-        recordsFailed: errors.length,
-        result: {
-          mode: input.mode,
-          fetched: panelUsers.length,
-          created,
-          updated,
-          skipped,
-          subscriptionsCreated,
-          subscriptionsUpdated,
-          descriptionWritebacks,
-          errors,
-        } satisfies Prisma.InputJsonValue,
-        errorMessage: errors.length === 0 ? null : errors.slice(0, 5).join('; '),
-        createdBy: input.createdBy,
-        committedAt: new Date(),
-      },
-    });
+    const finalStatus = errors.length === 0 ? ImportStatus.COMMITTED : ImportStatus.FAILED;
+    const resultPayload = {
+      mode: input.mode,
+      fetched: panelUsers.length,
+      created,
+      updated,
+      skipped,
+      subscriptionsCreated,
+      subscriptionsUpdated,
+      descriptionWritebacks,
+      errors,
+    } satisfies Prisma.InputJsonValue;
+    const errorMessage = errors.length === 0 ? null : errors.slice(0, 5).join('; ');
+
+    // Prefer the pre-allocated record id (created by ImportQueueService
+    // before enqueue) so the row the SPA is polling becomes the row
+    // we finalize. Falling back to a fresh create() keeps the legacy
+    // CLI/test paths working when no id is supplied.
+    const importRecord = input.importRecordId
+      ? await this.prismaService.importRecord.update({
+          where: { id: input.importRecordId },
+          data: {
+            status: finalStatus,
+            recordsTotal: panelUsers.length,
+            recordsOk: created + updated,
+            recordsFailed: errors.length,
+            result: resultPayload,
+            errorMessage,
+            committedAt: new Date(),
+          },
+        })
+      : await this.prismaService.importRecord.create({
+          data: {
+            filename: `remnawave-${input.mode}-${new Date().toISOString()}.json`,
+            sourceType: 'remnawave',
+            status: finalStatus,
+            recordsTotal: panelUsers.length,
+            recordsOk: created + updated,
+            recordsFailed: errors.length,
+            result: resultPayload,
+            errorMessage,
+            createdBy: input.createdBy,
+            committedAt: new Date(),
+          },
+        });
 
     return {
       importRecordId: importRecord.id,

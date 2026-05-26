@@ -82,6 +82,8 @@ export interface RemnashopSubscription {
 interface RunInput {
   readonly mode: 'import' | 'sync';
   readonly createdBy: string | null;
+  /** Pre-allocated `ImportRecord.id` to update instead of creating new. */
+  readonly importRecordId?: string | null;
   readonly users: readonly RemnashopUser[];
   readonly subscriptions: readonly RemnashopSubscription[];
 }
@@ -106,7 +108,7 @@ export class RemnashopImporterService {
   public constructor(private readonly prismaService: PrismaService) {}
 
   public async run(input: RunInput): Promise<ImportSummary> {
-    const { users, subscriptions, mode, createdBy } = input;
+    const { users, subscriptions, mode, createdBy, importRecordId } = input;
 
     if (!users || users.length === 0) {
       throw new BadRequestException('No user records provided');
@@ -157,29 +159,49 @@ export class RemnashopImporterService {
       }
     }
 
-    const importRecord = await this.prismaService.importRecord.create({
-      data: {
-        filename: `remnashop-${mode}-${new Date().toISOString()}.json`,
-        sourceType: 'remnashop',
-        status: errors.length === 0 ? ImportStatus.COMMITTED : ImportStatus.FAILED,
-        recordsTotal: users.length,
-        recordsOk: created + updated,
-        recordsFailed: errors.length,
-        result: {
-          mode,
-          fetched: users.length,
-          created,
-          updated,
-          skipped,
-          subscriptionsCreated,
-          subscriptionsUpdated,
-          errors,
-        },
-        errorMessage: errors.length === 0 ? null : errors.slice(0, 5).join('; '),
-        createdBy,
-        committedAt: new Date(),
-      },
-    });
+    const finalStatus = errors.length === 0 ? ImportStatus.COMMITTED : ImportStatus.FAILED;
+    const resultPayload = {
+      mode,
+      fetched: users.length,
+      created,
+      updated,
+      skipped,
+      subscriptionsCreated,
+      subscriptionsUpdated,
+      errors,
+    };
+    const errorMessage = errors.length === 0 ? null : errors.slice(0, 5).join('; ');
+
+    // See remnawave-importer.service.ts for rationale: when a pre-allocated
+    // ImportRecord exists (queue producer made one), update it instead of
+    // creating a parallel row that the SPA cannot find.
+    const importRecord = importRecordId
+      ? await this.prismaService.importRecord.update({
+          where: { id: importRecordId },
+          data: {
+            status: finalStatus,
+            recordsTotal: users.length,
+            recordsOk: created + updated,
+            recordsFailed: errors.length,
+            result: resultPayload,
+            errorMessage,
+            committedAt: new Date(),
+          },
+        })
+      : await this.prismaService.importRecord.create({
+          data: {
+            filename: `remnashop-${mode}-${new Date().toISOString()}.json`,
+            sourceType: 'remnashop',
+            status: finalStatus,
+            recordsTotal: users.length,
+            recordsOk: created + updated,
+            recordsFailed: errors.length,
+            result: resultPayload,
+            errorMessage,
+            createdBy,
+            committedAt: new Date(),
+          },
+        });
 
     return {
       importRecordId: importRecord.id,

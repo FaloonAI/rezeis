@@ -76,7 +76,7 @@ export class ImportProcessor extends WorkerHost {
 
       switch (sourceType) {
         case 'remnawave':
-          result = await this.remnawaveImporterService.run({ mode, createdBy });
+          result = await this.remnawaveImporterService.run({ mode, createdBy, importRecordId });
           break;
 
         case '3xui': {
@@ -84,7 +84,7 @@ export class ImportProcessor extends WorkerHost {
           const buffer = await fsp.readFile(stagedFilePath);
           const clients = parseThreeXuiBackup(buffer);
           await job.updateProgress({ stage: 'parsed', percent: 20, records: clients.length });
-          result = await this.threexuiImporterService.run({ mode, createdBy, clients });
+          result = await this.threexuiImporterService.run({ mode, createdBy, clients, importRecordId });
           break;
         }
 
@@ -93,7 +93,7 @@ export class ImportProcessor extends WorkerHost {
           const buffer = await fsp.readFile(stagedFilePath);
           const { users, subscriptions } = await parseRemnashopBackup(buffer);
           await job.updateProgress({ stage: 'parsed', percent: 20, records: users.length });
-          result = await this.remnashopImporterService.run({ mode, createdBy, users, subscriptions });
+          result = await this.remnashopImporterService.run({ mode, createdBy, users, subscriptions, importRecordId });
           break;
         }
 
@@ -102,7 +102,7 @@ export class ImportProcessor extends WorkerHost {
           const buffer = await fsp.readFile(stagedFilePath);
           const { users, subscriptions, transactions } = await parseAltshopBackup(buffer);
           await job.updateProgress({ stage: 'parsed', percent: 20, records: users.length });
-          result = await this.altshopImporterService.run({ mode, createdBy, users, subscriptions, transactions });
+          result = await this.altshopImporterService.run({ mode, createdBy, users, subscriptions, transactions, importRecordId });
           break;
         }
 
