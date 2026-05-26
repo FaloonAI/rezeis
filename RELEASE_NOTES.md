@@ -1,4 +1,53 @@
-﻿# Rezeis Admin v0.3.4
+﻿# Rezeis Admin v0.3.5
+
+## Hotfix — dashboard 429 storm: removed phantom global `strict` throttler tier
+
+`v0.3.5` — узкий, но критичный hotfix. На свежем дашборде в Network tab можно было увидеть лавину `429 Too Many Requests` от `/api/admin/dashboard/system-health`, `/api/admin/dashboard/summary`, `/api/admin/remnawave/metrics/online-trend` — даже когда оператор ничего не делал, просто открыл `/`. Сводка дашборда отказывалась загружаться (`Сводка дашборда недоступна`).
+
+### Root cause
+
+`ThrottlerModule.forRoot([...])` определял **два** именованных throttler'а:
+
+```ts
+{ name: 'default', ttl: 60_000, limit: 600 },   // generous, для polling
+{ name: 'strict',  ttl: 60_000, limit: 5 },     // только для login
+```
+
+Поведение `@nestjs/throttler` 6.x, не очевидное из доков: **каждый именованный throttler применяется к каждому запросу**, если не отскипан **по имени**. `@SkipThrottle()` без аргументов = `{ default: true }` — то есть отключает только `default` namespace, но `strict` (5 запросов / 60 секунд) продолжает считать **все** запросы дашборда.
+
+`system-health` polling 10 s × 6 запросов / минуту = немедленно превышение лимита 5 → 429 на каждом следующем тике, плюс 429 на summary, online-trend, activity-feed на той же минуте. UI словил error-state и показал «Сводка дашборда недоступна», а DevTools заполнил консоль ошибками.
+
+### Fix
+
+В `src/common/throttle/throttle.module.ts`:
+
+- Удалён глобальный `strict` namespace. Остался только `default` (600 req / 60 s).
+- В `admin-auth.controller.ts` `@Throttle({ strict: { ttl: 60_000, limit: 5 } })` заменён на `@Throttle({ default: { ttl: 60_000, limit: 5 } })` — login-эндпоинт теперь переопределяет `default`-throttler локально, без побочного namespace, который бил по всему API.
+
+Это полностью соответствует tested-pattern из официальных доков: per-endpoint `@Throttle()` override на default namespace. Отдельный `strict` tier нужен был бы только если бы у нас 3+ endpoint'ов делили один отдельный budget — у нас такого нет.
+
+### Pre-push
+
+| Check | Result |
+|---|---|
+| Backend `tsc --noEmit -p tsconfig.json` | ✅ 0 errors |
+| Backend `eslint . --quiet` | ✅ 0 warnings |
+| Local stack rebuild + redeploy | ✅ healthy, `version:"0.3.5"` |
+| Dashboard idle for 60s, log check | ✅ 0 × 429 entries |
+
+### Migration / breaking
+
+Нет. Login по-прежнему ограничен 5 попыток / 60 секунд — просто через другой механизм. Существующие admin-сессии не задеты.
+
+### Docker image
+
+Пересобирается автоматически на push tag `v0.3.5` → GHCR теги `v0.3.5`, `0.3.5`, `0.3`, `latest`.
+
+**Full Changelog**: https://github.com/dizzzable/rezeis/compare/v0.3.4...v0.3.5
+
+---
+
+# Rezeis Admin v0.3.4
 
 ## Patch — Cmd+K quick-search now jumps to pages
 

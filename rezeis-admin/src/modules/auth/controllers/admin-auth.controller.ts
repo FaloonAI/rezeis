@@ -109,7 +109,7 @@ export class AdminAuthController {
   }
 
   @Post('login')
-  @Throttle({ strict: { ttl: 60_000, limit: 5 } })
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Authenticates an admin and issues a JWT' })
   public async login(

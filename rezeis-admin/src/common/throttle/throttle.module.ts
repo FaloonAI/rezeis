@@ -12,12 +12,19 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
  *     support-tickets detail 5 s, online-trend / activity-feed 30 s,
  *     webhooks / broadcast 10 s). All admin endpoints sit behind
  *     `AdminJwtAuthGuard` so login itself is the abuse vector — that
- *     uses the `strict` throttle below.
+ *     uses a much tighter per-endpoint override (see below).
  *
- * Individual endpoints can override with @Throttle() decorator:
- *   - Login: 5 attempts per 60 s
- *   - Payments: 10 per 60 s
- *   - Imports: 3 per 60 s
+ * Individual endpoints can override with @Throttle() decorator on
+ * the same `default` throttler namespace, e.g. login uses
+ *   @Throttle({ default: { ttl: 60_000, limit: 5 } })
+ *
+ * Earlier versions defined a *separate* `strict` throttler at module
+ * scope (5/60 s). Because `@nestjs/throttler` runs **every named
+ * throttler** for every request unless explicitly skipped per-name,
+ * that strict tier silently capped the entire API at 5/60 s — the
+ * dashboard's 10 s `system-health` poll triggered 429s on every page
+ * load. Lesson: prefer per-endpoint @Throttle overrides over named
+ * tiers when only one endpoint needs the tighter budget.
  *
  * Pure read-only metric endpoints (dashboard summary / system-health /
  * client-error reporting) are decorated with @SkipThrottle() so they
@@ -34,11 +41,6 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
         name: 'default',
         ttl: 60_000,
         limit: 600,
-      },
-      {
-        name: 'strict',
-        ttl: 60_000,
-        limit: 5,
       },
     ]),
   ],
