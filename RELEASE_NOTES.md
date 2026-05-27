@@ -1,4 +1,73 @@
-﻿# Rezeis Admin v0.4.0
+﻿# Rezeis Admin v0.4.1
+
+## STEALTHNET source — новая вкладка импорта
+
+`v0.4.1` добавляет пятый источник в `/imports`: STEALTHNET (https://github.com/systemmaster1200-eng/remnawave-STEALTHNET-Bot). В отличие от altshop/remnashop, которые экспортируют типизированный JSON внутри `.tar.gz`, STEALTHNET выгружает сырой `pg_dump --format=plain` — мы парсим его напрямую.
+
+### Что сделано
+
+- **Новый парсер** `stealthnet-backup-pg-parser` в `imports/utils/stealthnet-backup-parser.ts`. Это полноценный line-based scanner pg_dump формата: распознаёт `COPY public.<table> (cols) FROM stdin;` блоки, обрабатывает tab-separated rows, корректно эскейпит `\N` (NULL), `\t`, `\n`, `\\`, и postgres array литералы `{a,b,c}`. Парсит только нужные таблицы (clients, secondary_subscriptions, tariffs, tariff_categories, tariff_price_options, payments) — остальные ~50 таблиц дампа (admin_events, marketplace_*, system_settings и т.д.) игнорируются.
+- **Поддержка gzip** — если файл начинается с `1f 8b` magic, перед парсингом распаковываем через `node:zlib`.
+- **`StealthnetImporterService`** в `imports/services/stealthnet-importer.service.ts` — переиспользует ту же логику что и altshop/remnashop, адаптированную под STEALTHNET-shape:
+  - Matching priority: `telegram_id` → `email` → отказ. Skip строк без обоих идентификаторов (STEALTHNET ids не reusable между системами, повторный импорт без telegram/email создавал бы дубликаты).
+  - Email + password_hash → автоматически провижится `WebAccount` так что user может залогиниться в reiwa с тем же паролем (если у тебя на свежем User поле `passwordHash` пустое; existing хеши не перезаписываем).
+  - Subscriptions матчатся по `remnawave_uuid` (как в altshop), `planSnapshot.importedFrom = 'stealthnet'`.
+  - Payments → Transactions, идемпотентно по `order_id`.
+  - Admin grants и провайдеры которые не в нашем `PaymentGatewayType` enum — silently skip (не корраптим Transaction ledger левыми записями).
+- **Catalog для Plan Cloner** — STEALTHNET плоско хранит `(duration_days, price)` на самой `tariffs` строке + дополнительные `tariff_price_options`. Importer нормализует это в altshop-shape `{plans, planDurations, planPrices}` через детерминистический `stableHashId(cuid)` так что `BackupPlanClonerService` работает без модификаций.
+- **Фронтенд**: пятая вкладка **STEALTHNET** в `<Tabs>` на `/imports`, accept `.sql,.sql.gz,.gz`. Финал импорта показывает "Clone source plans" кнопку как для altshop/remnashop.
+- **i18n**: новые `importsPage.stealthnet.{title,description,action,selectFile,importing,hint}` в `imports.en.ts` и `imports.ru.ts`.
+- **Контроллер**: новый endpoint `POST /admin/imports/stealthnet` (`AdminJwtAuthGuard`, multipart, до 100 MB).
+
+### Backend изменения
+
+- `imports.module.ts` — зарегистрирован `StealthnetImporterService`.
+- `import.processor.ts` — новый `case 'stealthnet'` в `handleRun()` который читает stage-файл, парсит и зовёт importer.
+- `backup-plan-cloner.service.ts` — `loadImportRecord()` теперь принимает `stealthnet` как валидный sourceType.
+
+### Sanity check
+
+Парсер прогнан против реального дампа `stealthnet-backup-2026-05-27T07-00-00.sql` (0.74 MB):
+
+```
+clients         : 287
+subscriptions   : 0
+tariffs         : 3
+tariffCategories: 1
+priceOptions    : 12
+payments        : 72
+```
+
+Кириллица `Простая подписка - 1 устройство` декодируется корректно через UTF-8.
+
+### Pre-push checklist
+
+| Check | Result |
+|---|---|
+| Backend `tsc --noEmit -p tsconfig.json` | ✅ 0 errors |
+| Backend `eslint . --quiet` | ✅ 0 warnings |
+| Frontend `npm run build` (tsc + vite) | ✅ 0 errors |
+| Frontend `eslint . --quiet` | ✅ 0 warnings |
+| Local stack rebuild + `/api/health` | ✅ `version: "0.4.1"` |
+| Parser dry-run на реальном STEALTHNET дампе | ✅ 287 clients, 3 tariffs, 72 payments |
+
+### Migration / breaking
+
+Нет. Чисто аддитивное:
+
+- Новый sourceType `stealthnet` в `ImportRecord.source_type` (text column, без enum constraint).
+- Новый endpoint под отдельным path. Все существующие endpointы работают как раньше.
+- Plan Cloner расширил allowed source list (теперь принимает `altshop | remnashop | stealthnet`); legacy запросы продолжают работать.
+
+### Docker image
+
+Пересобирается на push tag `v0.4.1` → GHCR теги `v0.4.1`, `0.4.1`, `0.4`, `latest`.
+
+**Full Changelog**: https://github.com/dizzzable/rezeis/compare/v0.4.0...v0.4.1
+
+---
+
+# Rezeis Admin v0.4.0
 
 ## Plan Catalog Cloning — восстановление тарифов из altshop / remnashop бэкапов
 

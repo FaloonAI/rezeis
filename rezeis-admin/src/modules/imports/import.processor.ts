@@ -16,9 +16,11 @@ import {
 } from './services/import-queue.service';
 import { RemnashopImporterService } from './services/remnashop-importer.service';
 import { RemnawaveImporterService } from './services/remnawave-importer.service';
+import { StealthnetImporterService } from './services/stealthnet-importer.service';
 import { ThreeXuiImporterService } from './services/threexui-importer.service';
 import { parseAltshopBackup } from './utils/altshop-backup-parser';
 import { parseRemnashopBackup } from './utils/remnashop-backup-parser';
+import { parseStealthnetBackup } from './utils/stealthnet-backup-parser';
 import { parseThreeXuiBackup } from './utils/threexui-backup-parser';
 
 /**
@@ -42,6 +44,7 @@ export class ImportProcessor extends WorkerHost {
     private readonly threexuiImporterService: ThreeXuiImporterService,
     private readonly remnashopImporterService: RemnashopImporterService,
     private readonly altshopImporterService: AltshopImporterService,
+    private readonly stealthnetImporterService: StealthnetImporterService,
     private readonly bulkPlanAssignmentService: BulkPlanAssignmentService,
   ) {
     super();
@@ -122,6 +125,32 @@ export class ImportProcessor extends WorkerHost {
             plans,
             planDurations,
             planPrices,
+          });
+          break;
+        }
+
+        case 'stealthnet': {
+          if (!stagedFilePath) throw new Error('Staged file path missing for stealthnet import');
+          const buffer = await fsp.readFile(stagedFilePath);
+          const {
+            clients,
+            subscriptions,
+            tariffs,
+            tariffCategories,
+            tariffPriceOptions,
+            payments,
+          } = await parseStealthnetBackup(buffer);
+          await job.updateProgress({ stage: 'parsed', percent: 20, records: clients.length });
+          result = await this.stealthnetImporterService.run({
+            mode,
+            createdBy,
+            importRecordId,
+            clients,
+            subscriptions,
+            tariffs,
+            tariffCategories,
+            tariffPriceOptions,
+            payments,
           });
           break;
         }

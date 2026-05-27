@@ -480,9 +480,9 @@ export class BackupPlanClonerService {
       where: { id: importRecordId },
     });
     if (!record) throw new NotFoundException(`Import record '${importRecordId}' not found`);
-    if (record.sourceType !== 'altshop' && record.sourceType !== 'remnashop') {
+    if (record.sourceType !== 'altshop' && record.sourceType !== 'remnashop' && record.sourceType !== 'stealthnet') {
       throw new BadRequestException(
-        `Plan cloning is only supported for altshop and remnashop imports, got '${record.sourceType}'`,
+        `Plan cloning is only supported for altshop, remnashop and stealthnet imports, got '${record.sourceType}'`,
       );
     }
     return record;

@@ -36,4 +36,6 @@ docs/README.md
 # Real customer backups (must never land in git)
 backup_full_*.tar.gz
 backup_full_*.tar
+stealthnet-backup-*.sql
+stealthnet-backup-*.sql.gz
 *.dump

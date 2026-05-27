@@ -171,7 +171,7 @@ export default function ImportsPage(): JSX.Element {
       </FadeIn>
 
       <Tabs defaultValue="remnawave" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="remnawave" className="gap-1.5">
             <RemnawaveIcon className="h-3.5 w-3.5" />
             Remnawave
@@ -179,6 +179,7 @@ export default function ImportsPage(): JSX.Element {
           <TabsTrigger value="3xui">3x-ui</TabsTrigger>
           <TabsTrigger value="remnashop">Remnashop</TabsTrigger>
           <TabsTrigger value="altshop">Altshop</TabsTrigger>
+          <TabsTrigger value="stealthnet">STEALTHNET</TabsTrigger>
         </TabsList>
 
         <TabsContent value="remnawave">
@@ -192,6 +193,9 @@ export default function ImportsPage(): JSX.Element {
         </TabsContent>
         <TabsContent value="altshop">
           <FileUploadTab source="altshop" onStart={flow.start} onRecordId={flow.setRecordId} />
+        </TabsContent>
+        <TabsContent value="stealthnet">
+          <FileUploadTab source="stealthnet" onStart={flow.start} onRecordId={flow.setRecordId} />
         </TabsContent>
       </Tabs>
 
@@ -336,7 +340,7 @@ function RemnawaveTab({ onStart, onRecordId }: TabProps): JSX.Element {
 // ── File-upload tabs (3x-ui, Remnashop, Altshop) ──────────────────────────
 
 interface FileUploadTabProps extends TabProps {
-  readonly source: 'remnashop' | 'altshop' | '3xui'
+  readonly source: 'remnashop' | 'altshop' | '3xui' | 'stealthnet'
 }
 
 function FileUploadTab({ source, onStart, onRecordId }: FileUploadTabProps): JSX.Element {
@@ -383,7 +387,12 @@ function FileUploadTab({ source, onStart, onRecordId }: FileUploadTabProps): JSX
     [importMutation],
   )
 
-  const accept = source === '3xui' ? '.json,.db' : '.json,.tar.gz,.gz'
+  const accept =
+    source === '3xui'
+      ? '.json,.db'
+      : source === 'stealthnet'
+        ? '.sql,.sql.gz,.gz'
+        : '.json,.tar.gz,.gz'
 
   return (
     <HoverLift>

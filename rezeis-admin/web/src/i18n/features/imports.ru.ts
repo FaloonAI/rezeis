@@ -51,6 +51,15 @@ export const ru = {
       importing: 'Импорт {{filename}}…',
       hint: 'Принимаемые форматы: backup_full_*.tar.gz или database.json.',
     },
+    stealthnet: {
+      title: 'Импорт из STEALTHNET',
+      description:
+        'Загрузите pg_dump бэкап STEALTHNET (.sql) — тот же файл, который бот пишет в /backups. Содержит клиентов, подписки, тарифы и платежи.',
+      action: 'Выбрать файл',
+      selectFile: 'Выбрать .sql бэкап STEALTHNET',
+      importing: 'Импорт {{filename}}…',
+      hint: 'Принимаемые форматы: stealthnet-backup-*.sql или .sql.gz.',
+    },
     importDone: 'Импорт завершён · {{summary}}',
     syncDone: 'Синхронизация завершена · {{summary}}',
     success: 'Получено {{fetched}} · создано {{created}} · обновлено {{updated}} · пропущено {{skipped}}',

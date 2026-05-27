@@ -51,6 +51,15 @@ export const en = {
       importing: 'Importing {{filename}}…',
       hint: 'Accepted formats: backup_full_*.tar.gz or database.json.',
     },
+    stealthnet: {
+      title: 'Import from STEALTHNET',
+      description:
+        'Upload a STEALTHNET pg_dump backup (.sql) — the same file the bot writes to /backups. Includes clients, subscriptions, tariffs, and payments.',
+      action: 'Select file',
+      selectFile: 'Select STEALTHNET .sql backup',
+      importing: 'Importing {{filename}}…',
+      hint: 'Accepted formats: stealthnet-backup-*.sql or .sql.gz.',
+    },
     importDone: 'Import done · {{summary}}',
     syncDone: 'Sync done · {{summary}}',
     success:

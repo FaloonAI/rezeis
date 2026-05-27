@@ -1,0 +1,700 @@
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  Currency,
+  ImportStatus,
+  Locale,
+  PaymentGatewayType,
+  Prisma,
+  PurchaseChannel,
+  PurchaseType,
+  SubscriptionStatus,
+  SyncAction,
+  TransactionStatus,
+} from '@prisma/client';
+
+import { PrismaService } from '../../../common/prisma/prisma.service';
+import { ImportSummary } from '../interfaces/import-summary.interface';
+import {
+  StealthnetClient,
+  StealthnetPayment,
+  StealthnetSubscription,
+  StealthnetTariff,
+  StealthnetTariffCategory,
+  StealthnetTariffPriceOption,
+} from '../utils/stealthnet-backup-parser';
+
+interface RunInput {
+  readonly mode: 'import' | 'sync';
+  readonly createdBy: string | null;
+  /** Pre-allocated `ImportRecord.id` to update instead of creating new. */
+  readonly importRecordId?: string | null;
+  readonly clients: readonly StealthnetClient[];
+  readonly subscriptions: readonly StealthnetSubscription[];
+  readonly tariffs: readonly StealthnetTariff[];
+  readonly tariffCategories: readonly StealthnetTariffCategory[];
+  readonly tariffPriceOptions: readonly StealthnetTariffPriceOption[];
+  readonly payments: readonly StealthnetPayment[];
+}
+
+/**
+ * Importer for STEALTHNET (https://github.com/systemmaster1200-eng/remnawave-STEALTHNET-Bot)
+ * pg_dump backups.
+ *
+ * STEALTHNET data lands in our schema like so:
+ *   • clients                  → User (+ optional WebAccount when `email + password_hash` are set)
+ *   • secondary_subscriptions  → Subscription (one per remnawave UUID)
+ *   • tariffs / tariff_*       → kept in `result.catalog` for the optional clone-plans step
+ *   • payments                 → Transaction (historical, idempotent on `paymentId`)
+ *
+ * Matching priority for users:
+ *   1. `telegram_id` → User.telegramId
+ *   2. `email`       → User.email (only when present and unique on our side)
+ *   3. No match      → create new User (import mode only); for web-only users
+ *      we additionally provision a WebAccount with the imported password hash
+ *      so the user can sign in via reiwa exactly as before.
+ *
+ * Skip behaviour:
+ *   • A row with neither telegram_id NOR email is skipped (we have no
+ *     stable way to identify it; STEALTHNET ids are not reused).
+ *   • A row whose match resolves to an existing User is updated in place
+ *     and counted as `updated`.
+ *
+ * Subscriptions are written exactly like altshop's: indexed by
+ * `remnawave_uuid`, idempotent on re-run, with `planSnapshot.importedFrom
+ * = 'stealthnet'` so the Plan Cloner can find them later.
+ */
+@Injectable()
+export class StealthnetImporterService {
+  private readonly logger = new Logger(StealthnetImporterService.name);
+
+  public constructor(private readonly prismaService: PrismaService) {}
+
+  public async run(input: RunInput): Promise<ImportSummary> {
+    const {
+      mode,
+      createdBy,
+      importRecordId,
+      clients,
+      subscriptions,
+      tariffs,
+      tariffCategories,
+      tariffPriceOptions,
+      payments,
+    } = input;
+
+    if (clients.length === 0) {
+      throw new BadRequestException('STEALTHNET backup contains no client records');
+    }
+
+    // ── Index inputs once for O(1) joins ────────────────────────────────────
+    const subsByOwner = new Map<string, StealthnetSubscription[]>();
+    for (const sub of subscriptions) {
+      const list = subsByOwner.get(sub.owner_id) ?? [];
+      list.push(sub);
+      subsByOwner.set(sub.owner_id, list);
+    }
+
+    const paymentsByClient = new Map<string, StealthnetPayment[]>();
+    for (const payment of payments) {
+      const list = paymentsByClient.get(payment.client_id) ?? [];
+      list.push(payment);
+      paymentsByClient.set(payment.client_id, list);
+    }
+
+    const tariffById = new Map<string, StealthnetTariff>();
+    for (const tariff of tariffs) tariffById.set(tariff.id, tariff);
+
+    const errors: string[] = [];
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+    let subscriptionsCreated = 0;
+    let subscriptionsUpdated = 0;
+    let transactionsCreated = 0;
+
+    for (const client of clients) {
+      const identifier = client.telegram_id ?? client.email ?? client.id;
+      try {
+        const userId = await this.matchOrCreateUser(client, mode);
+        if (userId === null) {
+          skipped += 1;
+          continue;
+        }
+
+        const wasJustCreated = await this.wasJustCreated(userId);
+        if (wasJustCreated) created += 1;
+        else updated += 1;
+
+        // Subscriptions
+        const userSubs = subsByOwner.get(client.id) ?? [];
+        for (const sub of userSubs) {
+          const result = await this.syncSubscription(userId, sub, tariffById);
+          if (result === 'created') subscriptionsCreated += 1;
+          else if (result === 'updated') subscriptionsUpdated += 1;
+        }
+
+        // Payments → Transactions (historical)
+        const userPayments = paymentsByClient.get(client.id) ?? [];
+        for (const payment of userPayments) {
+          const created = await this.importPayment(userId, payment, tariffById);
+          if (created) transactionsCreated += 1;
+        }
+      } catch (err) {
+        const message = `${identifier}: ${(err as Error).message}`;
+        errors.push(message);
+        this.logger.warn(`stealthnet importer row failed: ${message}`);
+      }
+    }
+
+    const finalStatus = errors.length === 0 ? ImportStatus.COMMITTED : ImportStatus.FAILED;
+    const resultPayload: Prisma.InputJsonValue = {
+      mode,
+      fetched: clients.length,
+      created,
+      updated,
+      skipped,
+      subscriptionsCreated,
+      subscriptionsUpdated,
+      transactionsProcessed: payments.length,
+      transactionsCreated,
+      errors,
+      // Catalog snapshot — reused by BackupPlanClonerService for the
+      // optional second-step clone. We pre-translate STEALTHNET rows
+      // into the same shape altshop emits so the cloner doesn't need
+      // a third source-specific branch.
+      catalog: JSON.parse(
+        JSON.stringify({
+          plans: tariffs.map((t) => mapTariffToPlanRow(t, tariffCategories)),
+          planDurations: deriveDurations(tariffs, tariffPriceOptions),
+          planPrices: derivePrices(tariffs, tariffPriceOptions),
+        }),
+      ),
+    };
+    const errorMessage = errors.length === 0 ? null : errors.slice(0, 5).join('; ');
+
+    const importRecord = importRecordId
+      ? await this.prismaService.importRecord.update({
+          where: { id: importRecordId },
+          data: {
+            status: finalStatus,
+            recordsTotal: clients.length,
+            recordsOk: created + updated,
+            recordsFailed: errors.length,
+            result: resultPayload,
+            errorMessage,
+            committedAt: new Date(),
+          },
+        })
+      : await this.prismaService.importRecord.create({
+          data: {
+            filename: `stealthnet-${mode}-${new Date().toISOString()}.sql`,
+            sourceType: 'stealthnet',
+            status: finalStatus,
+            recordsTotal: clients.length,
+            recordsOk: created + updated,
+            recordsFailed: errors.length,
+            result: resultPayload,
+            errorMessage,
+            createdBy,
+            committedAt: new Date(),
+          },
+        });
+
+    return {
+      importRecordId: importRecord.id,
+      fetched: clients.length,
+      created,
+      updated,
+      skipped,
+      subscriptionsCreated,
+      subscriptionsUpdated,
+      errors,
+    };
+  }
+
+  // ── User matching ─────────────────────────────────────────────────────────
+
+  private async matchOrCreateUser(
+    client: StealthnetClient,
+    mode: 'import' | 'sync',
+  ): Promise<string | null> {
+    // Priority 1: telegram_id
+    const telegramId = parseTelegramId(client.telegram_id);
+    if (telegramId !== null) {
+      const existing = await this.prismaService.user.findUnique({
+        where: { telegramId },
+        select: { id: true },
+      });
+      if (existing) {
+        await this.updateUserFields(existing.id, client);
+        await this.upsertWebAccountIfNeeded(existing.id, client);
+        return existing.id;
+      }
+    }
+
+    // Priority 2: email
+    if (client.email) {
+      const existing = await this.prismaService.user.findUnique({
+        where: { email: client.email.toLowerCase() },
+        select: { id: true },
+      });
+      if (existing) {
+        await this.updateUserFields(existing.id, client);
+        await this.upsertWebAccountIfNeeded(existing.id, client);
+        return existing.id;
+      }
+    }
+
+    // Sync mode — never creates new users.
+    if (mode === 'sync') return null;
+
+    // No telegram and no email → we cannot pin this user to anything
+    // useful. STEALTHNET ids are not reusable across systems, and
+    // re-running the import would create duplicates. Skip explicitly.
+    if (telegramId === null && !client.email) return null;
+
+    const newUser = await this.prismaService.user.create({
+      data: {
+        telegramId,
+        username: client.telegram_username ?? null,
+        email: client.email ? client.email.toLowerCase() : null,
+        name: client.telegram_username ?? client.email ?? `stealthnet-${client.id.slice(0, 8)}`,
+        language: this.mapLocale(client.preferred_lang),
+        isBlocked: client.is_blocked,
+      },
+    });
+    await this.upsertWebAccountIfNeeded(newUser.id, client);
+    return newUser.id;
+  }
+
+  private async updateUserFields(userId: string, client: StealthnetClient): Promise<void> {
+    const data: Prisma.UserUpdateInput = {};
+    if (client.telegram_username) data.username = client.telegram_username;
+    if (client.email) data.email = client.email.toLowerCase();
+    data.isBlocked = client.is_blocked;
+    if (Object.keys(data).length > 0) {
+      try {
+        await this.prismaService.user.update({ where: { id: userId }, data });
+      } catch (err) {
+        // Email collisions are common when multiple imports overlap —
+        // log and move on, the rest of the user state is still useful.
+        this.logger.debug(`updateUserFields skipped for ${userId}: ${(err as Error).message}`);
+      }
+    }
+  }
+
+  /**
+   * STEALTHNET supports email-only customers (no telegram). For those
+   * we provision a WebAccount carrying the imported password hash so
+   * they can keep signing into reiwa with their existing creds. When
+   * the user has neither email nor password, this is a no-op.
+   */
+  private async upsertWebAccountIfNeeded(
+    userId: string,
+    client: StealthnetClient,
+  ): Promise<void> {
+    if (!client.email || !client.password_hash) return;
+    const normalizedEmail = client.email.toLowerCase();
+    const existing = await this.prismaService.webAccount.findUnique({
+      where: { userId },
+      select: { id: true, passwordHash: true },
+    });
+    if (existing) {
+      // Don't clobber a hash the operator may have rotated since last import.
+      if (existing.passwordHash) return;
+      await this.prismaService.webAccount.update({
+        where: { userId },
+        data: {
+          email: normalizedEmail,
+          emailNormalized: normalizedEmail,
+          passwordHash: client.password_hash,
+          credentialsBootstrappedAt: new Date(),
+        },
+      });
+      return;
+    }
+    try {
+      await this.prismaService.webAccount.create({
+        data: {
+          userId,
+          login: normalizedEmail,
+          loginNormalized: normalizedEmail,
+          email: normalizedEmail,
+          emailNormalized: normalizedEmail,
+          passwordHash: client.password_hash,
+          credentialsBootstrappedAt: new Date(),
+        },
+      });
+    } catch (err) {
+      // Unique constraints may collide if another user already owns
+      // this email/login normalised — log and skip.
+      this.logger.debug(`webAccount create skipped for ${userId}: ${(err as Error).message}`);
+    }
+  }
+
+  private async wasJustCreated(userId: string): Promise<boolean> {
+    const user = await this.prismaService.user.findUnique({
+      where: { id: userId },
+      select: { createdAt: true },
+    });
+    if (!user) return false;
+    return Date.now() - user.createdAt.getTime() < 5000;
+  }
+
+  // ── Subscription sync ─────────────────────────────────────────────────────
+
+  private async syncSubscription(
+    userId: string,
+    sub: StealthnetSubscription,
+    tariffById: ReadonlyMap<string, StealthnetTariff>,
+  ): Promise<'created' | 'updated' | 'skipped'> {
+    if (!sub.remnawave_uuid) return 'skipped';
+
+    const existing = await this.prismaService.subscription.findFirst({
+      where: { remnawaveId: sub.remnawave_uuid },
+      select: { id: true, userId: true },
+    });
+
+    const tariff = sub.tariff_id ? tariffById.get(sub.tariff_id) : undefined;
+    const trafficLimit = tariff?.traffic_limit_bytes && tariff.traffic_limit_bytes > 0
+      ? Number(tariff.traffic_limit_bytes)
+      : null;
+    const deviceLimit = tariff?.device_limit ?? tariff?.included_devices ?? 0;
+
+    const planSnapshot: Prisma.InputJsonValue = {
+      importedFrom: 'stealthnet',
+      sourceSubscriptionId: sub.id,
+      sourceTariffId: sub.tariff_id,
+      // Mirror altshop's `originalPlanSnapshot.id` shape so the Plan
+      // Cloner's `extractSourcePlanId()` walks both seamlessly.
+      originalPlanSnapshot: tariff
+        ? { id: tariff.id, name: tariff.name, duration_days: tariff.duration_days }
+        : null,
+      tariffName: tariff?.name ?? null,
+      currency: tariff?.currency ?? null,
+      durationDays: tariff?.duration_days ?? null,
+    };
+
+    const dataShared = {
+      status: SubscriptionStatus.ACTIVE,
+      isTrial: false,
+      trafficLimit,
+      deviceLimit,
+      internalSquads: tariff?.internal_squad_uuids ? [...tariff.internal_squad_uuids] : [],
+      planSnapshot,
+    };
+
+    if (existing) {
+      await this.prismaService.subscription.update({
+        where: { id: existing.id },
+        data: dataShared,
+      });
+      if (existing.userId !== userId) {
+        await this.prismaService.subscription.update({
+          where: { id: existing.id },
+          data: { user: { connect: { id: userId } } },
+        });
+      }
+      return 'updated';
+    }
+
+    const newSub = await this.prismaService.subscription.create({
+      data: {
+        ...dataShared,
+        user: { connect: { id: userId } },
+        remnawaveId: sub.remnawave_uuid,
+        startedAt: sub.created_at ? new Date(sub.created_at) : new Date(),
+      },
+    });
+
+    // Queue a Remnawave sync so the panel reflects the imported state.
+    await this.prismaService.profileSyncJob.create({
+      data: {
+        subscriptionId: newSub.id,
+        action: SyncAction.UPDATE,
+        payload: {
+          importedFrom: 'stealthnet',
+          sourceSubscriptionId: sub.id,
+        } satisfies Prisma.InputJsonValue,
+      },
+    });
+
+    // Fill in `currentSubscriptionId` if the user has none yet —
+    // otherwise leave the operator's existing pick alone.
+    const user = await this.prismaService.user.findUnique({
+      where: { id: userId },
+      select: { currentSubscriptionId: true },
+    });
+    if (!user?.currentSubscriptionId) {
+      await this.prismaService.user.update({
+        where: { id: userId },
+        data: { currentSubscriptionId: newSub.id },
+      });
+    }
+
+    return 'created';
+  }
+
+  // ── Payment → Transaction ────────────────────────────────────────────────
+
+  private async importPayment(
+    userId: string,
+    payment: StealthnetPayment,
+    tariffById: ReadonlyMap<string, StealthnetTariff>,
+  ): Promise<boolean> {
+    // Idempotency: STEALTHNET's order_id is the most stable provider
+    // identifier. Skip if we already have a Transaction for it.
+    const existing = await this.prismaService.transaction.findUnique({
+      where: { paymentId: payment.order_id },
+      select: { id: true },
+    });
+    if (existing) return false;
+
+    const gatewayType = this.mapGatewayType(payment.provider);
+    const currency = this.mapCurrency(payment.currency);
+    if (!gatewayType || !currency) return false;
+
+    const tariff = payment.tariff_id ? tariffById.get(payment.tariff_id) : undefined;
+
+    try {
+      await this.prismaService.transaction.create({
+        data: {
+          user: { connect: { id: userId } },
+          paymentId: payment.order_id,
+          status: this.mapTransactionStatus(payment.status),
+          purchaseType: PurchaseType.NEW,
+          gatewayType,
+          gatewayId: payment.external_id ?? undefined,
+          gatewayData: payment.metadata ? safeParseJson(payment.metadata) : undefined,
+          amount: payment.amount,
+          currency,
+          channel: PurchaseChannel.WEB,
+          planSnapshot: {
+            importedFrom: 'stealthnet',
+            sourcePaymentId: payment.id,
+            sourceTariffId: payment.tariff_id,
+            tariffName: tariff?.name ?? null,
+            durationDays: tariff?.duration_days ?? null,
+          } satisfies Prisma.InputJsonValue,
+          createdAt: payment.created_at ? new Date(payment.created_at) : new Date(),
+        },
+      });
+      return true;
+    } catch (err) {
+      this.logger.debug(`Transaction import skipped for payment ${payment.id}: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
+  // ── Mapping helpers ───────────────────────────────────────────────────────
+
+  private mapLocale(locale: string | null): Locale {
+    if (!locale) return Locale.EN;
+    const upper = locale.toUpperCase();
+    if (upper in Locale) return upper as Locale;
+    return Locale.EN;
+  }
+
+  private mapTransactionStatus(status: string): TransactionStatus {
+    switch (status.toUpperCase()) {
+      case 'PAID':
+      case 'COMPLETED':
+        return TransactionStatus.COMPLETED;
+      case 'PENDING':
+        return TransactionStatus.PENDING;
+      case 'CANCELED':
+      case 'CANCELLED':
+      case 'REFUNDED':
+        return TransactionStatus.CANCELED;
+      case 'FAILED':
+        return TransactionStatus.FAILED;
+      default:
+        return TransactionStatus.PENDING;
+    }
+  }
+
+  private mapGatewayType(gateway: string | null): PaymentGatewayType | null {
+    if (!gateway) return null;
+    const upper = gateway.toUpperCase().replace(/[-\s]/g, '_');
+    const validGateways: Record<string, PaymentGatewayType> = {
+      YOOKASSA: PaymentGatewayType.YOOKASSA,
+      TELEGRAM_STARS: PaymentGatewayType.TELEGRAM_STARS,
+      PLATEGA: PaymentGatewayType.PLATEGA,
+      HELEKET: PaymentGatewayType.HELEKET,
+      CRYPTOMUS: PaymentGatewayType.CRYPTOMUS,
+      MULENPAY: PaymentGatewayType.MULENPAY,
+      ANTILOPAY: PaymentGatewayType.ANTILOPAY,
+      OVERPAY: PaymentGatewayType.OVERPAY,
+      PAYPALYCH: PaymentGatewayType.PAYPALYCH,
+      RIOPAY: PaymentGatewayType.RIOPAY,
+    };
+    // STEALTHNET-specific spellings — admin grants and similar internal
+    // operations are intentionally not mapped (they don't represent
+    // real provider charges so they don't belong in our Transaction
+    // ledger). Returning null here makes `importPayment` silently skip.
+    return validGateways[upper] ?? null;
+  }
+
+  private mapCurrency(currency: string): Currency | null {
+    const upper = currency.toUpperCase();
+    const validCurrencies: Record<string, Currency> = {
+      USD: Currency.USD,
+      RUB: Currency.RUB,
+      USDT: Currency.USDT,
+      XTR: Currency.XTR,
+      TON: Currency.TON,
+      BTC: Currency.BTC,
+      ETH: Currency.ETH,
+    };
+    return validCurrencies[upper] ?? null;
+  }
+}
+
+// ── Module-level helpers ────────────────────────────────────────────────────
+//
+// Pure functions with no DI; kept here rather than in `utils/` because
+// they only make sense in the shape of the catalog payload that the
+// importer emits.
+
+/**
+ * STEALTHNET's `telegram_id` is stored as text (the schema column
+ * type is `text`). We coerce it to bigint, matching our schema, and
+ * filter out empty/zero values which would otherwise collide with
+ * the `User.telegramId @unique` constraint.
+ */
+function parseTelegramId(raw: string | null): bigint | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (trimmed === '' || trimmed === '0') return null;
+  try {
+    const n = BigInt(trimmed);
+    return n > 0n ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Translate a STEALTHNET tariff row into the same shape altshop's
+ * cataloging emits. The cloner reads
+ * `result.catalog.plans[].id/name/internal_squads/...` directly so the
+ * field names matter.
+ */
+function mapTariffToPlanRow(
+  tariff: StealthnetTariff,
+  categories: readonly StealthnetTariffCategory[],
+): Record<string, unknown> {
+  // Source IDs in altshop's catalog are integers, not CUIDs. We hash
+  // STEALTHNET CUIDs into stable integers so the cloner's internal
+  // `Map<number, string>` works without changes.
+  const sortIndex = categories.findIndex((c) => c.id === tariff.category_id);
+  return {
+    id: stableHashId(tariff.id),
+    order_index: tariff.sort_order,
+    is_active: true,
+    is_archived: false,
+    type: 'BOTH',
+    availability: 'ALL',
+    archived_renew_mode: null,
+    name: tariff.name,
+    description: tariff.description,
+    tag: null,
+    traffic_limit:
+      tariff.traffic_limit_bytes && tariff.traffic_limit_bytes > 0
+        ? Number(tariff.traffic_limit_bytes)
+        : 0,
+    device_limit: tariff.device_limit ?? tariff.included_devices,
+    traffic_limit_strategy: mapResetMode(tariff.traffic_reset_mode),
+    replacement_plan_ids: [],
+    upgrade_to_plan_ids: [],
+    allowed_user_ids: [],
+    internal_squads: tariff.internal_squad_uuids,
+    external_squad: null,
+    _sourceCategorySortIndex: sortIndex,
+  };
+}
+
+function deriveDurations(
+  tariffs: readonly StealthnetTariff[],
+  options: readonly StealthnetTariffPriceOption[],
+): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  // Each tariff's base `(duration_days, price)` becomes the canonical
+  // duration. Additional price options are layered on top with
+  // synthetic ids so the cloner can reference them as PlanPrice rows.
+  for (const tariff of tariffs) {
+    const planId = stableHashId(tariff.id);
+    const baseDurationId = stableHashId(`${tariff.id}#base`);
+    out.push({ id: baseDurationId, plan_id: planId, days: tariff.duration_days });
+    for (const opt of options.filter((o) => o.tariff_id === tariff.id)) {
+      out.push({ id: stableHashId(opt.id), plan_id: planId, days: opt.duration_days });
+    }
+  }
+  return out;
+}
+
+function derivePrices(
+  tariffs: readonly StealthnetTariff[],
+  options: readonly StealthnetTariffPriceOption[],
+): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const tariff of tariffs) {
+    const baseDurationId = stableHashId(`${tariff.id}#base`);
+    out.push({
+      id: stableHashId(`${tariff.id}#base-price`),
+      plan_duration_id: baseDurationId,
+      currency: tariff.currency.toUpperCase(),
+      price: String(tariff.price),
+    });
+    for (const opt of options.filter((o) => o.tariff_id === tariff.id)) {
+      out.push({
+        id: stableHashId(`${opt.id}#price`),
+        plan_duration_id: stableHashId(opt.id),
+        currency: tariff.currency.toUpperCase(),
+        price: String(opt.price),
+      });
+    }
+  }
+  return out;
+}
+
+function mapResetMode(mode: string): string {
+  switch (mode.toLowerCase()) {
+    case 'monthly':
+    case 'monthly_rolling':
+      return 'MONTH';
+    case 'weekly':
+    case 'weekly_rolling':
+      return 'WEEK';
+    case 'daily':
+    case 'daily_rolling':
+      return 'DAY';
+    case 'no_reset':
+    default:
+      return 'NO_RESET';
+  }
+}
+
+/**
+ * Deterministic 31-bit hash of a CUID-like string. Used to fabricate
+ * integer source-plan ids that the cloner's catalog expects. Two
+ * CUIDs colliding would degrade the user experience (clone preview
+ * shows the wrong subscription count) but never corrupts data — the
+ * cloner identifies real plans through the catalog payload, never
+ * through these synthetic ids beyond Map lookups.
+ */
+function stableHashId(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function safeParseJson(value: string): Prisma.InputJsonValue | undefined {
+  try {
+    return JSON.parse(value) as Prisma.InputJsonValue;
+  } catch {
+    return undefined;
+  }
+}

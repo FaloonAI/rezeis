@@ -13,6 +13,7 @@ import { ImportQueueService } from './services/import-queue.service';
 import { ImportsService } from './services/imports.service';
 import { RemnashopImporterService } from './services/remnashop-importer.service';
 import { RemnawaveImporterService } from './services/remnawave-importer.service';
+import { StealthnetImporterService } from './services/stealthnet-importer.service';
 import { ThreeXuiImporterService } from './services/threexui-importer.service';
 
 @Module({
@@ -30,6 +31,7 @@ import { ThreeXuiImporterService } from './services/threexui-importer.service';
     ThreeXuiImporterService,
     RemnashopImporterService,
     AltshopImporterService,
+    StealthnetImporterService,
     BackupPlanClonerService,
     BulkPlanAssignmentService,
   ],

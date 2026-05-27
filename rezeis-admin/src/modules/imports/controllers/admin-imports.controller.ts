@@ -230,6 +230,28 @@ export class AdminImportsController {
     return { importRecordId, jobId, message: 'Altshop import enqueued' };
   }
 
+  // ── STEALTHNET (file upload: pg_dump .sql) ──────────────────────────────
+
+  @Post('stealthnet')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } }))
+  public async importFromStealthnet(
+    @CurrentAdmin() admin: CurrentAdminInterface,
+    @UploadedFile() file?: Express.Multer.File,
+  ): Promise<ImportEnqueuedResponse> {
+    if (!file) {
+      throw new BadRequestException('File is required. Upload a STEALTHNET pg_dump .sql file.');
+    }
+    const { importRecordId, jobId } = await this.importQueueService.enqueueFileImport({
+      sourceType: 'stealthnet',
+      mode: 'import',
+      createdBy: admin.id,
+      fileBuffer: file.buffer,
+      originalFilename: file.originalname,
+    });
+    return { importRecordId, jobId, message: 'STEALTHNET import enqueued' };
+  }
+
   // ── Bulk Plan Assignment ────────────────────────────────────────────────
 
   @Post('assign-plan')
