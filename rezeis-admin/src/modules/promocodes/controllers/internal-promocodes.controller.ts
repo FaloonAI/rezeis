@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, NotFoundException, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { InternalAdminAuthGuard } from '../../auth/guards/internal-admin-auth.guard';
@@ -44,6 +44,34 @@ export class InternalPromocodesController {
           ? BigInt(body.userTelegramId)
           : null,
       dto: body.dto,
+    });
+  }
+
+  /**
+   * Telegram-friendly variant: takes `{ telegramId, code }` directly as
+   * sent by the reiwa bot, resolves the rezeis-admin user, and forwards
+   * to the same activation pipeline used by `POST /activate`.
+   *
+   * Existing for the bot side only — the SPA already operates with the
+   * resolved `userId` and uses the canonical `POST /activate` endpoint.
+   */
+  @Post('activate-by-telegram')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Activate a promocode by Telegram id (reiwa bot)' })
+  public async activateByTelegram(
+    @Body() body: { telegramId: string; code: string },
+  ): Promise<PromocodeActivationResultInterface> {
+    const user = await this.prismaService.user.findFirst({
+      where: { telegramId: BigInt(body.telegramId) },
+      select: { id: true },
+    });
+    if (user === null) {
+      throw new NotFoundException(`User with telegramId=${body.telegramId} not found`);
+    }
+    return this.portalService.activate({
+      userId: user.id,
+      userTelegramId: BigInt(body.telegramId),
+      dto: { code: body.code },
     });
   }
 

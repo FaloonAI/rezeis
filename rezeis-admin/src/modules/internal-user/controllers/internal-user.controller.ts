@@ -1,18 +1,27 @@
-import { Body, Controller, Get, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 
 import { InternalAdminAuthGuard } from '../../auth/guards/internal-admin-auth.guard';
+import { SubscriptionMutationsService } from '../../subscriptions/services/subscription-mutations.service';
 import { AcceptInternalUserRulesDto } from '../dto/accept-internal-user-rules.dto';
 import { CompleteWebAccountEmailVerificationDto } from '../dto/complete-web-account-email-verification.dto';
+import { InternalBootstrapUserDto } from '../dto/internal-bootstrap-user.dto';
+import { InternalByTelegramQueryDto } from '../dto/internal-by-telegram-query.dto';
+import { InternalUpdateLanguageDto } from '../dto/internal-update-language.dto';
 import { IssueWebAccountEmailVerificationChallengeDto } from '../dto/issue-web-account-email-verification-challenge.dto';
 import { InternalUserSessionQueryDto } from '../dto/internal-user-session-query.dto';
 import { LinkedWebAccountSignInDto } from '../dto/linked-web-account-sign-in.dto';
 import { SetWebAccountPasswordDto } from '../dto/set-web-account-password.dto';
 import { SnoozeWebAccountLinkPromptDto } from '../dto/snooze-web-account-link-prompt.dto';
 import { InternalWebAccountEmailVerificationChallengeInterface } from '../interfaces/internal-web-account-email-verification-challenge.interface';
+import {
+  InternalUserNotificationInterface,
+  InternalUserTransactionInterface,
+} from '../interfaces/internal-user-notification.interface';
 import { InternalPartnerStatusInterface } from '../interfaces/internal-partner-status.interface';
 import { InternalUserPlanInterface } from '../interfaces/internal-user-plan.interface';
 import { InternalUserSessionInterface } from '../interfaces/internal-user-session.interface';
 import { InternalUserSubscriptionInterface } from '../interfaces/internal-user-subscription.interface';
+import { InternalUserEdgeService } from '../services/internal-user-edge.service';
 import { InternalUserService } from '../services/internal-user.service';
 
 /**
@@ -21,7 +30,11 @@ import { InternalUserService } from '../services/internal-user.service';
 @Controller('internal/user')
 @UseGuards(InternalAdminAuthGuard)
 export class InternalUserController {
-  public constructor(private readonly internalUserService: InternalUserService) {}
+  public constructor(
+    private readonly internalUserService: InternalUserService,
+    private readonly internalUserEdgeService: InternalUserEdgeService,
+    private readonly subscriptionMutationsService: SubscriptionMutationsService,
+  ) {}
 
   /**
    * Returns the resolved user session payload.
@@ -130,5 +143,97 @@ export class InternalUserController {
     @Query() query: InternalUserSessionQueryDto,
   ): Promise<InternalPartnerStatusInterface> {
     return this.internalUserService.getPartnerStatus(query);
+  }
+
+  // ── Edge endpoints (bot-side bootstrap, language, notifications, etc.) ──
+
+  /**
+   * Bot-side `/start` bootstrap: idempotent create-or-refresh by Telegram id.
+   * Returns the canonical session payload so the bot can drive its first UI
+   * pass without making a follow-up `GET /session` call.
+   */
+  @Post('bootstrap')
+  public async bootstrap(
+    @Body() body: InternalBootstrapUserDto,
+  ): Promise<InternalUserSessionInterface> {
+    return this.internalUserEdgeService.bootstrapByTelegram({
+      telegramId: body.telegramId,
+      username: body.username ?? null,
+      name: body.name,
+      language: body.language ?? null,
+    });
+  }
+
+  /**
+   * Updates the user's UI locale. Reiwa pushes this on every `/lang`
+   * command so admin-side notifications match the user's choice.
+   */
+  @Patch('language')
+  public async updateLanguage(
+    @Body() body: InternalUpdateLanguageDto,
+  ): Promise<InternalUserSessionInterface> {
+    return this.internalUserEdgeService.updateLanguage(body.telegramId, body.language);
+  }
+
+  /** Notifications feed used by the dashboard panel and the bot's activity command. */
+  @Get('notifications')
+  public async listNotifications(
+    @Query() query: InternalByTelegramQueryDto,
+  ): Promise<{ notifications: readonly InternalUserNotificationInterface[] }> {
+    return this.internalUserEdgeService.listNotifications(query.telegramId);
+  }
+
+  @Get('notifications/unread-count')
+  public async unreadCount(
+    @Query() query: InternalByTelegramQueryDto,
+  ): Promise<{ unread: number }> {
+    return this.internalUserEdgeService.getUnreadCount(query.telegramId);
+  }
+
+  @Post('notifications/read-all')
+  public async readAll(
+    @Body() body: InternalByTelegramQueryDto,
+  ): Promise<{ updated: number }> {
+    return this.internalUserEdgeService.markAllRead(body.telegramId);
+  }
+
+  @Post('notifications/:notificationId/read')
+  public async readOne(
+    @Param('notificationId') notificationId: string,
+    @Body() body: InternalByTelegramQueryDto,
+  ): Promise<{ ok: true }> {
+    return this.internalUserEdgeService.markOneRead(body.telegramId, notificationId);
+  }
+
+  /** Transaction history shown on the activity / settings page. */
+  @Get('transactions')
+  public async listTransactions(
+    @Query() query: InternalByTelegramQueryDto,
+  ): Promise<{ transactions: readonly InternalUserTransactionInterface[] }> {
+    return this.internalUserEdgeService.listTransactions(query.telegramId);
+  }
+
+  // ── Trial ────────────────────────────────────────────────────────────────
+
+  @Get('trial/eligibility')
+  public async trialEligibility(
+    @Query() query: InternalByTelegramQueryDto,
+  ): Promise<{ eligible: boolean; reason: string | null }> {
+    return this.internalUserEdgeService.getTrialEligibility(query.telegramId);
+  }
+
+  /**
+   * Activates the trial plan for the resolved Telegram user. Returns a
+   * structured `{ activated, reason? }` payload — never throws on
+   * ineligible cases so the bot can render a friendly message.
+   */
+  @Post('trial')
+  public async trialActivate(
+    @Body() body: InternalByTelegramQueryDto,
+  ): Promise<{ activated: boolean; subscriptionId?: string; reason?: string }> {
+    return this.internalUserEdgeService.activateTrial(
+      body.telegramId,
+      (input) => this.subscriptionMutationsService.grantTrial(input),
+    );
   }
 }

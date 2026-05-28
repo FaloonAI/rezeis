@@ -44,6 +44,7 @@ import { FaqModule } from './modules/faq/faq.module';
 import { HealthModule } from './modules/health/health.module';
 import { ImportsModule } from './modules/imports/imports.module';
 import { InternalUserModule } from './modules/internal-user/internal-user.module';
+import { LinkingModule } from './modules/linking/linking.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { OAuthModule } from './modules/oauth/oauth.module';
 import { EmailDeliveryModule } from './modules/email/email.module';
@@ -53,6 +54,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { PlansModule } from './modules/plans/plans.module';
 import { ProfileSyncModule } from './modules/profile-sync/profile-sync.module';
 import { PromocodesModule } from './modules/promocodes/promocodes.module';
+import { InternalPushModule } from './modules/push/internal-push.module';
 import { RbacModule } from './modules/rbac/rbac.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { ReferralsModule } from './modules/referrals/referrals.module';
@@ -65,6 +67,7 @@ import { AdminIpAllowlistGuard } from './modules/two-factor/guards/admin-ip-allo
 import { TwoFactorModule } from './modules/two-factor/two-factor.module';
 import { UpdateCheckerModule } from './modules/update-checker/update-checker.module';
 import { UsersModule } from './modules/users/users.module';
+import { WebAuthModule } from './modules/web-auth/web-auth.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 
 /**
@@ -132,6 +135,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     PartnersModule,
     ProfileSyncModule,
     PromocodesModule,
+    InternalPushModule,
     RbacModule,
     RealtimeModule,
     ReferralsModule,
@@ -145,8 +149,10 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     PaymentsModule,
     PaymentAnalyticsModule,
     InternalUserModule,
+    LinkingModule,
     SettingsModule,
     UsersModule,
+    WebAuthModule,
     WebhooksModule,
   ],
   controllers: [AppController],

@@ -19,4 +19,20 @@ export class InternalPlatformPolicyController {
   public async getPlatformPolicy(): Promise<InternalPlatformPolicyInterface> {
     return this.settingsService.getInternalPlatformPolicy();
   }
+
+  /**
+   * Returns whether self-service web registration is currently open.
+   *
+   * Today the flag is derived from `Settings.accessMode`:
+   *   - `PUBLIC`             → registration is open
+   *   - everything else      → closed (`INVITE_ONLY`, `MAINTENANCE`, ...)
+   *
+   * The shape stays stable so we can later back this with a dedicated
+   * `registrationEnabled` column without breaking reiwa.
+   */
+  @Get('registration-toggle')
+  public async getRegistrationToggle(): Promise<{ enabled: boolean }> {
+    const policy = await this.settingsService.getInternalPlatformPolicy();
+    return { enabled: policy.accessMode === 'PUBLIC' };
+  }
 }

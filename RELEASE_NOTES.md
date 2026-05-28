@@ -1,4 +1,56 @@
-﻿# Rezeis Admin v0.4.4
+﻿# Rezeis Admin v0.4.5
+
+## Reiwa BFF surface — internal modules ship for the SPA / Mini App / bot
+
+`v0.4.5` фокусируется на одной вещи: закрыть все internal-эндпоинты, которые reiwa уже умеет дёргать, но в admin они до сих пор висели локально без коммита. После релиза reiwa-сторона перестаёт упираться в 404 на старте и получает полноценный BFF-контракт.
+
+### Новые модули
+
+- **`LinkingModule`** — `internal/link/telegram/{generate,consume}` + `internal/link/email/{initiate,verify}` для opt-in привязки Telegram / email к существующему `reiwa_id`. Использует `auth_challenges` через `purpose: 'telegram_link' | 'email_link'`, sha256(code), TTL 10 мин, attemptsLeft = 5. Email доставляется через общий `EmailService.sendLinkedAccountVerificationCode()`.
+- **`WebAuthModule`** — `internal/web-auth/{register,login,recover,change-password}` для credential-based входа. `register` создаёт `WebAccount` (с опциональной привязкой к Telegram-User по `telegramIdToLink`), `login` верифицирует scrypt-хеш и возвращает session-флаги (`requiresPasswordChange`, `telegramLinked`, `emailVerified`), `recover` резолвит recovery-канал (telegram > email > none) без user-enumeration, `change-password` ротирует hash после verify текущего.
+- **`InternalPushModule`** — stub `internal/push/subscribe` + `internal/push/unsubscribe` чтобы reiwa SPA не упирался в 404 при flow подписки на web-push. Сейчас acknowledge-only, persistence добавится когда фича станет реальной (Prisma model + outbound delivery worker).
+
+### Расширения существующих модулей
+
+- **`InternalUserModule`** — добавлен `InternalUserEdgeService` со всем bot-side стэком который раньше жил в legacy-контроллере: `bootstrap` (idempotent create-or-refresh по `telegramId`), `updateLanguage`, notifications feed (list / unread-count / read-all / read-one), transactions feed, trial eligibility + activate. Service делегирует `grantTrial` через колбэк к `SubscriptionMutationsService`, чтобы не тащить циркулярную зависимость.
+  - Новые DTO: `InternalBootstrapUserDto`, `InternalByTelegramQueryDto`, `InternalUpdateLanguageDto`.
+  - Новые interfaces: `InternalUserBootstrapInterface`, `InternalUserNotificationInterface`, `InternalUserTransactionInterface`, расширенный `InternalUserSessionInterface` с `webAccount` под-объектом.
+- **`InternalPaymentsController`** — новый `GET internal/payments/gateways` возвращает user-safe view списка активных gateway'ев (только `id / type / currency / orderIndex`) для рендеринга на purchase screen. Stripped operator-only fields (`settings`, `isUsedInPricing`, `updatedAt`).
+- **`InternalPromocodesController`** — новый `POST internal/promocodes/activate-by-telegram` для бот-side активации (раньше требовало предварительный resolve `userId` со стороны reiwa); `GET internal/promocodes/user/:telegramId/activations` для user history page.
+- **`InternalPlatformPolicyController`** — новый `GET internal/settings/registration-toggle` который маппит `Settings.accessMode === 'PUBLIC' → enabled: true` без изменения public контракта.
+- **`AutoRenewModule`** — новый `InternalWorkerController` с `GET internal/worker/expiry-alerts` который форсит один cycle `runCycle()` и возвращает счётчики `expired / warnings3d / warnings1d / cycleAt`. Удобно когда reiwa worker хочет компенсировать stalled scheduler.
+
+### Backend изменения
+
+- `src/app.module.ts` — зарегистрированы `LinkingModule`, `WebAuthModule`, `InternalPushModule`.
+- `src/modules/auto-renew/auto-renew.module.ts` — добавлен `InternalWorkerController` в `controllers`.
+- `src/modules/internal-user/internal-user.module.ts` — добавлен `InternalUserEdgeService` в providers + exports.
+
+### Pre-push checklist
+
+| Check | Result |
+|---|---|
+| Backend `tsc --noEmit -p tsconfig.json` | ✅ 0 errors |
+| Backend `eslint . --quiet` | ✅ 0 warnings |
+| Frontend без изменений | n/a |
+
+### Migration / breaking
+
+Нет. Полностью аддитивное:
+
+- Все новые endpoint'ы под `internal/*` (`InternalAdminAuthGuard` → требуется `REZEIS_INTERNAL_API_TOKEN`). Существующие пути нетронуты.
+- БД миграции **не нужны** — `auth_challenges` уже существует с прошлых волн, `Plan / Subscription / Transaction / UserNotificationEvent / TrialGrant / WebAccount` модели уже на месте.
+- `InternalUserSessionInterface` расширен полем `webAccount` — `null` для users без WebAccount, читать reiwa уже умеет, для несовместимых старых клиентов поле просто игнорируется.
+
+### Docker image
+
+Пересобирается на push tag `v0.4.5` → GHCR теги `v0.4.5`, `0.4.5`, `0.4`, `latest`.
+
+**Full Changelog**: https://github.com/dizzzable/rezeis/compare/v0.4.4...v0.4.5
+
+---
+
+# Rezeis Admin v0.4.4
 
 ## Per-button action routing — operator can attach URLs / Mini Apps / screen jumps to any reply-keyboard button
 

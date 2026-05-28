@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module';
 import { AutoRenewService } from './auto-renew.service';
 import { AutoRenewScheduler } from './auto-renew.scheduler';
 import { AdminAutoRenewController } from './controllers/admin-auto-renew.controller';
+import { InternalWorkerController } from './controllers/internal-worker.controller';
 
 /**
  * Auto-renewal module — detects expired subscriptions and optionally
@@ -12,7 +13,7 @@ import { AdminAutoRenewController } from './controllers/admin-auto-renew.control
  */
 @Module({
   imports: [AuthModule],
-  controllers: [AdminAutoRenewController],
+  controllers: [AdminAutoRenewController, InternalWorkerController],
   providers: [AutoRenewService, AutoRenewScheduler],
   exports: [AutoRenewService, AutoRenewScheduler],
 })
