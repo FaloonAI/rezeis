@@ -45,6 +45,34 @@ export class BotFlowService {
     });
   }
 
+  /**
+   * Get the *active* flow that the bot runtime should render. Resolution
+   * order:
+   *   1. Latest PUBLISHED version (the explicit "freeze for production"
+   *      target).
+   *   2. Latest DRAFT version (operator hasn't published yet — show
+   *      live edits anyway so they don't have to click Publish for
+   *      every iteration).
+   *
+   * Returns `null` only when neither status exists for the named flow,
+   * which means the operator has never created a flow at all. Reiwa
+   * then falls back to its built-in sub-menus.
+   */
+  public async getActive(name: string): Promise<FlowWithScreens | null> {
+    const published = await this.prisma.botFlow.findFirst({
+      where: { name, status: BotFlowStatus.PUBLISHED },
+      include: { screens: { include: { buttons: true } } },
+      orderBy: { version: 'desc' },
+    });
+    if (published !== null) return published;
+    const draft = await this.prisma.botFlow.findFirst({
+      where: { name, status: BotFlowStatus.DRAFT },
+      include: { screens: { include: { buttons: true } } },
+      orderBy: { version: 'desc' },
+    });
+    return draft;
+  }
+
   /** Get a flow by ID with all screens and buttons. */
   public async getById(id: string): Promise<FlowWithScreens> {
     const flow = await this.prisma.botFlow.findUnique({

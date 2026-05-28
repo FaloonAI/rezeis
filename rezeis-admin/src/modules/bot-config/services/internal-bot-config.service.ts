@@ -89,13 +89,15 @@ export class InternalBotConfigService implements OnApplicationBootstrap {
   public async getConfig(): Promise<InternalBotConfigInterface> {
     await this.ensureDefaultsSeeded();
 
-    const [buttons, emojis, texts, publishedFlow] = await Promise.all([
+    const [buttons, emojis, texts, activeFlow] = await Promise.all([
       this.botButtonsService.listAll(),
       this.botEmojisService.listAll(),
       this.botTextsService.listAll(),
-      // The active flow that drives dynamic screens. `null` when no
-      // flow is published — reiwa falls back to its built-in sub-menus.
-      this.botFlowService.getPublished(DEFAULT_FLOW_NAME),
+      // The active flow that drives dynamic screens. Prefer PUBLISHED;
+      // fall back to DRAFT so operator edits go live immediately
+      // without an explicit Publish step. `null` when neither status
+      // exists — reiwa falls back to its built-in sub-menus.
+      this.botFlowService.getActive(DEFAULT_FLOW_NAME),
     ]);
 
     const emojiMap = mapEmojiCustomIds(emojis);
@@ -108,8 +110,10 @@ export class InternalBotConfigService implements OnApplicationBootstrap {
       botEmojis: emojiMap,
       menuTextCustomEmojiIds: emojiMap,
       translations: textMap,
-      screens: mapFlowScreens(publishedFlow),
-      screensVersion: publishedFlow ? `${publishedFlow.id}:${publishedFlow.version}` : '',
+      screens: mapFlowScreens(activeFlow),
+      screensVersion: activeFlow
+        ? `${activeFlow.id}:${activeFlow.version}:${activeFlow.status}`
+        : '',
     };
   }
 

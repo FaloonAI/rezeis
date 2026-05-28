@@ -2621,6 +2621,7 @@ export const en = {
       refreshBotSuccess: 'Bot picked up the fresh config',
       refreshBotUnreachable: 'Bot is unreachable — changes will land within 5 minutes (standard TTL)',
       refreshBotError: 'Failed to send the refresh request',
+      banner: 'Banner',
     },
     palette: {
       global: 'Global',
@@ -2638,7 +2639,25 @@ export const en = {
     drawers: {
       emojisDescription: 'Premium custom_emoji_id mapping. Reiwa picks these up on its 5-minute refresh.',
       textsDescription: 'Copy strings (welcome messages, banners, support text…). Edits propagate to the bot on its next refresh.',
+      bannerDescription: 'Image sent as the first message on /start. Upload a file — it persists on the admin host and reaches the bot automatically.',
     },
+  },
+  botBanner: {
+    title: 'Bot banner',
+    description: 'The image is sent as the first message on /start. Supported formats: PNG, JPEG, WebP, GIF. Max file size: 8 MB.',
+    pickHint: 'Click to choose a file',
+    pickAria: 'Choose banner image',
+    formats: 'PNG, JPEG, WebP or GIF, up to 8 MB',
+    replace: 'Replace',
+    remove: 'Remove',
+    removed: 'Banner removed',
+    removeError: 'Failed to remove banner',
+    previewAlt: 'Banner preview',
+    uploadSuccess: 'Banner uploaded — bot will show it on the next /start',
+    uploadErrorGeneric: 'Upload failed',
+    fileTooLarge: 'File is too large (8 MB max)',
+    unsupportedType: 'Unsupported format — need PNG, JPEG, WebP or GIF',
+    urlHint: 'This URL is saved under the `bot.banner_url` BotText key. Reiwa downloads the image and forwards it to Telegram on every /start.',
   },
   botConfigPage: {
     title: 'Bot configuration',

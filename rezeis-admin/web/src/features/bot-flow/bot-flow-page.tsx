@@ -46,7 +46,7 @@ import {
   type OnConnect,
   ReactFlowProvider,
 } from '@xyflow/react'
-import { Workflow, Plus, Check, Save, Smile, Type, Upload, RefreshCw } from 'lucide-react'
+import { Workflow, Plus, Check, Save, Smile, Type, Upload, RefreshCw, Image as ImageIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
@@ -61,6 +61,7 @@ import {
 
 import { BotEmojisTab } from '@/features/bot-config/bot-emojis-tab'
 import { BotTextsTab } from '@/features/bot-config/bot-texts-tab'
+import BotBannerTab from '@/features/bot-config/bot-banner-tab'
 import { ReplyKeyboardEditorPanel } from '@/features/bot-config/reply-keyboard-editor-panel'
 import {
   BOT_CONFIG_KEYS,
@@ -98,6 +99,7 @@ export default function BotFlowPage() {
   // Sheet drawers for global resources
   const [emojisOpen, setEmojisOpen] = useState(false)
   const [textsOpen, setTextsOpen] = useState(false)
+  const [bannerOpen, setBannerOpen] = useState(false)
 
   // ── Load draft flow + reply-keyboard buttons in parallel ───────────────────
   const { data: flow, isLoading: flowLoading } = useQuery<BotFlow>({
@@ -425,6 +427,10 @@ export default function BotFlowPage() {
             <Type className="mr-1.5 h-3.5 w-3.5" aria-hidden />
             {t('botStudio.toolbar.texts')}
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setBannerOpen(true)}>
+            <ImageIcon className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+            {t('botStudio.toolbar.banner')}
+          </Button>
           {hasScreens && (
             <>
               <Button
@@ -578,6 +584,18 @@ export default function BotFlowPage() {
           </SheetHeader>
           <div className="mt-4">
             <BotTextsTab />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={bannerOpen} onOpenChange={setBannerOpen}>
+        <SheetContent side="right" className="w-full max-w-xl overflow-y-auto sm:max-w-xl">
+          <SheetHeader>
+            <SheetTitle>{t('botStudio.toolbar.banner')}</SheetTitle>
+            <SheetDescription>{t('botStudio.drawers.bannerDescription')}</SheetDescription>
+          </SheetHeader>
+          <div className="mt-4">
+            <BotBannerTab />
           </div>
         </SheetContent>
       </Sheet>

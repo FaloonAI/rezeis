@@ -5,6 +5,7 @@ import { BotFlowModule } from '../bot-flow/bot-flow.module';
 import { AdminBotConfigController } from './controllers/admin-bot-config.controller';
 import { InternalBotConfigController } from './controllers/internal-bot-config.controller';
 import { ReiwaCacheInvalidateInterceptor } from './interceptors/reiwa-cache-invalidate.interceptor';
+import { BotBannerUploadService } from './services/bot-banner-upload.service';
 import { BotButtonsService } from './services/bot-buttons.service';
 import { BotEmojisService } from './services/bot-emojis.service';
 import { BotTextsService } from './services/bot-texts.service';
@@ -28,11 +29,17 @@ import { ReiwaCacheInvalidatorService } from './services/reiwa-cache-invalidator
  * push a synchronous cache-bust to reiwa-bot after every successful
  * mutation, so operator changes propagate to live bot users in ~50ms
  * instead of waiting for the 5-minute TTL refresh.
+ *
+ * `BotBannerUploadService` persists welcome-banner uploads on the
+ * admin host's filesystem and writes the resulting URL to the
+ * `bot.banner_url` BotText row — reiwa-bot then fetches the file
+ * directly from `/uploads/bot-banners/<id>.jpg`.
  */
 @Module({
   imports: [AuthModule, BotFlowModule],
   controllers: [AdminBotConfigController, InternalBotConfigController],
   providers: [
+    BotBannerUploadService,
     BotButtonsService,
     BotEmojisService,
     BotTextsService,

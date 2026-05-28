@@ -60,6 +60,30 @@ export class BotTextsService {
     return this.prismaService.botText.update({ where: { id: input.id }, data });
   }
 
+  /**
+   * Idempotent upsert by `key`. Used when an internal feature owns a
+   * specific key (e.g. `bot.banner_url` written by the banner upload
+   * endpoint) and shouldn't have to special-case the create / update
+   * branches in the controller.
+   */
+  public async upsert(input: CreateTextInput): Promise<BotText> {
+    if (!TEXT_KEY_REGEX.test(input.key)) {
+      throw new BadRequestException('key must be alphanumeric (._- allowed)');
+    }
+    return this.prismaService.botText.upsert({
+      where: { key: input.key },
+      create: {
+        key: input.key,
+        value: input.value,
+        visible: input.visible ?? false,
+      },
+      update: {
+        value: input.value,
+        ...(input.visible !== undefined ? { visible: input.visible } : {}),
+      },
+    });
+  }
+
   public async delete(id: string): Promise<void> {
     const existing = await this.prismaService.botText.findUnique({ where: { id } });
     if (existing === null) {

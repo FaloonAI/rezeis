@@ -2652,6 +2652,7 @@
       refreshBotSuccess: 'Бот получил свежую конфигурацию',
       refreshBotUnreachable: 'Бот недоступен — изменения подхватятся в течение 5 минут (стандартный TTL)',
       refreshBotError: 'Не удалось отправить запрос на обновление',
+      banner: 'Баннер',
     },
     palette: {
       global: 'Глобальные',
@@ -2669,7 +2670,25 @@
     drawers: {
       emojisDescription: 'Связь premium custom_emoji_id с ключами. Reiwa подтягивает их каждые 5 минут.',
       textsDescription: 'Тексты бота (приветствия, баннеры, support…). Изменения применяются на следующем рефреше reiwa.',
+      bannerDescription: 'Картинка которая отправляется первым сообщением на /start. Загрузите файл — он сохранится в админке и автоматически попадёт в бота.',
     },
+  },
+  botBanner: {
+    title: 'Баннер бота',
+    description: 'Картинка отправляется первым сообщением при /start. Поддерживаемые форматы: PNG, JPEG, WebP, GIF. Максимальный размер: 8 МБ.',
+    pickHint: 'Нажмите чтобы выбрать файл',
+    pickAria: 'Выберите изображение баннера',
+    formats: 'PNG, JPEG, WebP или GIF, до 8 МБ',
+    replace: 'Заменить',
+    remove: 'Удалить',
+    removed: 'Баннер удалён',
+    removeError: 'Не удалось удалить баннер',
+    previewAlt: 'Превью баннера',
+    uploadSuccess: 'Баннер загружен — бот покажет его в следующем /start',
+    uploadErrorGeneric: 'Не удалось загрузить файл',
+    fileTooLarge: 'Файл слишком большой (максимум 8 МБ)',
+    unsupportedType: 'Неподдерживаемый формат — нужны PNG, JPEG, WebP или GIF',
+    urlHint: 'Эта ссылка сохранена в BotText под ключом `bot.banner_url`. Reiwa скачивает картинку и пересылает в Telegram при каждом /start.',
   },
   botConfigPage: {
     title: 'Конфигурация бота',

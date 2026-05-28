@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -7,9 +8,11 @@ import {
   Param,
   Patch,
   Post,
+  UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
@@ -24,6 +27,7 @@ import {
   parseBotButtonStyle,
 } from '../dto/bot-config.dto';
 import { ReiwaCacheInvalidateInterceptor } from '../interceptors/reiwa-cache-invalidate.interceptor';
+import { BotBannerUploadService } from '../services/bot-banner-upload.service';
 import { BotButtonsService } from '../services/bot-buttons.service';
 import { BotEmojisService } from '../services/bot-emojis.service';
 import { BotTextsService } from '../services/bot-texts.service';
@@ -51,6 +55,7 @@ export class AdminBotConfigController {
     private readonly botEmojisService: BotEmojisService,
     private readonly botTextsService: BotTextsService,
     private readonly cacheInvalidator: ReiwaCacheInvalidatorService,
+    private readonly bannerUploadService: BotBannerUploadService,
   ) {}
 
   // ── Buttons ────────────────────────────────────────────────────────────────
@@ -199,5 +204,68 @@ export class AdminBotConfigController {
   public async refreshBot(): Promise<{ readonly ok: boolean }> {
     const ok = await this.cacheInvalidator.invalidate('admin-manual');
     return { ok };
+  }
+
+  // ── Banner upload ──────────────────────────────────────────────────────────
+
+  @Post('banner')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
+      fileFilter: (_req, file, cb) => {
+        const allowed = /^image\/(png|jpeg|webp|gif)$/;
+        cb(null, allowed.test(file.mimetype));
+      },
+    }),
+    ReiwaCacheInvalidateInterceptor,
+  )
+  @ApiOperation({
+    summary: 'Upload the welcome banner image',
+    description:
+      'Stores the file under `data/uploads/bot-banners/` and writes ' +
+      'the public URL to the `bot.banner_url` BotText row, replacing ' +
+      'whatever was there before. The cache-bust interceptor pushes ' +
+      'the new URL to reiwa-bot so the next /start renders the fresh ' +
+      'banner.',
+  })
+  public async uploadBanner(
+    @UploadedFile() file: Express.Multer.File | undefined,
+  ): Promise<{ readonly url: string; readonly size: number }> {
+    if (file === undefined) {
+      throw new BadRequestException(
+        'Banner file is required (image/png, image/jpeg, image/webp, image/gif; max 8 MB).',
+      );
+    }
+    const persisted = await this.bannerUploadService.persist({
+      buffer: file.buffer,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+    });
+    // Anchor the served URL on the admin's PUBLIC_HOST so reiwa-bot
+    // (and Telegram, when it pulls the image to send) can reach it.
+    // PUBLIC_HOST defaults to the request host; for local dev we keep
+    // the URL relative — reiwa-bot inside the docker network resolves
+    // `rezeis:8000<url>` via `reiwa.config.resolveRezeisAdminUrl`.
+    const fullUrl = this.resolvePublicBannerUrl(persisted.url);
+    await this.botTextsService.upsert({
+      key: 'bot.banner_url',
+      value: fullUrl,
+      visible: false,
+    });
+    return { url: fullUrl, size: persisted.size };
+  }
+
+  private resolvePublicBannerUrl(relativeUrl: string): string {
+    const publicHost = (process.env.ADMIN_PUBLIC_HOST ?? '').trim();
+    if (publicHost.length === 0) {
+      // Dev / docker-compose: reiwa-bot resolves this to
+      // `http://rezeis:8000/uploads/bot-banners/<file>` because its
+      // `REZEIS_ADMIN_URL` env var points at the admin container DNS.
+      // Telegram pulls the image through reiwa-bot on /start; the
+      // bot proxies the bytes to the API, no public hostname needed.
+      return relativeUrl;
+    }
+    const trimmedHost = publicHost.replace(/\/+$/, '');
+    return `${trimmedHost}${relativeUrl}`;
   }
 }
