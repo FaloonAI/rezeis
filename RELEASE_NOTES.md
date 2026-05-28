@@ -1,4 +1,54 @@
-﻿# Rezeis Admin v0.4.2
+﻿# Rezeis Admin v0.4.3
+
+## Wave 8 — admin-driven bot screens + cache push + banner upload
+
+`v0.4.3` превращает rezeis-admin в полноценный config-plane для reiwa-bot. Оператор больше не упирается в хардкод TS-пейджей — открывает Bot Studio, рисует флоу, кликает Save, и через ~50ms бот в Telegram отвечает по-новому.
+
+### Что сделано
+
+- **Reiwa cache invalidate push** — admin-bot-config + admin-bot-flow controllers через `ReiwaCacheInvalidateInterceptor` пушат синхронный cache-bust в `http://reiwa-bot:5100/invalidate` (Bearer `REZEIS_INTERNAL_SHARED_SECRET`) сразу после успешной мутации. Fire-and-forget — save в админке никогда не падает из-за того что бот недоступен. Логируется reason (`POST /admin/bot-config/buttons/:id` и т. п.) для observability.
+- **Manual refresh endpoint** — `POST /admin/bot-config/refresh-bot` под JWT, возвращает `{ ok: boolean }`. Bot Studio toolbar получил кнопку «🔄 Обновить бота» — оператор может пнуть кеш руками, если данные правились в обход админки.
+- **Dynamic screens в `/internal/bot-config`** — payload расширен полями `screens[]` и `screensVersion`. Источник: `BotFlowService.getActive()` (PUBLISHED → DRAFT fallback), маппится в плоский shape, который reiwa ожидает: `id / shortId / name / textRu+En / parseMode / mediaType / mediaUrl / isRoot / buttons[]`. Каждая кнопка несёт `action` (navigate / url / webapp / callback / back / start_over), `targetShortId`, `style`, `iconCustomEmojiId` и т. д.
+- **Draft fallback** — раньше reiwa читал только `PUBLISHED` BotFlow версию; теперь `getActive()` берёт latest PUBLISHED, а в его отсутствие — latest DRAFT. Убирает обязательный шаг Publish для single-operator workflow, но не ломает версионирование для команд которые хотят заморозку прода.
+- **Banner upload** — новый endpoint `POST /admin/bot-config/banner` (multipart, PNG/JPEG/WebP/GIF, 8 MB cap) хранит файл в `data/uploads/bot-banners/<random>.<ext>` и upsert'ит URL в `BotText['bot.banner_url']`. Bot Studio получил toolbar-кнопку «🖼️ Баннер» с drop-zone editor (превью / replace / remove). Reiwa-bot фетчит файл по docker-DNS и шлёт в Telegram как InputFile, поэтому хост публично доступен быть не должен.
+- **`BotTextsService.upsert()`** — идемпотентный upsert по `key` для внутренних feature, которые владеют конкретной BotText записью (banner upload, future features). Регулярка `TEXT_KEY_REGEX` валидирует ключ.
+
+### Backend изменения
+
+- `src/modules/bot-config/services/reiwa-cache-invalidator.service.ts` — POST `http://reiwa-bot:5100/invalidate` с timeout 3s, AbortController, логи на warn level.
+- `src/modules/bot-config/interceptors/reiwa-cache-invalidate.interceptor.ts` — фильтрует GET/HEAD/OPTIONS, на mutation вешает rxjs `tap` который вызывает invalidate fire-and-forget.
+- `src/modules/bot-config/services/bot-banner-upload.service.ts` — FS-based persistence на `data/uploads/bot-banners/`, override через `BOT_BANNER_UPLOADS_DIR` env, MIME + size guard.
+- `src/modules/bot-config/services/internal-bot-config.service.ts` — расширен `BotFlowService` зависимостью, новые helpers `mapFlowScreens` / `mapFlowButton` / `mapButtonAction` / `mapFlowButtonStyle` / `mapParseMode` / `mapMediaType`. Imports `BotFlowModule` для DI.
+- `src/modules/bot-flow/services/bot-flow.service.ts` — новый метод `getActive(name)`. Существующий `getPublished` сохранён для legacy callers.
+- `src/modules/bot-flow/controllers/admin-bot-flow.controller.ts` — `@UseInterceptors(ReiwaCacheInvalidateInterceptor)` на класс.
+
+### Frontend изменения
+
+- `web/src/features/bot-config/bot-banner-tab.tsx` — drop-zone редактор баннера с preview, replace, remove, full RU/EN i18n.
+- `web/src/features/bot-flow/bot-flow-page.tsx` — новые toolbar-кнопки «🔄 Обновить бота» и «🖼️ Баннер» + соответствующие Sheet drawers.
+- `web/src/features/bot-flow/components/ScreenEditorPanel.tsx` — добавлен `nameHint` под Name field, объясняет что зарезервированные имена (`help` / `rules` / `invite`) переопределяют built-in sub-menu. Любое другое имя — обычный экран, доступный через «Перейти к экрану» buttons.
+- `web/src/i18n/{ru,en}.ts` — ~25 новых ключей для botStudio.toolbar.refreshBot* / botStudio.toolbar.banner / botStudio.drawers.bannerDescription / botBanner.* / botFlow.fields.nameHint.
+
+### Pre-push checklist (зелёная сборка)
+
+- `npx tsc --noEmit -p tsconfig.json` (admin backend) → 0 errors
+- `npx eslint . --quiet` (admin backend) → 0 warnings
+- `cd web && npm run build` (frontend tsc + vite) → 0 errors
+- `cd web && npx eslint . --quiet` (frontend) → 0 warnings
+
+### Migration / breaking
+
+- Добавлен env `REZEIS_INTERNAL_SHARED_SECRET` (32+ chars) для cache invalidate. Без него — endpoint silently disabled, кеш протухает по обычному 5-минутному TTL. **Поставь в обоих** `.env`: rezeis-admin и reiwa.
+- Добавлен env `BOT_BANNER_UPLOADS_DIR` (опциональный, default `./data/uploads/bot-banners/`). В docker-compose уже маунтится `rezeis-data:/app/data` — папка автоматом сохраняется между перезапусками.
+- БД миграции **не требуются** — все новые feature pиаются на существующих таблицах (`BotText` для banner URL, `BotFlow` / `BotFlowScreen` / `BotFlowButton` для screens).
+
+### Docker image
+
+`ghcr.io/dizzzable/rezeis:0.4.3` будет собран GHA workflow Docker Publish после пуша тега.
+
+---
+
+# Rezeis Admin v0.4.2
 
 ## Wave 7 — pre-seed BotConfig defaults on bootstrap
 
