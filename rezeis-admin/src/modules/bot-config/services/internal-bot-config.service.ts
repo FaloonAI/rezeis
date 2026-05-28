@@ -1,6 +1,7 @@
 import { Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import {
   BotButton,
+  BotButtonAction,
   BotButtonStyle,
   BotEmoji,
   BotFlow,
@@ -258,7 +259,27 @@ function mapButton(button: BotButton): InternalBotConfigButtonInterface {
     style: mapButtonStyle(button.style),
     onePerRow: button.onePerRow,
     iconCustomEmojiId: button.iconCustomEmojiId,
+    actionType: mapButtonAction(button.actionType),
+    actionTarget: button.actionTarget,
   };
+}
+
+function mapButtonAction(
+  action: BotButtonAction,
+): InternalBotConfigButtonInterface['actionType'] {
+  switch (action) {
+    case BotButtonAction.URL:
+      return 'url';
+    case BotButtonAction.WEBAPP:
+      return 'webapp';
+    case BotButtonAction.SCREEN:
+      return 'screen';
+    case BotButtonAction.SUPPORT_URL:
+      return 'support_url';
+    case BotButtonAction.CALLBACK:
+    default:
+      return 'callback';
+  }
 }
 
 function mapButtonStyle(
@@ -359,7 +380,7 @@ function mapFlowButton(button: BotFlowButton): InternalBotConfigScreenButtonInte
     labelEn: button.labelEn,
     row: button.row,
     col: button.col,
-    action: mapButtonAction(button.actionType),
+    action: mapFlowButtonAction(button.actionType),
     targetShortId: button.targetScreenId,
     url: button.url,
     webAppUrl: button.webAppUrl,
@@ -369,7 +390,7 @@ function mapFlowButton(button: BotFlowButton): InternalBotConfigScreenButtonInte
   };
 }
 
-function mapButtonAction(
+function mapFlowButtonAction(
   action: BotFlowButtonAction,
 ): InternalBotConfigScreenButtonInterface['action'] {
   switch (action) {

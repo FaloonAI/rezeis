@@ -234,6 +234,9 @@ function SortableReplyButton({
           <Badge variant={button.style === 'PRIMARY' ? 'default' : 'secondary'} className="text-[10px]">
             {t(`botConfigPage.buttons.styles.${button.style}`)}
           </Badge>
+          <Badge variant="outline" className="text-[10px]">
+            {t(`botConfigPage.buttons.fields.actionType.options.${button.actionType}`)}
+          </Badge>
         </div>
         <div className="flex items-center gap-2">
           <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">{button.buttonId}</code>
@@ -241,6 +244,14 @@ function SortableReplyButton({
             <Badge variant="outline" className="text-[10px]">
               {t('botConfigPage.buttons.onePerRow')}
             </Badge>
+          )}
+          {button.actionTarget !== null && button.actionTarget.length > 0 && (
+            <code
+              className="truncate rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground"
+              title={button.actionTarget}
+            >
+              {button.actionTarget}
+            </code>
           )}
         </div>
       </div>

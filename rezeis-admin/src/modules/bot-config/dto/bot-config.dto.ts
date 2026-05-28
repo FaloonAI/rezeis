@@ -9,13 +9,21 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
-import { BotButtonStyle } from '@prisma/client';
+import { BotButtonAction, BotButtonStyle } from '@prisma/client';
 
 const BUTTON_STYLES: ReadonlyArray<BotButtonStyle> = [
   BotButtonStyle.PRIMARY,
   BotButtonStyle.SUCCESS,
   BotButtonStyle.DANGER,
   BotButtonStyle.DEFAULT,
+];
+
+const BUTTON_ACTIONS: ReadonlyArray<BotButtonAction> = [
+  BotButtonAction.CALLBACK,
+  BotButtonAction.URL,
+  BotButtonAction.WEBAPP,
+  BotButtonAction.SCREEN,
+  BotButtonAction.SUPPORT_URL,
 ];
 
 /**
@@ -55,6 +63,16 @@ export class CreateBotButtonDto {
   @IsOptional()
   @IsInt()
   public readonly orderIndex?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  public readonly actionType?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2_000)
+  public readonly actionTarget?: string | null;
 }
 
 export class UpdateBotButtonDto {
@@ -84,12 +102,28 @@ export class UpdateBotButtonDto {
   @IsOptional()
   @IsInt()
   public readonly orderIndex?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  public readonly actionType?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2_000)
+  public readonly actionTarget?: string | null;
 }
 
 export function parseBotButtonStyle(value: unknown): BotButtonStyle | undefined {
   if (typeof value !== 'string' || value.length === 0) return undefined;
   const normalised = value.toUpperCase();
   return BUTTON_STYLES.find((style) => style === normalised);
+}
+
+export function parseBotButtonAction(value: unknown): BotButtonAction | undefined {
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  const normalised = value.toUpperCase();
+  return BUTTON_ACTIONS.find((action) => action === normalised);
 }
 
 /**

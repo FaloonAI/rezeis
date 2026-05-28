@@ -19,6 +19,15 @@ import { api } from '@/lib/api'
 export const botButtonStyleSchema = z.enum(['DEFAULT', 'PRIMARY', 'SUCCESS', 'DANGER'])
 export type BotButtonStyle = z.infer<typeof botButtonStyleSchema>
 
+export const botButtonActionSchema = z.enum([
+  'CALLBACK',
+  'URL',
+  'WEBAPP',
+  'SCREEN',
+  'SUPPORT_URL',
+])
+export type BotButtonAction = z.infer<typeof botButtonActionSchema>
+
 export const botButtonSchema = z.object({
   id: z.string(),
   buttonId: z.string(),
@@ -28,6 +37,8 @@ export const botButtonSchema = z.object({
   visible: z.boolean(),
   onePerRow: z.boolean(),
   orderIndex: z.number().int(),
+  actionType: botButtonActionSchema,
+  actionTarget: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })
@@ -40,6 +51,8 @@ export const createBotButtonSchema = z.object({
   iconCustomEmojiId: z.string().max(120).nullable().optional(),
   visible: z.boolean().optional(),
   onePerRow: z.boolean().optional(),
+  actionType: botButtonActionSchema.optional(),
+  actionTarget: z.string().max(2_000).nullable().optional(),
 })
 export type CreateBotButtonPayload = z.infer<typeof createBotButtonSchema>
 
@@ -49,6 +62,8 @@ export const updateBotButtonSchema = z.object({
   iconCustomEmojiId: z.string().max(120).nullable().optional(),
   visible: z.boolean().optional(),
   onePerRow: z.boolean().optional(),
+  actionType: botButtonActionSchema.optional(),
+  actionTarget: z.string().max(2_000).nullable().optional(),
 })
 export type UpdateBotButtonPayload = z.infer<typeof updateBotButtonSchema>
 

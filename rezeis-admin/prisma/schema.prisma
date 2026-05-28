@@ -1853,33 +1853,69 @@ enum BotButtonStyle {
   DEFAULT
 }
 
+/// What happens when a user taps a reply-keyboard button.
+enum BotButtonAction {
+  /// Emit `callback_data === buttonId` and let reiwa's
+  /// `bot.callbackQuery(id, ...)` handler resolve the response.
+  /// Default for back-compat with existing reserved ids
+  /// (cabinet / invite / rules / help) and any operator-defined
+  /// id whose target hasn't been set yet.
+  CALLBACK
+  /// Open an external HTTPS URL in Telegram's in-app browser.
+  /// `actionTarget` holds the absolute URL.
+  URL
+  /// Open a Telegram Mini App. `actionTarget` holds the absolute
+  /// HTTPS URL (Telegram refuses non-HTTPS web_app buttons).
+  WEBAPP
+  /// Render a dynamic screen by `BotFlowScreen.shortId`. Goes through
+  /// the same `screen:<shortId>` callback the universal screen
+  /// renderer in reiwa already handles.
+  SCREEN
+  /// Open a `t.me/<handle>?text=<prefill>` deep-link to a support
+  /// chat. `actionTarget` is unused — reiwa resolves the handle
+  /// from `BOT_SUPPORT_USERNAME` or admin override at render time.
+  SUPPORT_URL
+}
+
 /// One row per button rendered in the bot's main reply keyboard. Operators
 /// reorder, hide, restyle, or attach a Telegram Premium emoji directly
 /// from the admin panel; the bot service reads the latest snapshot and
 /// rebuilds keyboards accordingly.
 model BotButton {
-  id                 String         @id @default(cuid()) @map("id")
+  id                 String          @id @default(cuid()) @map("id")
   /// Stable button identifier the bot service uses when wiring up
   /// callbacks, e.g. `subscriptions`, `support`, `referrals`. Slug is
   /// case-insensitive and must be unique.
-  buttonId           String         @unique @map("button_id")
-  label              String         @map("label")
+  buttonId           String          @unique @map("button_id")
+  label              String          @map("label")
   /// Display style — see `BotButtonStyle`.
-  style              BotButtonStyle @default(PRIMARY) @map("style")
+  style              BotButtonStyle  @default(PRIMARY) @map("style")
   /// Optional Telegram Premium custom emoji id (string). Non-premium
   /// users see a fallback emoji rendered by the bot side.
-  iconCustomEmojiId  String?        @map("icon_custom_emoji_id")
+  iconCustomEmojiId  String?         @map("icon_custom_emoji_id")
   /// Soft-delete-style visibility flag. Hidden buttons are not rendered
   /// but remain in the catalog so settings can be restored.
-  visible            Boolean        @default(true) @map("visible")
+  visible            Boolean         @default(true) @map("visible")
   /// When `true`, the button claims the entire row regardless of its
   /// natural width. Otherwise it shares a row with the next half-width
   /// neighbour.
-  onePerRow          Boolean        @default(false) @map("one_per_row")
+  onePerRow          Boolean         @default(false) @map("one_per_row")
   /// Render order — lower values come first inside the keyboard.
-  orderIndex         Int            @default(0) @map("order_index")
-  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  orderIndex         Int             @default(0) @map("order_index")
+  /// What the button does when tapped. See `BotButtonAction`.
+  /// Defaults to CALLBACK so existing rows light up the legacy
+  /// callback-based handlers (cabinet/invite/rules/help) without a
+  /// data migration.
+  actionType         BotButtonAction @default(CALLBACK) @map("action_type")
+  /// Action payload — interpretation depends on `actionType`:
+  ///   - URL / WEBAPP   → absolute URL
+  ///   - SCREEN         → `BotFlowScreen.shortId`
+  ///   - CALLBACK / SUPPORT_URL → unused (kept null)
+  /// Validation lives at the service layer (URL parsing, shortId
+  /// existence check) so the schema stays simple.
+  actionTarget       String?         @map("action_target")
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([visible, orderIndex])
   @@map("bot_buttons")

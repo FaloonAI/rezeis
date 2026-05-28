@@ -1,4 +1,64 @@
-﻿# Rezeis Admin v0.4.3
+﻿# Rezeis Admin v0.4.4
+
+## Per-button action routing — operator can attach URLs / Mini Apps / screen jumps to any reply-keyboard button
+
+`v0.4.4` закрывает оператору последний хардкод-узел в Bot Studio: до сих пор смысл reply-keyboard кнопки определялся её `buttonId`, прибитым в reiwa, и самостоятельно прикрутить ссылку к произвольной кнопке было нельзя — отсюда жалоба «могу кнопку создать, только ссылку к ней приделать не могу». Теперь у каждой кнопки в `BotButton` лежит `actionType` + `actionTarget`, и reiwa резолвит роутинг по этим полям перед фолбэком на встроенную карту.
+
+### Что сделано
+
+- **Prisma schema** — новый enum `BotButtonAction` (`CALLBACK / URL / WEBAPP / SCREEN / SUPPORT_URL`) + поля `actionType` (default `CALLBACK`) и `actionTarget` (nullable string) в модели `BotButton`. Hand-written миграция `20260528193000_bot_button_action`.
+- **`BotButtonsService.validateAction()`** — централизованная валидация: `URL` / `WEBAPP` требуют `https://` (Telegram отбрасывает остальное), `SCREEN` требует alphanumeric shortId, `CALLBACK` / `SUPPORT_URL` всегда обнуляют target. Сообщения об ошибках возвращаются как `BadRequestException` с человеческим текстом — SPA выводит их inline через toast.
+- **DTO + Controller** — `CreateBotButtonDto` / `UpdateBotButtonDto` принимают `actionType` (любая case) и `actionTarget`. `parseBotButtonAction()` нормализует к Prisma enum. Кэш-инвалидация interceptor `ReiwaCacheInvalidateInterceptor` пушит новый bind в reiwa сразу после save.
+- **`/internal/bot-config` payload** — `InternalBotConfigButtonInterface` расширен `actionType: 'callback'|'url'|'webapp'|'screen'|'support_url'` и `actionTarget: string | null`. Reiwa получает их в каждом 5-минутном refresh.
+- **Reiwa `resolveButtonBinding()`** — новая функция в `bot/widgets/main-keyboard.ts`. Сначала смотрит на operator override (`button.actionType`), затем на legacy `BUTTON_KIND_MAP`, затем на дефолтный `callback`. URL и WebApp action берут operator-supplied абсолютный URL приоритетно с fallback на `${publicWebUrl}${target}` для legacy. SCREEN action эмитит `screen:<shortId>` callback_data — универсальный handler `dynamic-screen.ts` поднимает экран из BotFlow.
+- **SPA Bot Button dialogs** — `bot-button-dialogs.tsx` получили блок «Тип действия» (Select из 5 вариантов) и conditional «Цель действия»: text input для URL/WEBAPP, dropdown с реальными screen shortId для SCREEN, ничего для CALLBACK/SUPPORT_URL. Под каждым вариантом — подсказка что он делает. Backend validation errors показываются inline.
+- **SPA buttons display** — карточки кнопок в `reply-keyboard-editor-panel.tsx` и `bot-buttons-tab.tsx` теперь показывают action badge + truncated target, чтобы оператор сразу видел куда ведёт каждая кнопка.
+
+### Backend изменения
+
+- `prisma/schema.prisma` — enum `BotButtonAction`, поля на `BotButton`.
+- `prisma/migrations/20260528193000_bot_button_action/migration.sql` — `CREATE TYPE` + два `ALTER TABLE ADD COLUMN`.
+- `src/modules/bot-config/services/bot-buttons.service.ts` — `validateAction()`, обновлённые `create()` / `update()`.
+- `src/modules/bot-config/dto/bot-config.dto.ts` — `CreateBotButtonDto.actionType/actionTarget`, `parseBotButtonAction()` helper.
+- `src/modules/bot-config/controllers/admin-bot-config.controller.ts` — форвард новых полей в service.
+- `src/modules/bot-config/interfaces/internal-bot-config.interface.ts` — `actionType` / `actionTarget` в `InternalBotConfigButtonInterface`.
+- `src/modules/bot-config/services/internal-bot-config.service.ts` — `mapButtonAction()` (для `BotButton`, не путать с `mapFlowButtonAction()` для `BotFlowButton`).
+
+### Reiwa изменения
+
+- `src/infrastructure/bot-config/types.ts` — `BotMenuButton.actionType` / `actionTarget`.
+- `src/bot/widgets/main-keyboard.ts` — `ResolvedBinding` interface, `resolveButtonBinding()` и переписанный `buildMainKeyboard()` loop.
+
+### Frontend изменения
+
+- `web/src/features/bot-config/bot-config-api.ts` — `botButtonActionSchema`, поля в `botButtonSchema` / `createBotButtonSchema` / `updateBotButtonSchema`.
+- `web/src/features/bot-config/bot-button-dialogs.tsx` — переписан create + edit диалоги, новый `ActionFields` компонент, `useFlowScreens` hook для SCREEN dropdown, `extractErrorMessage` для backend validation surfacing.
+- `web/src/features/bot-config/reply-keyboard-editor-panel.tsx` + `bot-buttons-tab.tsx` — action badge + truncated target в карточках.
+- `web/src/i18n/{ru,en}.ts` — новый блок `botConfigPage.buttons.fields.actionType.{label, options.*, hint.*}` + `actionTarget.{label, urlPlaceholder, urlHint, webappPlaceholder, webappHint, screenPlaceholder, screenHint, screenEmpty}`.
+
+### Pre-push checklist
+
+| Check | Result |
+|---|---|
+| Backend `tsc --noEmit -p tsconfig.json` | ✅ 0 errors |
+| Backend `eslint . --quiet` | ✅ 0 warnings |
+| Frontend `npm run build` (tsc + vite) | ✅ 0 errors |
+| Frontend `eslint . --quiet` | ✅ 0 warnings |
+
+### Migration / breaking
+
+- Миграция `20260528193000_bot_button_action` добавляет 2 nullable колонки + 1 enum. **Не ломает** существующие записи: все старые `BotButton` строки получают `actionType = 'CALLBACK'` через DEFAULT, `actionTarget = NULL`. Поведение reiwa для них не меняется (фолбэк на `BUTTON_KIND_MAP`).
+- `/internal/bot-config` shape — два новых обязательных поля. Reiwa < 0.4.4 их игнорирует и работает по-старому. Обновить reiwa-bot вместе с rezeis рекомендуется чтобы получить новый routing.
+
+### Docker image
+
+Пересобирается на push tag `v0.4.4` → GHCR теги `v0.4.4`, `0.4.4`, `0.4`, `latest`.
+
+**Full Changelog**: https://github.com/dizzzable/rezeis/compare/v0.4.3...v0.4.4
+
+---
+
+# Rezeis Admin v0.4.3
 
 ## Wave 8 — admin-driven bot screens + cache push + banner upload
 

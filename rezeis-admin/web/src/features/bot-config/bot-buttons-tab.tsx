@@ -228,6 +228,17 @@ function SortableButtonRow({
         <Badge variant={button.style === 'PRIMARY' ? 'default' : 'secondary'}>
           {t(`botConfigPage.buttons.styles.${button.style}`)}
         </Badge>
+        <Badge variant="outline" className="text-xs">
+          {t(`botConfigPage.buttons.fields.actionType.options.${button.actionType}`)}
+        </Badge>
+        {button.actionTarget !== null && button.actionTarget.length > 0 && (
+          <code
+            className="hidden truncate rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground sm:inline"
+            title={button.actionTarget}
+          >
+            {button.actionTarget}
+          </code>
+        )}
         {button.onePerRow && (
           <Badge variant="outline" className="text-xs">
             {t('botConfigPage.buttons.onePerRow')}

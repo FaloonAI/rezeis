@@ -76,7 +76,7 @@ import {
   REPLY_KEYBOARD_NODE_TYPE,
   type ReplyKeyboardNodeData,
 } from './components/ReplyKeyboardNode'
-import { flowToReactFlow, nodesToPositions } from './utils'
+import { buildReplyToScreenEdges, flowToReactFlow, nodesToPositions } from './utils'
 import type { BotFlow, BotFlowScreen } from './types'
 
 const FLOW_NAME = 'Main Flow'
@@ -113,6 +113,25 @@ export default function BotFlowPage() {
     queryFn: botConfigApi.listButtons,
   })
 
+  // Load the operator-uploaded welcome banner so we can render it as
+  // a thumbnail on the pinned reply-keyboard pseudo-node. The same
+  // query is used by the BotBannerTab drawer; TanStack Query
+  // deduplicates them under the shared key.
+  const { data: botTexts } = useQuery({
+    queryKey: ['bot-texts'] as const,
+    queryFn: async (): Promise<readonly { key: string; value: string }[]> => {
+      const { data } = await api.get<readonly { key: string; value: string }[]>(
+        '/admin/bot-config/texts',
+      )
+      return data
+    },
+  })
+  const bannerUrl = useMemo<string | null>(() => {
+    const row = botTexts?.find((r) => r.key === 'bot.banner_url')
+    const value = row?.value.trim() ?? ''
+    return value.length > 0 ? value : null
+  }, [botTexts])
+
   // ── Project flow + reply-keyboard into React Flow node graph ───────────────
   // Memoise so the effect below only fires when something actually changes.
   const projectedGraph = useMemo(() => {
@@ -131,9 +150,12 @@ export default function BotFlowPage() {
       // it opens the right inspector); it just stays put.
       draggable: false,
       deletable: false,
-      data: { buttons: replyButtons } satisfies ReplyKeyboardNodeData,
+      data: {
+        buttons: replyButtons,
+        bannerUrl,
+      } satisfies ReplyKeyboardNodeData,
     } satisfies Node
-  }, [replyButtons])
+  }, [replyButtons, bannerUrl])
 
   // Sync React Flow state — preserve local positions so an in-flight drag
   // is not undone when the server returns the same positionX/Y. Reuses the
@@ -160,13 +182,13 @@ export default function BotFlowPage() {
       return merged
     })
 
-    setEdges(incomingEdges)
+    setEdges([...incomingEdges, ...buildReplyToScreenEdges(flow, replyButtons)])
     // We deliberately exclude `replyNode` identity from this deps list:
     // the merge above always picks the latest reference via the closure,
     // and recomputing the entire flow because the buttons list got a new
     // reference would yank the user's selection mid-edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectedGraph])
+  }, [projectedGraph, replyButtons])
 
   // Separate effect to refresh just the reply-node data on bot-button
   // mutations without reprojecting the whole flow.

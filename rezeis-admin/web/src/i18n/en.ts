@@ -2562,6 +2562,26 @@ export const en = {
       textRuPlaceholder: 'Message text in Russian…',
       textEnPlaceholder: 'Message text in English…',
       mediaHint: 'Click to upload image or video',
+      placeholders: {
+        invite: 'Available placeholders: {{link}} — user referral link. System buttons «📤 Share» / «📋 Copy» / «◀️ Back to menu» are appended automatically.',
+        rules: 'Available placeholder: {{rulesLink}} — service rules URL. When the URL is set in Platform Policy, the bot adds an «📜 Open rules» button. «◀️ Back to menu» is always appended. Add your own buttons via «Add button».',
+        help: 'Available placeholder: {{supportHandle}} — support @username. The main-menu «🆘 Help» button opens the support chat directly; this screen is shown only when no support handle is configured.',
+      },
+    },
+    systemButtons: {
+      title: 'System buttons',
+      description: 'These buttons are appended automatically by the bot — they depend on user data (referral link, support handle) and cannot be edited. To add your own buttons, use «Add button» below.',
+      back: '◀️ Back to menu',
+      invite: {
+        share: '📤 Share on Telegram',
+        copy: '📋 Copy link',
+      },
+      rules: {
+        open: '📜 Open rules',
+      },
+      help: {
+        contact: '🆘 Message support',
+      },
     },
     button: {
       add: 'Add button',
@@ -2635,6 +2655,8 @@ export const en = {
       subtitle: 'Persistent menu under the chat input. Reorder, hide, or rename without redeploying the bot.',
       autoSaveHint: 'Changes go live immediately — no separate publish step needed. Reiwa picks them up on its 5-minute refresh.',
       cannotConnect: 'Reply-keyboard buttons are global — they cannot link to a specific screen via edges.',
+      bannerAlt: 'Bot banner preview',
+      bannerPlaceholder: 'No banner set — use the «🖼️ Banner» button at the top to upload one',
     },
     drawers: {
       emojisDescription: 'Premium custom_emoji_id mapping. Reiwa picks these up on its 5-minute refresh.',
@@ -2642,6 +2664,10 @@ export const en = {
       bannerDescription: 'Image sent as the first message on /start. Upload a file — it persists on the admin host and reaches the bot automatically.',
     },
   },
+  'screen.cabinet': 'Cabinet (external URL)',
+  'screen.invite': 'Referral program',
+  'screen.rules': 'Service rules',
+  'screen.help': 'Support',
   botBanner: {
     title: 'Bot banner',
     description: 'The image is sent as the first message on /start. Supported formats: PNG, JPEG, WebP, GIF. Max file size: 8 MB.',
@@ -2688,6 +2714,33 @@ export const en = {
         buttonIdHint: 'Letters, digits, . _ - . Must match the id in reiwa.',
         label: 'Label',
         style: 'Style',
+        actionType: {
+          label: 'Action type',
+          options: {
+            CALLBACK: 'Internal callback',
+            URL: 'External URL',
+            WEBAPP: 'Mini App',
+            SCREEN: 'Bot screen',
+            SUPPORT_URL: 'Support chat',
+          },
+          hint: {
+            CALLBACK: 'Plain inline button. Reiwa handles the press internally — useful when the button id matches a screen shortId or you intercept the callback in code.',
+            URL: 'Opens an external URL in the in-app Telegram browser. Only https:// is accepted.',
+            WEBAPP: 'Opens a Telegram Mini App. URL must be https:// and the domain must be linked in @BotFather.',
+            SCREEN: 'Jumps to a bot screen from the navigation graph. Pick the screen from the list below.',
+            SUPPORT_URL: 'Opens the support chat via t.me/<username>?text=… . The username is taken from BOT_SUPPORT_USERNAME in reiwa .env.',
+          },
+        },
+        actionTarget: {
+          label: 'Action target',
+          urlPlaceholder: 'https://example.com/path',
+          urlHint: 'Full URL starting with https:// (Telegram rejects other protocols).',
+          webappPlaceholder: 'https://miniapp.example.com/',
+          webappHint: 'Full https:// Mini App URL. The domain must be linked in @BotFather.',
+          screenPlaceholder: 'Pick a bot screen',
+          screenHint: 'Bot screen identifier from the navigation graph (Bot Studio → screens).',
+          screenEmpty: 'Create at least one screen in Bot Studio first to link it here.',
+        },
         iconCustomEmojiId: 'Telegram custom emoji ID',
         iconCustomEmojiIdPlaceholder: '5278229211367179752',
         iconCustomEmojiIdHint: 'Telegram premium emoji shown before the button label. Bot API 9.4+ supports this on inline-keyboard buttons when the bot owner has Telegram Premium. Get the ID from @stickers, or copy it from a custom emoji you sent to yourself in Telegram.',

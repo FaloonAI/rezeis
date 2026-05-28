@@ -24,6 +24,7 @@ import {
   UpdateBotButtonDto,
   UpdateBotEmojiDto,
   UpdateBotTextDto,
+  parseBotButtonAction,
   parseBotButtonStyle,
 } from '../dto/bot-config.dto';
 import { ReiwaCacheInvalidateInterceptor } from '../interceptors/reiwa-cache-invalidate.interceptor';
@@ -78,6 +79,8 @@ export class AdminBotConfigController {
       visible: body.visible,
       onePerRow: body.onePerRow,
       orderIndex: body.orderIndex,
+      actionType: parseBotButtonAction(body.actionType),
+      actionTarget: body.actionTarget ?? null,
     });
   }
 
@@ -93,6 +96,8 @@ export class AdminBotConfigController {
       visible: body.visible,
       onePerRow: body.onePerRow,
       orderIndex: body.orderIndex,
+      actionType: parseBotButtonAction(body.actionType),
+      actionTarget: body.actionTarget,
     });
   }
 

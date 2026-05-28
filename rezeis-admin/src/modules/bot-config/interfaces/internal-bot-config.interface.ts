@@ -20,6 +20,22 @@ export interface InternalBotConfigButtonInterface {
    * a premium emoji to the button.
    */
   readonly iconCustomEmojiId: string | null;
+  /**
+   * Routing kind for this reply-keyboard button. Lowercase string so
+   * reiwa can switch on it directly without an enum import:
+   *   - `callback`    → emit callback_data; reiwa handler resolves
+   *   - `url`         → external URL (actionTarget)
+   *   - `webapp`      → Telegram Mini App URL (actionTarget)
+   *   - `screen`      → BotFlowScreen.shortId (actionTarget)
+   *   - `support_url` → t.me/<handle>?text=<prefill> (target unused;
+   *                     reiwa resolves handle at render time)
+   */
+  readonly actionType: 'callback' | 'url' | 'webapp' | 'screen' | 'support_url';
+  /**
+   * Action payload — interpretation depends on `actionType`. `null`
+   * for `callback` / `support_url`.
+   */
+  readonly actionTarget: string | null;
 }
 
 /**

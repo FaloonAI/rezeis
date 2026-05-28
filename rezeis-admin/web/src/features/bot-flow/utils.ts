@@ -1,4 +1,8 @@
 import type { Node, Edge } from '@xyflow/react'
+import {
+  replyButtonHandleId,
+  resolveReplyButtonColor,
+} from './components/ReplyKeyboardNode'
 import type { BotFlow, BotFlowButton, BotScreenNodeData } from './types'
 
 /** Group buttons by row index. */
@@ -76,4 +80,87 @@ export function flowToReactFlow(flow: BotFlow): { nodes: Node[]; edges: Edge[] }
 /** Convert React Flow nodes back to position updates for the API. */
 export function nodesToPositions(nodes: Node[]): Array<{ id: string; x: number; y: number }> {
   return nodes.map((n) => ({ id: n.id, x: n.position.x, y: n.position.y }))
+}
+
+/**
+ * Build dotted edges from the pinned reply-keyboard pseudo-node to
+ * each screen whose `name` matches a reply-button's `buttonId`.
+ *
+ * This is the visual companion to reiwa's runtime override matching
+ * (`findScreenByName`): when a screen named `help` exists, reiwa
+ * renders it instead of the built-in "Поддержка" handler. On the
+ * canvas the operator now sees an explicit dashed line connecting
+ * the reply-keyboard's "Помощь" button slot to the override screen,
+ * so the routing is no longer hidden in code.
+ *
+ * Why dashed: a regular animated solid edge implies a NAVIGATE
+ * `actionType` button drives the link. Reply-keyboard buttons are
+ * not BotFlowButtons — they live in the `bot_buttons` table and are
+ * routed by reiwa via name-match instead of an explicit
+ * `targetScreenId`. The dashed style telegraphs the difference.
+ */
+export function buildReplyToScreenEdges(
+  flow: BotFlow | undefined,
+  replyButtons: readonly BotButtonLite[] | undefined,
+): Edge[] {
+  if (flow === undefined || replyButtons === undefined) return []
+  const replyNodeId = '__reply_keyboard__'
+  const screenByName = new Map<string, BotFlow['screens'][number]>()
+  for (const screen of flow.screens) {
+    screenByName.set(screen.name.toLowerCase(), screen)
+  }
+  const edges: Edge[] = []
+  for (const button of replyButtons) {
+    if (!button.visible) continue
+    const target = screenByName.get(button.buttonId.toLowerCase())
+    if (target === undefined) continue
+    const color = resolveReplyButtonColor(button.buttonId)
+    edges.push({
+      id: `reply-edge-${button.id}`,
+      source: replyNodeId,
+      sourceHandle: replyButtonHandleId(button.buttonId),
+      target: target.id,
+      targetHandle: `${target.id}-target`,
+      type: 'smoothstep',
+      animated: true,
+      style: {
+        stroke: color,
+        strokeWidth: 2,
+        strokeDasharray: '6 4',
+      },
+      markerEnd: { type: 'arrowclosed' as const, color },
+      // Reply-keyboard edges are virtual — the user can't delete or
+      // re-target them via drag. Mark them undeletable so React Flow
+      // doesn't offer a context menu.
+      deletable: false,
+      // Show button label as edge label so the operator can tell at a
+      // glance which reply-button drives which screen.
+      label: button.label,
+      labelStyle: {
+        fill: '#ffffff',
+        fontSize: 10,
+        fontWeight: 600,
+      },
+      labelBgStyle: {
+        fill: color,
+        fillOpacity: 0.95,
+      },
+      labelBgPadding: [6, 3] as [number, number],
+      labelBgBorderRadius: 4,
+    })
+  }
+  return edges
+}
+
+/**
+ * Minimal contract reply edges need from a `BotButton`. Kept narrow
+ * so the helper doesn't pull the full `bot-config-api` schema into
+ * `utils.ts` (which would create a cycle if utils imported from
+ * features/bot-config).
+ */
+export interface BotButtonLite {
+  readonly id: string
+  readonly buttonId: string
+  readonly label: string
+  readonly visible: boolean
 }

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { BotButton, BotButtonStyle, Prisma } from '@prisma/client';
+import { BotButton, BotButtonAction, BotButtonStyle, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
 
@@ -11,6 +11,8 @@ interface CreateButtonInput {
   readonly visible?: boolean;
   readonly onePerRow?: boolean;
   readonly orderIndex?: number;
+  readonly actionType?: BotButtonAction;
+  readonly actionTarget?: string | null;
 }
 
 interface UpdateButtonInput {
@@ -21,9 +23,64 @@ interface UpdateButtonInput {
   readonly visible?: boolean;
   readonly onePerRow?: boolean;
   readonly orderIndex?: number;
+  readonly actionType?: BotButtonAction;
+  readonly actionTarget?: string | null;
 }
 
 const BUTTON_ID_REGEX = /^[a-z0-9._-]+$/i;
+
+/**
+ * Validate an `actionTarget` against its `actionType`. Returns the
+ * sanitised value to persist (empty → null) or throws BadRequest with
+ * a clear message so the SPA can surface it inline. Centralised here
+ * so the create / update paths share the contract.
+ */
+function validateAction(
+  actionType: BotButtonAction | undefined,
+  actionTarget: string | null | undefined,
+): string | null | undefined {
+  if (actionType === undefined) return undefined;
+  const trimmed = (actionTarget ?? '').trim();
+  switch (actionType) {
+    case BotButtonAction.URL:
+    case BotButtonAction.WEBAPP: {
+      if (trimmed.length === 0) {
+        throw new BadRequestException(
+          `actionTarget is required when actionType=${actionType} (must be a full https:// URL)`,
+        );
+      }
+      if (!/^https?:\/\//i.test(trimmed)) {
+        throw new BadRequestException(
+          `actionTarget must start with http:// or https:// (got "${trimmed}")`,
+        );
+      }
+      if (actionType === BotButtonAction.WEBAPP && !/^https:\/\//i.test(trimmed)) {
+        throw new BadRequestException(
+          'actionTarget for WEBAPP buttons must use https:// (Telegram refuses non-HTTPS web_app)',
+        );
+      }
+      return trimmed;
+    }
+    case BotButtonAction.SCREEN: {
+      if (trimmed.length === 0) {
+        throw new BadRequestException(
+          'actionTarget is required when actionType=SCREEN (must be a BotFlowScreen shortId)',
+        );
+      }
+      if (!/^[A-Za-z0-9_-]+$/.test(trimmed)) {
+        throw new BadRequestException(
+          `actionTarget for SCREEN must be an alphanumeric shortId (got "${trimmed}")`,
+        );
+      }
+      return trimmed;
+    }
+    case BotButtonAction.CALLBACK:
+    case BotButtonAction.SUPPORT_URL:
+    default:
+      // No payload — the bot resolves these at runtime.
+      return null;
+  }
+}
 
 @Injectable()
 export class BotButtonsService {
@@ -49,6 +106,8 @@ export class BotButtonsService {
       orderBy: { orderIndex: 'desc' },
       select: { orderIndex: true },
     });
+    const actionType = input.actionType ?? BotButtonAction.CALLBACK;
+    const actionTarget = validateAction(actionType, input.actionTarget) ?? null;
     return this.prismaService.botButton.create({
       data: {
         buttonId: input.buttonId,
@@ -58,6 +117,8 @@ export class BotButtonsService {
         visible: input.visible ?? true,
         onePerRow: input.onePerRow ?? false,
         orderIndex: input.orderIndex ?? (tail?.orderIndex ?? -1) + 1,
+        actionType,
+        actionTarget,
       },
     });
   }
@@ -76,6 +137,21 @@ export class BotButtonsService {
     if (input.visible !== undefined) data.visible = input.visible;
     if (input.onePerRow !== undefined) data.onePerRow = input.onePerRow;
     if (input.orderIndex !== undefined) data.orderIndex = input.orderIndex;
+    if (input.actionType !== undefined) {
+      data.actionType = input.actionType;
+      // When the operator switches actionType but doesn't supply a
+      // matching target, validate against the new type with whatever
+      // existing target is on file (so toggling URL→CALLBACK clears
+      // the now-irrelevant target, but URL→URL with a fresh string
+      // round-trips through validation).
+      const target = input.actionTarget !== undefined ? input.actionTarget : existing.actionTarget;
+      const sanitised = validateAction(input.actionType, target);
+      if (sanitised !== undefined) data.actionTarget = sanitised;
+    } else if (input.actionTarget !== undefined) {
+      // Target changed but type didn't — re-validate with existing type.
+      const sanitised = validateAction(existing.actionType, input.actionTarget);
+      if (sanitised !== undefined) data.actionTarget = sanitised;
+    }
     return this.prismaService.botButton.update({ where: { id: input.id }, data });
   }
 
