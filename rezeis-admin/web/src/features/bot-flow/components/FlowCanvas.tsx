@@ -14,9 +14,10 @@ import {
 import '@xyflow/react/dist/style.css'
 
 import { BotScreenNode } from './BotScreenNode'
+import { ReplyKeyboardNode } from './ReplyKeyboardNode'
 import type { BotScreenNodeData } from '../types'
 
-const nodeTypes = { botScreen: BotScreenNode }
+const nodeTypes = { botScreen: BotScreenNode, replyKeyboard: ReplyKeyboardNode }
 
 interface FlowCanvasProps {
   nodes: Node[]
@@ -99,6 +100,7 @@ export function FlowCanvas({
         <Controls className="!bg-card !border !border-border !rounded-lg !shadow-lg [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground [&>button:hover]:!bg-accent" />
         <MiniMap
           nodeColor={(node) => {
+            if (node.type === 'replyKeyboard') return '#f59e0b'
             const nd = node.data as unknown as BotScreenNodeData
             return nd.isRoot ? '#22c55e' : '#64748b'
           }}

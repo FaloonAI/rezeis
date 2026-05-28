@@ -86,4 +86,42 @@ export class BotButtonsService {
     }
     await this.prismaService.botButton.delete({ where: { id } });
   }
+
+  /**
+   * Atomically rewrite `orderIndex` for the supplied button ids in the
+   * order they appear. Used by the admin SPA's drag-and-drop list so the
+   * 4-button keyboard reorders in a single transactional write rather
+   * than four sequential PATCH calls (which would interleave with
+   * concurrent reads from reiwa's 5-minute refresh loop).
+   *
+   * Validates that the input set matches the current row set — passing a
+   * partial list, an unknown id, or a duplicate id is rejected before
+   * any write happens. The transaction commits with stable indices
+   * 0..N-1; gaps in `orderIndex` (e.g. from manual UI drags long ago)
+   * are normalised here.
+   */
+  public async reorder(ids: readonly string[]): Promise<BotButton[]> {
+    if (new Set(ids).size !== ids.length) {
+      throw new BadRequestException('reorder ids must be unique');
+    }
+    const existing = await this.prismaService.botButton.findMany({ select: { id: true } });
+    const existingIds = new Set(existing.map((row) => row.id));
+    if (ids.length !== existingIds.size) {
+      throw new BadRequestException('reorder ids must cover every bot button');
+    }
+    for (const id of ids) {
+      if (!existingIds.has(id)) {
+        throw new BadRequestException(`reorder ids contain unknown button id "${id}"`);
+      }
+    }
+    await this.prismaService.$transaction(
+      ids.map((id, index) =>
+        this.prismaService.botButton.update({
+          where: { id },
+          data: { orderIndex: index },
+        }),
+      ),
+    );
+    return this.listAll();
+  }
 }

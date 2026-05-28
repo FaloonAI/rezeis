@@ -1,4 +1,7 @@
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsInt,
   IsOptional,
@@ -87,6 +90,19 @@ export function parseBotButtonStyle(value: unknown): BotButtonStyle | undefined 
   if (typeof value !== 'string' || value.length === 0) return undefined;
   const normalised = value.toUpperCase();
   return BUTTON_STYLES.find((style) => style === normalised);
+}
+
+/**
+ * Body for `POST /admin/bot-config/buttons/reorder`. Frontend ships the
+ * complete list of button ids in the desired display order; backend
+ * normalises `orderIndex` to 0..N-1 in a single transaction.
+ */
+export class ReorderBotButtonsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(64)
+  @IsString({ each: true })
+  public readonly ids!: string[];
 }
 
 export class CreateBotEmojiDto {

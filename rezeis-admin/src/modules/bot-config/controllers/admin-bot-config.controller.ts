@@ -16,6 +16,7 @@ import {
   CreateBotButtonDto,
   CreateBotEmojiDto,
   CreateBotTextDto,
+  ReorderBotButtonsDto,
   UpdateBotButtonDto,
   UpdateBotEmojiDto,
   UpdateBotTextDto,
@@ -89,6 +90,12 @@ export class AdminBotConfigController {
   @ApiOperation({ summary: 'Delete a bot menu button (POST form for legacy clients)' })
   public deleteButtonPost(@Param('id') id: string): Promise<void> {
     return this.botButtonsService.delete(id);
+  }
+
+  @Post('buttons/reorder')
+  @ApiOperation({ summary: 'Atomically reorder bot menu buttons by id list' })
+  public reorderButtons(@Body() body: ReorderBotButtonsDto) {
+    return this.botButtonsService.reorder(body.ids);
   }
 
   // ── Emojis ─────────────────────────────────────────────────────────────────
