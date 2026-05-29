@@ -16,6 +16,7 @@ import { PasswordHashService } from '../../auth/services/password-hash.service';
 import { loginPolicy } from '../../auth/utils/login-policy.util';
 import { EmailService } from '../../email/services/email.service';
 import { PlanCatalogService } from '../../plans/services/plan-catalog.service';
+import { RemnawaveApiService } from '../../remnawave/services/remnawave-api.service';
 import { AcceptInternalUserRulesDto } from '../dto/accept-internal-user-rules.dto';
 import { CompleteWebAccountEmailVerificationDto } from '../dto/complete-web-account-email-verification.dto';
 import { IssueWebAccountEmailVerificationChallengeDto } from '../dto/issue-web-account-email-verification-challenge.dto';
@@ -89,6 +90,8 @@ export class InternalUserService {
     private readonly emailService: EmailService,
     @Optional()
     private readonly planCatalogService?: PlanCatalogService,
+    @Optional()
+    private readonly remnawaveApiService?: RemnawaveApiService,
   ) {}
 
   /**
@@ -502,6 +505,7 @@ export class InternalUserService {
         isTrial: sub.isTrial,
         plan: mapSubscriptionPlanSnapshot(sub.planSnapshot),
         trafficLimit: sub.trafficLimit,
+        trafficUsed: null,
         deviceLimit: sub.deviceLimit,
         userRemnaId: sub.remnawaveId,
         url: sub.configUrl,
@@ -544,12 +548,16 @@ export class InternalUserService {
     if (subscription === null) {
       return null;
     }
+    const trafficUsed = await this.resolveTrafficUsedGb(
+      subscription.remnawaveId,
+    );
     return {
       id: subscription.id,
       status: subscription.status,
       isTrial: subscription.isTrial,
       plan: mapSubscriptionPlanSnapshot(subscription.planSnapshot),
       trafficLimit: subscription.trafficLimit,
+      trafficUsed,
       deviceLimit: subscription.deviceLimit,
       userRemnaId: subscription.remnawaveId,
       url: subscription.configUrl,
@@ -559,6 +567,28 @@ export class InternalUserService {
       createdAt: subscription.createdAt.toISOString(),
       updatedAt: subscription.updatedAt.toISOString(),
     };
+  }
+
+  /**
+   * Best-effort conversion of the Remnawave used-traffic counter (bytes)
+   * to GB for the subscription card progress bar. Returns `null` when
+   * the panel client is absent (worker context, degraded boot), the
+   * subscription has no upstream profile, or the panel read fails — the
+   * SPA then hides the bar instead of rendering a misleading 0%.
+   */
+  private async resolveTrafficUsedGb(
+    remnawaveId: string | null,
+  ): Promise<number | null> {
+    if (this.remnawaveApiService === undefined || remnawaveId === null) {
+      return null;
+    }
+    const usedBytes =
+      await this.remnawaveApiService.getPanelUserUsedTrafficBytes(remnawaveId);
+    if (usedBytes === null) {
+      return null;
+    }
+    // Bytes → GB (1 GB = 1024³ bytes), rounded to 2 decimals.
+    return Math.round((usedBytes / 1024 ** 3) * 100) / 100;
   }
 
   private async getRequiredUser(

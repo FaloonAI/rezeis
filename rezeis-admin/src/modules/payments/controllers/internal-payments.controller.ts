@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 
 import { InternalAdminAuthGuard } from '../../auth/guards/internal-admin-auth.guard';
 import { InternalPaymentCheckoutDto } from '../dto/internal-payment-checkout.dto';
@@ -48,8 +48,9 @@ export class InternalPaymentsController {
   @Get(':paymentId')
   public async getStatus(
     @Param('paymentId') paymentId: string,
-    @Query('userId', new ParseUUIDPipe({ version: '4' })) userId: string,
+    @Query('userId') userId?: string,
+    @Query('telegramId') telegramId?: string,
   ): Promise<InternalPaymentStatusInterface> {
-    return this.paymentsCheckoutService.getPaymentStatus({ paymentId, userId });
+    return this.paymentsCheckoutService.getPaymentStatus({ paymentId, userId, telegramId });
   }
 }

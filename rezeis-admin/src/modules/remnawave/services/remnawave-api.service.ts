@@ -202,6 +202,46 @@ export class RemnawaveApiService {
   }
 
   /**
+   * Best-effort read of a user's *used* traffic (bytes) by UUID.
+   *
+   * Remnawave moved the counter around between versions: newer panels
+   * nest it under `userTraffic.usedTrafficBytes`, older flat layouts
+   * exposed `usedTrafficBytes` / `trafficUsedBytes` at the top level.
+   * We probe all known shapes and return `null` on any miss or upstream
+   * error so callers can render a graceful placeholder rather than
+   * crash a hot read path.
+   */
+  public async getPanelUserUsedTrafficBytes(uuid: string): Promise<number | null> {
+    try {
+      const result = await this.requestJson<unknown>({ method: 'get', url: `/api/users/${uuid}` });
+      const root = (result as { response?: unknown })?.response ?? result;
+      if (root === null || typeof root !== 'object') return null;
+      const record = root as Record<string, unknown>;
+      const nested = record['userTraffic'];
+      if (nested !== null && typeof nested === 'object') {
+        const used = (nested as Record<string, unknown>)['usedTrafficBytes'];
+        const parsed = this.coerceTrafficNumber(used);
+        if (parsed !== null) return parsed;
+      }
+      return (
+        this.coerceTrafficNumber(record['usedTrafficBytes']) ??
+        this.coerceTrafficNumber(record['trafficUsedBytes'])
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  private coerceTrafficNumber(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  }
+
+  /**
    * Gets all users by telegram_id from the panel.
    */
   public async getPanelUsersByTelegramId(telegramId: string): Promise<RemnawavePanelUser[]> {

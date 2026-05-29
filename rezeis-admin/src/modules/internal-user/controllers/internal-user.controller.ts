@@ -23,6 +23,7 @@ import { InternalUserSessionInterface } from '../interfaces/internal-user-sessio
 import { InternalUserSubscriptionInterface } from '../interfaces/internal-user-subscription.interface';
 import { InternalUserEdgeService } from '../services/internal-user-edge.service';
 import { InternalUserService } from '../services/internal-user.service';
+import { requireUserReference } from '../utils/user-reference.util';
 
 /**
  * Exposes internal user session and lookup endpoints for internal admin clients.
@@ -180,21 +181,21 @@ export class InternalUserController {
   public async listNotifications(
     @Query() query: InternalByTelegramQueryDto,
   ): Promise<{ notifications: readonly InternalUserNotificationInterface[] }> {
-    return this.internalUserEdgeService.listNotifications(query.telegramId);
+    return this.internalUserEdgeService.listNotifications(requireUserReference(query));
   }
 
   @Get('notifications/unread-count')
   public async unreadCount(
     @Query() query: InternalByTelegramQueryDto,
   ): Promise<{ unread: number }> {
-    return this.internalUserEdgeService.getUnreadCount(query.telegramId);
+    return this.internalUserEdgeService.getUnreadCount(requireUserReference(query));
   }
 
   @Post('notifications/read-all')
   public async readAll(
     @Body() body: InternalByTelegramQueryDto,
   ): Promise<{ updated: number }> {
-    return this.internalUserEdgeService.markAllRead(body.telegramId);
+    return this.internalUserEdgeService.markAllRead(requireUserReference(body));
   }
 
   @Post('notifications/:notificationId/read')
@@ -202,7 +203,7 @@ export class InternalUserController {
     @Param('notificationId') notificationId: string,
     @Body() body: InternalByTelegramQueryDto,
   ): Promise<{ ok: true }> {
-    return this.internalUserEdgeService.markOneRead(body.telegramId, notificationId);
+    return this.internalUserEdgeService.markOneRead(requireUserReference(body), notificationId);
   }
 
   /** Transaction history shown on the activity / settings page. */
@@ -210,7 +211,7 @@ export class InternalUserController {
   public async listTransactions(
     @Query() query: InternalByTelegramQueryDto,
   ): Promise<{ transactions: readonly InternalUserTransactionInterface[] }> {
-    return this.internalUserEdgeService.listTransactions(query.telegramId);
+    return this.internalUserEdgeService.listTransactions(requireUserReference(query));
   }
 
   // ── Trial ────────────────────────────────────────────────────────────────
@@ -219,11 +220,11 @@ export class InternalUserController {
   public async trialEligibility(
     @Query() query: InternalByTelegramQueryDto,
   ): Promise<{ eligible: boolean; reason: string | null }> {
-    return this.internalUserEdgeService.getTrialEligibility(query.telegramId);
+    return this.internalUserEdgeService.getTrialEligibility(requireUserReference(query));
   }
 
   /**
-   * Activates the trial plan for the resolved Telegram user. Returns a
+   * Activates the trial plan for the resolved user. Returns a
    * structured `{ activated, reason? }` payload — never throws on
    * ineligible cases so the bot can render a friendly message.
    */
@@ -232,7 +233,7 @@ export class InternalUserController {
     @Body() body: InternalByTelegramQueryDto,
   ): Promise<{ activated: boolean; subscriptionId?: string; reason?: string }> {
     return this.internalUserEdgeService.activateTrial(
-      body.telegramId,
+      requireUserReference(body),
       (input) => this.subscriptionMutationsService.grantTrial(input),
     );
   }

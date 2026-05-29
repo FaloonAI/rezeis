@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
+  AddOnType,
   Plan,
   ProfileSyncJob,
   Prisma,
@@ -24,6 +25,12 @@ export class PaymentSubscriptionMutationService {
   public async applyCompletedTransaction(
     transaction: Transaction,
   ): Promise<{ readonly subscription: Subscription; readonly syncJob: ProfileSyncJob }> {
+    // Add-on top-ups carry a marker in planSnapshot and have no plan/
+    // duration — handle them before the plan-centric branches.
+    if (isAddOnTransaction(transaction)) {
+      return this.applyAddOnTopUp(transaction);
+    }
+
     const purchasedPlan = await this.getRequiredPlan(transaction);
     const selectedDurationDays = readSelectedDurationDays(transaction);
 
@@ -62,6 +69,92 @@ export class PaymentSubscriptionMutationService {
       paymentId: transaction.paymentId,
       purchaseType: transaction.purchaseType,
       planName: purchasedPlan.name,
+      amount: transaction.amount.toString(),
+      currency: transaction.currency,
+      gatewayType: transaction.gatewayType,
+      subscriptionId: result.subscription.id,
+    });
+
+    return result;
+  }
+
+  /**
+   * Fulfills a completed add-on purchase: raises the target
+   * subscription's traffic (GB) or device-slot cap and enqueues a
+   * Remnawave UPDATE sync so the panel profile reflects the new limit.
+   *
+   * Idempotent against webhook retries: the target id is read from
+   * `planSnapshot` and stamped onto `transaction.subscriptionId` at the
+   * end, so a replayed COMPLETED event won't re-apply (the
+   * reconciliation guard only fulfills when `subscriptionId === null`).
+   */
+  private async applyAddOnTopUp(
+    transaction: Transaction,
+  ): Promise<{ readonly subscription: Subscription; readonly syncJob: ProfileSyncJob }> {
+    const marker = readAddOnMarker(transaction);
+    if (marker === null) {
+      throw new NotFoundException('Add-on marker not found on transaction');
+    }
+
+    const result = await this.prismaService.$transaction(async (tx) => {
+      const subscription = await tx.subscription.findUnique({
+        where: { id: marker.targetSubscriptionId },
+      });
+      if (subscription === null) {
+        throw new NotFoundException('Target subscription not found');
+      }
+      if (subscription.status === SubscriptionStatus.DELETED) {
+        throw new NotFoundException('Target subscription is deleted');
+      }
+
+      let updatedSubscription: Subscription;
+      if (marker.addOnType === AddOnType.EXTRA_TRAFFIC) {
+        if (subscription.trafficLimit === null) {
+          // Unlimited — nothing to raise. Still record fulfillment so the
+          // transaction is not re-processed.
+          updatedSubscription = subscription;
+        } else {
+          updatedSubscription = await tx.subscription.update({
+            where: { id: subscription.id },
+            data: { trafficLimit: { increment: marker.addOnValue } },
+          });
+        }
+      } else {
+        updatedSubscription = await tx.subscription.update({
+          where: { id: subscription.id },
+          data: { deviceLimit: { increment: marker.addOnValue } },
+        });
+      }
+
+      const syncJob = await tx.profileSyncJob.create({
+        data: {
+          subscriptionId: updatedSubscription.id,
+          action:
+            updatedSubscription.remnawaveId === null ? SyncAction.CREATE : SyncAction.UPDATE,
+          status: SyncJobStatus.PENDING,
+          payload: {
+            source: 'ADDON_PURCHASE',
+            paymentId: transaction.paymentId,
+            addOnType: marker.addOnType,
+            addOnValue: marker.addOnValue,
+          } as Prisma.InputJsonObject,
+        },
+      });
+
+      await tx.transaction.update({
+        where: { id: transaction.id },
+        data: { subscriptionId: updatedSubscription.id },
+      });
+
+      return { subscription: updatedSubscription, syncJob };
+    });
+
+    this.events.info(EVENT_TYPES.PAYMENT_COMPLETED, 'PAYMENT', 'Payment completed: ADD_ON', {
+      userId: transaction.userId,
+      paymentId: transaction.paymentId,
+      purchaseType: transaction.purchaseType,
+      addOnType: marker.addOnType,
+      addOnValue: marker.addOnValue,
       amount: transaction.amount.toString(),
       currency: transaction.currency,
       gatewayType: transaction.gatewayType,
@@ -261,6 +354,47 @@ function buildPlanSnapshot(input: {
     amount: input.transaction.amount.toString(),
     currency: input.transaction.currency,
     snapshotSource: 'PAYMENT_COMPLETION',
+  };
+}
+
+interface AddOnMarker {
+  readonly addOnId: string;
+  readonly addOnType: AddOnType;
+  readonly addOnValue: number;
+  readonly targetSubscriptionId: string;
+}
+
+function isAddOnTransaction(transaction: Transaction): boolean {
+  return readAddOnMarker(transaction) !== null;
+}
+
+function readAddOnMarker(transaction: Transaction): AddOnMarker | null {
+  const snapshot =
+    typeof transaction.planSnapshot === 'object' &&
+    transaction.planSnapshot !== null &&
+    !Array.isArray(transaction.planSnapshot)
+      ? (transaction.planSnapshot as Record<string, unknown>)
+      : {};
+  if (snapshot['snapshotSource'] !== 'ADDON_PURCHASE') {
+    return null;
+  }
+  const addOnId = snapshot['addOnId'];
+  const addOnTypeRaw = snapshot['addOnType'];
+  const addOnValue = snapshot['addOnValue'];
+  const targetSubscriptionId = snapshot['targetSubscriptionId'];
+  if (
+    typeof addOnId !== 'string' ||
+    typeof targetSubscriptionId !== 'string' ||
+    typeof addOnValue !== 'number' ||
+    (addOnTypeRaw !== AddOnType.EXTRA_TRAFFIC && addOnTypeRaw !== AddOnType.EXTRA_DEVICES)
+  ) {
+    return null;
+  }
+  return {
+    addOnId,
+    addOnType: addOnTypeRaw,
+    addOnValue,
+    targetSubscriptionId,
   };
 }
 

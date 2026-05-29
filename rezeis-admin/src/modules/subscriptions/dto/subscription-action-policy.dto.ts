@@ -1,12 +1,27 @@
 import { PurchaseChannel } from '@prisma/client';
-import { IsEnum, IsOptional, IsUUID } from 'class-validator';
+import { IsEnum, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
+/**
+ * Action-policy request. Identity is the canonical `reiwa_id`
+ * (`User.id`, a CUID). Either `userId` (reiwa_id) or `telegramId` must
+ * be supplied; the service resolves to the canonical user.
+ */
 export class SubscriptionActionPolicyDto {
-  @IsUUID('4')
-  public userId!: string;
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
+  public userId?: string;
 
   @IsOptional()
-  @IsUUID('4')
+  @IsString()
+  @Matches(/^\d+$/, { message: 'telegramId must be a valid integer string' })
+  public telegramId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
   public subscriptionId?: string;
 
   @IsOptional()

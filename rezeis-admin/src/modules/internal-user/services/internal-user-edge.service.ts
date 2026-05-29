@@ -13,6 +13,7 @@ import {
   InternalUserTransactionInterface,
 } from '../interfaces/internal-user-notification.interface';
 import { InternalUserSessionInterface } from '../interfaces/internal-user-session.interface';
+import { buildUserReferenceWhere } from '../utils/user-reference.util';
 import { mapInternalUserSession, INTERNAL_USER_INCLUDE } from './internal-user.mappers';
 
 /**
@@ -296,11 +297,11 @@ export class InternalUserEdgeService {
 
   private async resolveUserId(telegramId: string): Promise<string> {
     const user = await this.prismaService.user.findUnique({
-      where: { telegramId: this.parseTelegramId(telegramId) },
+      where: buildUserReferenceWhere(telegramId),
       select: { id: true },
     });
     if (user === null) {
-      throw new NotFoundException(`User with telegramId=${telegramId} not found`);
+      throw new NotFoundException(`User not found for reference=${telegramId}`);
     }
     return user.id;
   }

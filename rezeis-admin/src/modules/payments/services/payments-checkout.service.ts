@@ -25,7 +25,33 @@ export class PaymentsCheckoutService {
     private readonly paymentProviderExecutionService: PaymentProviderExecutionService,
   ) {}
 
+  /**
+   * Resolves the canonical `reiwa_id` from either `userId` (reiwa_id) or
+   * `telegramId`. Mirrors the subscription-quote resolver so the
+   * checkout path accepts the same identity inputs.
+   */
+  private async resolveUserId(input: {
+    readonly userId?: string;
+    readonly telegramId?: string;
+  }): Promise<string> {
+    if (typeof input.userId === 'string' && input.userId.length > 0) {
+      return input.userId;
+    }
+    if (typeof input.telegramId === 'string' && input.telegramId.length > 0) {
+      const user = await this.prismaService.user.findUnique({
+        where: { telegramId: BigInt(input.telegramId) },
+        select: { id: true },
+      });
+      if (user === null) {
+        throw new NotFoundException('User not found');
+      }
+      return user.id;
+    }
+    throw new BadRequestException('A userId or telegramId is required');
+  }
+
   public async checkout(input: InternalPaymentCheckoutDto): Promise<InternalPaymentCheckoutInterface> {
+    const userId = await this.resolveUserId(input);
     const gateway = await this.prismaService.paymentGateway.findUnique({
       where: { type: input.gatewayType },
     });
@@ -41,7 +67,7 @@ export class PaymentsCheckoutService {
     }
 
     const createdDraft = await this.paymentsTransactionsService.createDraft({
-      userId: input.userId,
+      userId,
       purchaseType: input.purchaseType,
       planId: input.planId,
       durationDays: input.durationDays,
@@ -93,13 +119,23 @@ export class PaymentsCheckoutService {
 
   public async getPaymentStatus(input: {
     readonly paymentId: string;
-    readonly userId: string;
+    readonly userId?: string;
+    readonly telegramId?: string;
   }): Promise<InternalPaymentStatusInterface> {
     const transaction = await this.prismaService.transaction.findUnique({
       where: { paymentId: input.paymentId },
     });
-    if (transaction === null || transaction.userId !== input.userId) {
+    if (transaction === null) {
       throw new NotFoundException('Payment transaction not found');
+    }
+    // Ownership check: resolve the caller's reiwa_id from either input
+    // and verify it owns the transaction. When neither identifier is
+    // supplied we skip the check (internal/admin reads).
+    if (input.userId !== undefined || input.telegramId !== undefined) {
+      const ownerId = await this.resolveUserId(input);
+      if (transaction.userId !== ownerId) {
+        throw new NotFoundException('Payment transaction not found');
+      }
     }
     const gatewayData = readGatewayData(transaction);
     const failureReason =

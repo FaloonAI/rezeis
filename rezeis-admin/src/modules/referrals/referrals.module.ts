@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
 import { PartnersModule } from '../partners/partners.module';
+import { ProfileSyncModule } from '../profile-sync/profile-sync.module';
 import { AdminReferralsController } from './controllers/admin-referrals.controller';
 import { InternalReferralsController } from './controllers/internal-referrals.controller';
 import { AdminReferralAnalyticsService } from './services/admin-referral-analytics.service';
@@ -13,7 +14,7 @@ import { ReferralQualificationService } from './services/referral-qualification.
 import { ReferralsService } from './services/referrals.service';
 
 @Module({
-  imports: [AuthModule, forwardRef(() => PartnersModule)],
+  imports: [AuthModule, forwardRef(() => PartnersModule), ProfileSyncModule],
   controllers: [AdminReferralsController, InternalReferralsController],
   providers: [
     ReferralsService,

@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 
 import { InternalAdminAuthGuard } from '../../auth/guards/internal-admin-auth.guard';
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { buildUserReferenceWhere } from '../../internal-user/utils/user-reference.util';
 import { ReferralInviteLimitsService } from '../services/referral-invite-limits.service';
 import {
   ReferralPointsExchangeService,
@@ -134,8 +135,8 @@ export class InternalReferralsController {
   }
 
   private async resolveUser(telegramId: string) {
-    return this.prismaService.user.findFirst({
-      where: { telegramId: BigInt(telegramId) },
+    return this.prismaService.user.findUnique({
+      where: buildUserReferenceWhere(telegramId),
       select: { id: true, points: true },
     });
   }

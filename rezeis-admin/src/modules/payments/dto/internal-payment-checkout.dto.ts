@@ -6,9 +6,10 @@ import {
   IsOptional,
   IsString,
   IsUrl,
-  IsUUID,
+  Matches,
   MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 
 const LIVE_PAYMENT_PURCHASE_TYPES: readonly PurchaseType[] = [
@@ -18,15 +19,32 @@ const LIVE_PAYMENT_PURCHASE_TYPES: readonly PurchaseType[] = [
   PurchaseType.ADDITIONAL,
 ] as const;
 
+/**
+ * Checkout request. Identity is the canonical `reiwa_id` (`User.id`, a
+ * CUID). Either `userId` (reiwa_id) or `telegramId` must be supplied;
+ * the service resolves to the canonical user so web / web-first users
+ * (no Telegram) and Telegram-only users both check out through the same
+ * endpoint.
+ */
 export class InternalPaymentCheckoutDto {
-  @IsUUID('4')
-  public userId!: string;
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
+  public userId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d+$/, { message: 'telegramId must be a valid integer string' })
+  public telegramId?: string;
 
   @IsEnum(PurchaseType)
   @IsIn(LIVE_PAYMENT_PURCHASE_TYPES)
   public purchaseType!: PurchaseType;
 
-  @IsUUID('4')
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
   public planId!: string;
 
   @IsInt()
@@ -37,7 +55,9 @@ export class InternalPaymentCheckoutDto {
   public gatewayType!: PaymentGatewayType;
 
   @IsOptional()
-  @IsUUID('4')
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
   public subscriptionId?: string;
 
   @IsOptional()

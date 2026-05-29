@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { SubscriptionStatus } from '@prisma/client';
+import { Prisma, SubscriptionStatus, SyncAction, SyncJobStatus } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { ProfileSyncQueueService } from '../../profile-sync/profile-sync-queue.service';
 
 /**
  * Points exchange types — what the user can trade their referral points for.
@@ -80,7 +81,36 @@ const DEFAULT_CONFIG: PointsExchangeConfig = {
 export class ReferralPointsExchangeService {
   private readonly logger = new Logger(ReferralPointsExchangeService.name);
 
-  public constructor(private readonly prismaService: PrismaService) {}
+  public constructor(
+    private readonly prismaService: PrismaService,
+    private readonly profileSyncQueueService: ProfileSyncQueueService,
+  ) {}
+
+  /**
+   * Creates a PENDING `ProfileSyncJob` (UPDATE / CREATE) for the given
+   * subscription and enqueues it so the worker pushes the local limit /
+   * expiry change to the Remnawave panel via `updatePanelUser`.
+   */
+  private async enqueueProfileSync(
+    subscriptionId: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const subscription = await this.prismaService.subscription.findUnique({
+      where: { id: subscriptionId },
+      select: { remnawaveId: true },
+    });
+    const job = await this.prismaService.profileSyncJob.create({
+      data: {
+        subscriptionId,
+        action:
+          subscription?.remnawaveId == null ? SyncAction.CREATE : SyncAction.UPDATE,
+        status: SyncJobStatus.PENDING,
+        payload: payload as Prisma.InputJsonObject,
+      },
+      select: { id: true },
+    });
+    await this.profileSyncQueueService.enqueue(job.id);
+  }
 
   /**
    * Returns the available exchange options for a user, including their
@@ -160,6 +190,15 @@ export class ReferralPointsExchangeService {
       throw new BadRequestException('Points amount too low for any reward');
     }
 
+    // Subscriptions whose Remnawave profile must be re-synced after the
+    // local mutation commits (expiry extension / traffic top-up). We
+    // collect ids inside the tx and enqueue the sync jobs afterwards so
+    // a rollback never leaves an orphan job — and, critically, so the
+    // panel actually receives the change (the previous implementation
+    // wrote the local row only and never synced).
+    let trafficTopUp: { readonly subscriptionId: string; readonly gb: number } | null = null;
+    let expiryExtended: { readonly subscriptionId: string } | null = null;
+
     await this.prismaService.$transaction(async (tx) => {
       // Deduct points
       await tx.user.update({
@@ -186,6 +225,7 @@ export class ReferralPointsExchangeService {
             where: { id: sub.id },
             data: { expiresAt: newExpiry },
           });
+          expiryExtended = { subscriptionId: sub.id };
           break;
         }
 
@@ -235,10 +275,35 @@ export class ReferralPointsExchangeService {
             where: { id: sub.id },
             data: { trafficLimit: { increment: trafficGb } },
           });
+          trafficTopUp = { subscriptionId: sub.id, gb: trafficGb };
           break;
         }
       }
     });
+
+    // Post-commit Remnawave sync. Both the traffic top-up and the expiry
+    // extension change the panel profile, so enqueue an UPDATE sync job.
+    // Failures here are logged but don't reverse the (committed) points
+    // spend — the sweep/retry path and admin re-sync are the safety net.
+    try {
+      if (trafficTopUp !== null) {
+        await this.enqueueProfileSync(trafficTopUp.subscriptionId, {
+          source: 'REFERRAL_EXCHANGE_TRAFFIC',
+          topUpGb: trafficTopUp.gb,
+        });
+      }
+      if (expiryExtended !== null) {
+        await this.enqueueProfileSync(expiryExtended.subscriptionId, {
+          source: 'REFERRAL_EXCHANGE_DAYS',
+        });
+      }
+    } catch (err: unknown) {
+      this.logger.error(
+        `Points-exchange Remnawave sync enqueue failed for user ${input.userId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
 
     this.logger.log(
       `User ${input.userId} exchanged ${input.points} points for ${input.type} (value: ${computedValue})`,

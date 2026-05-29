@@ -23,6 +23,13 @@ export interface InternalUserSubscriptionInterface {
   readonly isTrial: boolean;
   readonly plan: InternalUserSubscriptionPlanInterface | null;
   readonly trafficLimit: number | null;
+  /**
+   * Traffic consumed so far, in GB (best-effort from the Remnawave
+   * panel). `null` when the panel is unreachable, the subscription has
+   * no upstream profile, or usage tracking is unavailable — the SPA
+   * then hides the progress bar rather than showing a wrong value.
+   */
+  readonly trafficUsed: number | null;
   readonly deviceLimit: number;
   /** Remnawave profile UUID — displayed as profile ID on the subscription card. */
   readonly userRemnaId: string | null;

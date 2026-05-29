@@ -27,6 +27,7 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
 import { EVENT_TYPES, SystemEventsService } from '../../../common/services/system-events.service';
 import { InternalAdminAuthGuard } from '../../auth/guards/internal-admin-auth.guard';
 import { RemnawaveApiService } from '../../remnawave/services/remnawave-api.service';
+import { buildUserReferenceWhere } from '../utils/user-reference.util';
 
 @Controller('internal/user')
 @UseGuards(InternalAdminAuthGuard)
@@ -40,11 +41,12 @@ export class InternalUserDevicesController {
   /**
    * Lists HWID devices for the user's current/active subscription.
    *
-   * Reiwa calls: `GET /api/internal/user/:userId/devices`
+   * Reiwa calls: `GET /api/internal/user/:userRef/devices` where
+   * `:userRef` is a reiwa_id (CUID) or a telegramId.
    */
-  @Get(':userId/devices')
-  public async listDevices(@Param('userId') userId: string) {
-    const subscription = await this.findActiveSubscription(userId);
+  @Get(':userRef/devices')
+  public async listDevices(@Param('userRef') userRef: string) {
+    const subscription = await this.findActiveSubscription(userRef);
     if (!subscription?.remnawaveId) {
       return { devices: [], total: 0 };
     }
@@ -55,18 +57,19 @@ export class InternalUserDevicesController {
    * Deletes a specific HWID device from the user's subscription profile
    * on Remnawave.
    *
-   * Reiwa calls: `DELETE /api/internal/user/:userId/devices/:hwid`
+   * Reiwa calls: `DELETE /api/internal/user/:userRef/devices/:hwid`
    */
-  @Delete(':userId/devices/:hwid')
+  @Delete(':userRef/devices/:hwid')
   @HttpCode(HttpStatus.OK)
   public async deleteDevice(
-    @Param('userId') userId: string,
+    @Param('userRef') userRef: string,
     @Param('hwid') hwid: string,
   ) {
-    const subscription = await this.findActiveSubscription(userId);
+    const subscription = await this.findActiveSubscription(userRef);
     if (!subscription?.remnawaveId) {
       throw new NotFoundException('No active subscription with a Remnawave profile');
     }
+    const userId = subscription.userId;
 
     const result = await this.remnawaveApiService.deletePanelUserDevice(
       subscription.remnawaveId,
@@ -100,17 +103,26 @@ export class InternalUserDevicesController {
 
   // ── Helpers ──────────────────────────────────────────────────────────
 
-  private async findActiveSubscription(userId: string) {
-    // Find the user's current active subscription that has a Remnawave profile
+  private async findActiveSubscription(userRef: string) {
+    // Resolve the reference (reiwa_id CUID or telegramId) to the
+    // canonical reiwa_id, then find the active Remnawave-backed sub.
+    const user = await this.prismaService.user.findUnique({
+      where: buildUserReferenceWhere(userRef),
+      select: { id: true },
+    });
+    if (user === null) {
+      return null;
+    }
     const subscription = await this.prismaService.subscription.findFirst({
       where: {
-        userId,
+        userId: user.id,
         status: { in: [SubscriptionStatus.ACTIVE, SubscriptionStatus.LIMITED] },
         remnawaveId: { not: null },
       },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
+        userId: true,
         remnawaveId: true,
       },
     });

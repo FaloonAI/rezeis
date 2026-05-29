@@ -1,6 +1,6 @@
 import { PaymentGatewayType, PurchaseChannel, PurchaseType } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsEnum, IsIn, IsInt, IsOptional, IsUUID, Min } from 'class-validator';
+import { IsEnum, IsIn, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
 
 const DRAFT_PURCHASE_TYPES: readonly PurchaseType[] = [
   PurchaseType.NEW,
@@ -10,14 +10,18 @@ const DRAFT_PURCHASE_TYPES: readonly PurchaseType[] = [
 ];
 
 export class CreateTransactionDraftDto {
-  @IsUUID('4')
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
   public userId!: string;
 
   @IsEnum(PurchaseType)
   @IsIn(DRAFT_PURCHASE_TYPES)
   public purchaseType!: PurchaseType;
 
-  @IsUUID('4')
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
   public planId!: string;
 
   @Type((): NumberConstructor => Number)
@@ -29,7 +33,9 @@ export class CreateTransactionDraftDto {
   public gatewayType!: PaymentGatewayType;
 
   @IsOptional()
-  @IsUUID('4')
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
   public sourceSubscriptionId?: string;
 
   @IsOptional()

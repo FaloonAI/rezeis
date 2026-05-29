@@ -4,6 +4,7 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
 import { PartnersModule } from '../partners/partners.module';
+import { PlansModule } from '../plans/plans.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 import { RemnawaveModule } from '../remnawave/remnawave.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
@@ -14,6 +15,7 @@ import { AdminPaymentTransactionsController } from './controllers/admin-payment-
 import { AdminPaymentWebhooksController } from './controllers/admin-payment-webhooks.controller';
 import { InternalPaymentWebhooksController } from './controllers/internal-payment-webhooks.controller';
 import { InternalPaymentsController } from './controllers/internal-payments.controller';
+import { InternalAddOnsPurchaseController } from './controllers/internal-addons-purchase.controller';
 import { PublicPaymentWebhooksController } from './controllers/public-payment-webhooks.controller';
 import { PaymentReconciliationProcessor } from './processors/payment-reconciliation.processor';
 import { PaymentAutoRetryService } from './services/payment-auto-retry.service';
@@ -29,6 +31,7 @@ import { PaymentReconciliationService } from './services/payment-reconciliation.
 import { PaymentSubscriptionMutationService } from './services/payment-subscription-mutation.service';
 import { PaymentsCheckoutService } from './services/payments-checkout.service';
 import { PaymentsTransactionsService } from './services/payments-transactions.service';
+import { AddOnPurchaseService } from './services/addon-purchase.service';
 import { TelegramStarsWebhookService } from './services/telegram-stars-webhook.service';
 
 @Module({
@@ -37,6 +40,7 @@ import { TelegramStarsWebhookService } from './services/telegram-stars-webhook.s
     HttpModule,
     RemnawaveModule,
     SubscriptionsModule,
+    PlansModule,
     PartnersModule,
     ReferralsModule,
     BullModule.registerQueue({
@@ -51,11 +55,13 @@ import { TelegramStarsWebhookService } from './services/telegram-stars-webhook.s
     PublicPaymentWebhooksController,
     InternalPaymentWebhooksController,
     InternalPaymentsController,
+    InternalAddOnsPurchaseController,
   ],
   providers: [
     PaymentGatewayRegistryService,
     PaymentsTransactionsService,
     PaymentsCheckoutService,
+    AddOnPurchaseService,
     PaymentOpsAlertService,
     PaymentProviderExecutionService,
     PaymentWebhookNormalizerService,

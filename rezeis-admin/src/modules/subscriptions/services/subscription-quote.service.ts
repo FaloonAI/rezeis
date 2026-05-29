@@ -82,16 +82,43 @@ export class SubscriptionQuoteService {
     private readonly pricingService: PricingService,
   ) {}
 
+  /**
+   * Resolves the canonical `reiwa_id` from either an explicit `userId`
+   * (already a reiwa_id) or a `telegramId`. The reiwa edge sends the
+   * reiwa_id for web / web-first users and the Telegram id for
+   * Telegram-only flows; the admin panel always sends the reiwa_id.
+   */
+  private async resolveUserId(input: {
+    readonly userId?: string;
+    readonly telegramId?: string;
+  }): Promise<string> {
+    if (typeof input.userId === 'string' && input.userId.length > 0) {
+      return input.userId;
+    }
+    if (typeof input.telegramId === 'string' && input.telegramId.length > 0) {
+      const user = await this.prismaService.user.findUnique({
+        where: { telegramId: BigInt(input.telegramId) },
+        select: { id: true },
+      });
+      if (user === null) {
+        throw new NotFoundException('User not found');
+      }
+      return user.id;
+    }
+    throw new NotFoundException('A userId or telegramId is required');
+  }
+
   public async getActionPolicy(
     input: SubscriptionActionPolicyDto,
   ): Promise<SubscriptionActionPolicyInterface> {
+    const userId = await this.resolveUserId(input);
     const channel = input.channel ?? PurchaseChannel.WEB;
     const context = await this.buildContext({
-      userId: input.userId,
+      userId,
       channel,
       subscriptionId: input.subscriptionId,
     });
-    const basePlans = await this.getCatalogOptionPlans({ userId: input.userId, channel });
+    const basePlans = await this.getCatalogOptionPlans({ userId, channel });
     const sourceSelection = await this.getSourceSelection({
       sourceSubscription: context.sourceSubscription,
       purchaseType: PurchaseType.RENEW,
@@ -111,7 +138,7 @@ export class SubscriptionQuoteService {
       ...(!capacityAvailable ? [SUBSCRIPTION_LIMIT_REACHED] : []),
     ];
     return {
-      userId: input.userId,
+      userId,
       channel,
       actions: {
         NEW: capacityAvailable && !hasActiveTrial,
@@ -133,14 +160,15 @@ export class SubscriptionQuoteService {
   }
 
   public async getQuote(input: SubscriptionQuoteDto): Promise<SubscriptionQuoteInterface> {
+    const userId = await this.resolveUserId(input);
     const channel = input.channel ?? PurchaseChannel.WEB;
     const context = await this.buildContext({
-      userId: input.userId,
+      userId,
       channel,
       subscriptionId: input.subscriptionId,
     });
     const { plans, warnings } = await this.getPlansForQuoteAction({
-      userId: input.userId,
+      userId,
       channel,
       purchaseType: input.purchaseType,
       sourceSubscription: context.sourceSubscription,
@@ -182,7 +210,7 @@ export class SubscriptionQuoteService {
       quoteWarnings.push(GATEWAY_NOT_AVAILABLE);
     }
     return {
-      userId: input.userId,
+      userId,
       purchaseType: input.purchaseType,
       channel,
       isEligible: selectedPlan !== null && selectedDuration !== null && price !== null && quoteWarnings.length === 0,
