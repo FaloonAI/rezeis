@@ -796,6 +796,7 @@ function extractUpdatedBrandingFields(
     'cardEffect',
     'cardEffectProps',
     'cardEffectOpacity',
+    'cardEffectsByIndex',
     'bgEffect',
     'iconColorMode',
     'iconColors',

@@ -36,7 +36,27 @@ interface CardEffectSectionProps {
   onOpacityChange: (opacity: number) => void
 }
 
-export function CardEffectSection({
+export function CardEffectSection(props: CardEffectSectionProps) {
+  const { t } = useTranslation()
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('brandingPage.sections.cardEffect.title')}</CardTitle>
+        <CardDescription>{t('brandingPage.sections.cardEffect.description')}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <CardEffectPicker {...props} />
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * CardEffectPicker — the picker body (effect grid + opacity + per-effect
+ * controls) WITHOUT the surrounding Card/title. Reused both by the global
+ * `CardEffectSection` and by each per-position slot in the slots section.
+ */
+export function CardEffectPicker({
   effect,
   props,
   opacity,
@@ -63,103 +83,97 @@ export function CardEffectSection({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('brandingPage.sections.cardEffect.title')}</CardTitle>
-        <CardDescription>{t('brandingPage.sections.cardEffect.description')}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Effect grid: NONE + all effects */}
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-          <button
-            type="button"
-            onClick={() => handleSelect('NONE')}
-            aria-label={t('brandingPage.cardEffects.NONE')}
-            className={`relative flex aspect-video items-center justify-center rounded-lg border bg-muted/30 text-[10px] font-medium text-muted-foreground transition-all hover:scale-[1.03] ${
-              effect === 'NONE' ? 'border-primary ring-2 ring-primary/40' : 'border-border hover:border-primary/40'
-            }`}
-          >
-            {t('brandingPage.cardEffects.NONE')}
-            {effect === 'NONE' && (
-              <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                <Check className="h-2.5 w-2.5" />
+    <>
+      {/* Effect grid: NONE + all effects */}
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+        <button
+          type="button"
+          onClick={() => handleSelect('NONE')}
+          aria-label={t('brandingPage.cardEffects.NONE')}
+          className={`relative flex aspect-video items-center justify-center rounded-lg border bg-muted/30 text-[10px] font-medium text-muted-foreground transition-all hover:scale-[1.03] ${
+            effect === 'NONE' ? 'border-primary ring-2 ring-primary/40' : 'border-border hover:border-primary/40'
+          }`}
+        >
+          {t('brandingPage.cardEffects.NONE')}
+          {effect === 'NONE' && (
+            <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+              <Check className="h-2.5 w-2.5" />
+            </span>
+          )}
+        </button>
+        {CARD_EFFECT_REGISTRY.map((e) => {
+          const Eff = CARD_EFFECT_COMPONENTS[e.id]
+          const isActive = effect === e.id
+          return (
+            <button
+              key={e.id}
+              type="button"
+              onClick={() => handleSelect(e.id)}
+              aria-label={t(`brandingPage.cardEffects.${e.id}`, { defaultValue: e.name })}
+              title={t(`brandingPage.cardEffects.${e.id}`, { defaultValue: e.name })}
+              className={`relative aspect-video overflow-hidden rounded-lg border bg-zinc-950 transition-all hover:scale-[1.03] ${
+                isActive ? 'border-primary ring-2 ring-primary/40' : 'border-border hover:border-primary/40'
+              }`}
+            >
+              {/* Static thumbnail: render the live effect at default props only
+                  for the ACTIVE one (cheap) and a label otherwise. */}
+              {isActive ? (
+                <Suspense fallback={null}>
+                  <div className="pointer-events-none absolute inset-0">
+                    <Eff {...mergedProps} />
+                  </div>
+                </Suspense>
+              ) : null}
+              <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[9px] font-medium text-white">
+                {t(`brandingPage.cardEffects.${e.id}`, { defaultValue: e.name })}
               </span>
-            )}
-          </button>
-          {CARD_EFFECT_REGISTRY.map((e) => {
-            const Eff = CARD_EFFECT_COMPONENTS[e.id]
-            const isActive = effect === e.id
-            return (
-              <button
-                key={e.id}
-                type="button"
-                onClick={() => handleSelect(e.id)}
-                aria-label={t(`brandingPage.cardEffects.${e.id}`, { defaultValue: e.name })}
-                title={t(`brandingPage.cardEffects.${e.id}`, { defaultValue: e.name })}
-                className={`relative aspect-video overflow-hidden rounded-lg border bg-zinc-950 transition-all hover:scale-[1.03] ${
-                  isActive ? 'border-primary ring-2 ring-primary/40' : 'border-border hover:border-primary/40'
-                }`}
-              >
-                {/* Static thumbnail: render the live effect at default props only
-                    for the ACTIVE one (cheap) and a label otherwise. */}
-                {isActive ? (
-                  <Suspense fallback={null}>
-                    <div className="pointer-events-none absolute inset-0">
-                      <Eff {...mergedProps} />
-                    </div>
-                  </Suspense>
-                ) : null}
-                <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[9px] font-medium text-white">
-                  {t(`brandingPage.cardEffects.${e.id}`, { defaultValue: e.name })}
+              {isActive && (
+                <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <Check className="h-2.5 w-2.5" />
                 </span>
-                {isActive && (
-                  <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                    <Check className="h-2.5 w-2.5" />
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
+              )}
+            </button>
+          )
+        })}
+      </div>
 
-        {def && (
-          <>
-            {/* Hint: the real effect renders in the live phone preview → */}
-            <p className="text-[11px] text-muted-foreground">
-              {t('brandingPage.sections.cardEffect.previewHint')}
-            </p>
+      {def && (
+        <>
+          {/* Hint: the real effect renders in the live phone preview → */}
+          <p className="text-[11px] text-muted-foreground">
+            {t('brandingPage.sections.cardEffect.previewHint')}
+          </p>
 
-            {/* Opacity */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>{t('brandingPage.sections.cardEffect.opacity')}</Label>
-                <span className="font-mono text-xs text-muted-foreground">{(opacity * 100).toFixed(0)}%</span>
-              </div>
-              <Slider
-                value={[opacity]}
-                min={0.05}
-                max={1}
-                step={0.05}
-                onValueChange={(v: number[]) => onOpacityChange(v[0] ?? 1)}
-                aria-label={t('brandingPage.sections.cardEffect.opacity')}
+          {/* Opacity */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>{t('brandingPage.sections.cardEffect.opacity')}</Label>
+              <span className="font-mono text-xs text-muted-foreground">{(opacity * 100).toFixed(0)}%</span>
+            </div>
+            <Slider
+              value={[opacity]}
+              min={0.05}
+              max={1}
+              step={0.05}
+              onValueChange={(v: number[]) => onOpacityChange(v[0] ?? 1)}
+              aria-label={t('brandingPage.sections.cardEffect.opacity')}
+            />
+          </div>
+
+          {/* Dynamic per-effect controls */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {def.controls.map((control) => (
+              <DynamicControl
+                key={control.prop}
+                control={control}
+                value={mergedProps[control.prop]}
+                onChange={(v) => handleProp(control.prop, v)}
               />
-            </div>
-
-            {/* Dynamic per-effect controls */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {def.controls.map((control) => (
-                <DynamicControl
-                  key={control.prop}
-                  control={control}
-                  value={mergedProps[control.prop]}
-                  onChange={(v) => handleProp(control.prop, v)}
-                />
-              ))}
-            </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+            ))}
+          </div>
+        </>
+      )}
+    </>
   )
 }
 

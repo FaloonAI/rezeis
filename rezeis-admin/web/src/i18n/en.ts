@@ -2359,6 +2359,14 @@ export const en = {
         opacity: 'Effect opacity',
         previewHint: 'The effect is shown live in the preview on the right.',
       },
+      cardEffectSlots: {
+        title: 'Background by card position',
+        description: 'Assign a different effect to each subscription card by creation order: slot 1 → first subscription, slot 2 → second, and so on. Subscriptions beyond the defined slots use the global card background above.',
+        empty: 'No slots defined — every card uses the global card background above.',
+        slotLabel: 'Slot {{index}}',
+        removeSlot: 'Remove',
+        addSlot: 'Add slot',
+      },
       effects: {
         title: 'Effects & Typography',
         description: 'Corner radius and font.',

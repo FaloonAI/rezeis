@@ -104,6 +104,16 @@ export const ICON_KEYS = [
 ] as const;
 export type IconKey = (typeof ICON_KEYS)[number];
 
+/**
+ * A single per-position card-background slot. Mirrors the global card-effect
+ * fields so each slot can fully describe one card's animated background.
+ */
+export interface CardEffectSlot {
+  readonly cardEffect: CardEffect;
+  readonly cardEffectProps: Record<string, unknown>;
+  readonly cardEffectOpacity: number;
+}
+
 export interface BrandingSettingsInterface {
   /** Display name shown on the subscription card and headers. */
   readonly brandName: string;
@@ -152,6 +162,15 @@ export interface BrandingSettingsInterface {
   /** Effect layer opacity behind the card (0.05–1). */
   readonly cardEffectOpacity: number;
 
+  /**
+   * Per-position card background effects. The Nth slot styles the Nth
+   * subscription card (ordered by subscription creation date) for ALL users:
+   * slot 0 → first subscription, slot 1 → second, etc. Subscriptions beyond
+   * the configured slots fall back to the global `cardEffect`. Empty array =
+   * every card uses the global effect (default).
+   */
+  readonly cardEffectsByIndex: readonly CardEffectSlot[];
+
   /** Site-wide background-effect preset. */
   readonly bgEffect: BgEffect;
 
@@ -187,6 +206,7 @@ export const DEFAULT_BRANDING: BrandingSettingsInterface = {
   cardEffect: 'aurora',
   cardEffectProps: {},
   cardEffectOpacity: 1,
+  cardEffectsByIndex: [],
   bgEffect: 'NONE',
   iconColorMode: 'default',
   iconColors: {},

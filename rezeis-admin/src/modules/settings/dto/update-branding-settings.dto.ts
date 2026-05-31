@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsHexColor,
   IsIn,
   IsNumber,
@@ -12,7 +13,9 @@ import {
   Min,
   MinLength,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 import {
   BG_EFFECTS,
@@ -24,6 +27,25 @@ import {
   ICON_COLOR_MODES,
   IconColorMode,
 } from '../interfaces/branding-settings.interface';
+
+/**
+ * One per-position card-background slot in `cardEffectsByIndex`. Mirrors the
+ * global card-effect fields.
+ */
+export class CardEffectSlotDto {
+  @IsIn(CARD_EFFECTS as readonly string[])
+  public cardEffect!: CardEffect;
+
+  @IsOptional()
+  @IsObject()
+  public cardEffectProps?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0.05)
+  @Max(1)
+  public cardEffectOpacity?: number;
+}
 
 /**
  * Patch payload for `PATCH /admin/settings/branding`.
@@ -108,6 +130,12 @@ export class UpdateBrandingSettingsDto {
   @Min(0.05)
   @Max(1)
   public cardEffectOpacity?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CardEffectSlotDto)
+  public cardEffectsByIndex?: CardEffectSlotDto[];
 
   @IsOptional()
   @IsIn(BG_EFFECTS as readonly string[])

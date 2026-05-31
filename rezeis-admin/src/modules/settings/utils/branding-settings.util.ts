@@ -14,6 +14,7 @@ import {
   CARD_EFFECTS,
   CARD_LOGO_PRESETS,
   CardEffect,
+  CardEffectSlot,
   CardLogoPreset,
   DEFAULT_BRANDING,
   ICON_COLOR_MODES,
@@ -39,6 +40,7 @@ export function readBrandingSettings(value: unknown): BrandingSettingsInterface 
     cardEffect: readCardEffect(record, DEFAULT_BRANDING.cardEffect),
     cardEffectProps: readJsonRecord(record, 'cardEffectProps'),
     cardEffectOpacity: readClampedNumber(record, 'cardEffectOpacity', 0.05, 1, DEFAULT_BRANDING.cardEffectOpacity),
+    cardEffectsByIndex: readCardEffectSlots(record, 'cardEffectsByIndex'),
     bgEffect: readBgEffect(record, DEFAULT_BRANDING.bgEffect),
     iconColorMode: readIconColorMode(record, DEFAULT_BRANDING.iconColorMode),
     iconColors: readHexMap(record, 'iconColors'),
@@ -54,7 +56,7 @@ export function readBrandingSettings(value: unknown): BrandingSettingsInterface 
  */
 export function mergeBrandingSettings(input: {
   readonly existing: unknown;
-  readonly patch: Partial<BrandingSettingsInterface>;
+  readonly patch: Partial<Record<keyof BrandingSettingsInterface, unknown>>;
 }): Record<string, unknown> {
   const current = readBrandingSettings(input.existing);
   const merged: Record<string, unknown> = { ...current };
@@ -151,6 +153,39 @@ function readCardEffect(
     return value as CardEffect;
   }
   return fallback;
+}
+
+/**
+ * Reads the per-position card-effect slots array. Each entry is normalized
+ * like the global card effect (valid effect id, clamped opacity, object
+ * props). Invalid/non-object entries are dropped. Capped at 20 slots to bound
+ * the persisted payload. Returns `[]` when absent.
+ */
+function readCardEffectSlots(
+  record: Record<string, unknown>,
+  key: string,
+): CardEffectSlot[] {
+  const value = record[key];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const out: CardEffectSlot[] = [];
+  for (const entry of value.slice(0, 20)) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      continue;
+    }
+    const slot = entry as Record<string, unknown>;
+    const effect = slot['cardEffect'];
+    if (typeof effect !== 'string' || !(CARD_EFFECTS as readonly string[]).includes(effect)) {
+      continue;
+    }
+    out.push({
+      cardEffect: effect as CardEffect,
+      cardEffectProps: readJsonRecord(slot, 'cardEffectProps'),
+      cardEffectOpacity: readClampedNumber(slot, 'cardEffectOpacity', 0.05, 1, 1),
+    });
+  }
+  return out;
 }
 
 function readIconColorMode(

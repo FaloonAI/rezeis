@@ -30,6 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { BrandingPreview } from "./branding-preview";
 import { CARD_LOGO_PRESETS, CardLogoMark, type CardLogoPreset } from "./card-logo-mark";
 import { CardEffectSection } from "./card-effect-section";
+import { CardEffectSlotsSection, type CardEffectSlot } from "./card-effect-slots-section";
 import { GradientBuilder } from "./gradient-builder";
 import { IconColorsSection } from "./icon-colors-section";
 import { FONT_OPTIONS, THEME_PRESETS, CARD_GRADIENT_PRESETS, gradientFromPrimary, type ThemePreset } from "./theme-presets";
@@ -55,6 +56,15 @@ function useBrandingSchema() {
     cardEffect: z.string().max(32),
     cardEffectProps: z.record(z.string(), z.unknown()).optional(),
     cardEffectOpacity: z.number().min(0.05).max(1),
+    cardEffectsByIndex: z
+      .array(
+        z.object({
+          cardEffect: z.string().max(32),
+          cardEffectProps: z.record(z.string(), z.unknown()),
+          cardEffectOpacity: z.number().min(0.05).max(1),
+        }),
+      )
+      .optional(),
     bgEffect: z.enum(["NONE", "MESH", "PARTICLES", "NOISE", "AURORA"]),
     iconColorMode: z.enum(["default", "theme", "custom"]),
     iconColors: z.record(z.string(), z.string()).optional(),
@@ -114,6 +124,7 @@ export default function WebReiwaPage() {
       cardEffect: "aurora",
       cardEffectProps: {},
       cardEffectOpacity: 1,
+      cardEffectsByIndex: [],
       bgEffect: "AURORA",
       iconColorMode: "default",
       iconColors: {},
@@ -471,6 +482,18 @@ export default function WebReiwaPage() {
                 onEffectChange={(e) => field.onChange(e)}
                 onPropsChange={(p) => form.setValue("cardEffectProps", p, { shouldDirty: true })}
                 onOpacityChange={(o) => form.setValue("cardEffectOpacity", o, { shouldDirty: true })}
+              />
+            )}
+          />
+
+          {/* Per-position card backgrounds (slot N → Nth subscription card) */}
+          <Controller
+            name="cardEffectsByIndex"
+            control={form.control}
+            render={({ field }) => (
+              <CardEffectSlotsSection
+                slots={(field.value ?? []) as CardEffectSlot[]}
+                onChange={(slots) => field.onChange(slots)}
               />
             )}
           />
