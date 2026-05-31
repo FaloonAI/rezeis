@@ -94,6 +94,31 @@ export interface RemnawaveHwidDevice {
   lastSeenAt: string | null;
 }
 
+/**
+ * Normalises a raw Remnawave HWID device row into `RemnawaveHwidDevice`.
+ *
+ * Remnawave 2.7.x returns
+ *   `{ hwid, userUuid, platform, osVersion, deviceModel, userAgent,
+ *      createdAt, updatedAt }`
+ * — note `updatedAt` (last activity), not `lastSeenAt`. We map it to
+ * `lastSeenAt` so the cabinet's "last seen" label keeps working, and tolerate
+ * either field name across versions.
+ */
+function mapHwidDevice(raw: unknown): RemnawaveHwidDevice {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const str = (v: unknown): string | null =>
+    typeof v === 'string' && v.length > 0 ? v : null;
+  return {
+    hwid: str(r['hwid']) ?? '',
+    platform: str(r['platform']),
+    osVersion: str(r['osVersion']),
+    deviceModel: str(r['deviceModel']),
+    userAgent: str(r['userAgent']),
+    createdAt: str(r['createdAt']) ?? '',
+    lastSeenAt: str(r['lastSeenAt']) ?? str(r['updatedAt']),
+  };
+}
+
 @Injectable()
 export class RemnawaveApiService {
   private readonly logger = new Logger(RemnawaveApiService.name);
@@ -342,19 +367,26 @@ export class RemnawaveApiService {
    */
   public async getPanelUserDevices(uuid: string): Promise<{ devices: RemnawaveHwidDevice[]; total: number }> {
     try {
+      // Remnawave 2.7.x moved the per-user HWID list to
+      // `GET /api/hwid/devices/{userUuid}` (matching the `stats`/`top-users`
+      // moves). The old `/api/hwid/user/{uuid}` now 404s, which the catch
+      // below swallowed — so the cabinet showed "no devices" even when the
+      // panel had one bound. Verified shape: `{ total, devices: [...] }`.
       const result = await this.requestJson<unknown>({
         method: 'get',
-        url: `/api/hwid/user/${uuid}`,
+        url: `/api/hwid/devices/${uuid}`,
       });
       // Remnawave wraps payloads in `{ response: ... }`. Unwrap it (every
       // other call here does) — without this `devices`/`total` were read off
-      // the envelope and came back undefined, so the cabinet showed
-      // "no devices" even when the user had connected one.
+      // the envelope and came back undefined.
       const root = (result as { response?: unknown })?.response ?? result;
-      const record = (root ?? {}) as { devices?: RemnawaveHwidDevice[]; total?: number };
+      const record = (root ?? {}) as { devices?: unknown; total?: number };
+      const devices = Array.isArray(record.devices)
+        ? record.devices.map((d) => mapHwidDevice(d))
+        : [];
       return {
-        devices: Array.isArray(record.devices) ? record.devices : [],
-        total: typeof record.total === 'number' ? record.total : (record.devices?.length ?? 0),
+        devices,
+        total: typeof record.total === 'number' ? record.total : devices.length,
       };
     } catch {
       return { devices: [], total: 0 };
@@ -363,12 +395,27 @@ export class RemnawaveApiService {
 
   /**
    * Deletes a specific HWID device from a user.
+   *
+   * Remnawave 2.7.x contract: `POST /api/hwid/devices/delete` with a JSON
+   * body `{ userUuid, hwid }` — NOT a `DELETE` verb and NOT the old
+   * `/api/hwid/user` path (both 404 now). Returns `{ total }` (remaining
+   * device count) inside the usual `{ response: ... }` envelope.
    */
   public async deletePanelUserDevice(userUuid: string, hwid: string): Promise<{ total: number }> {
-    return this.requestJsonWithBody<{ total: number }>('delete', '/api/hwid/user', {
-      user_uuid: userUuid,
+    const result = await this.requestJsonWithBody<unknown>('post', '/api/hwid/devices/delete', {
+      userUuid,
       hwid,
     });
+    const root = (result as { response?: unknown })?.response ?? result;
+    const record = (root ?? {}) as { total?: number; devices?: unknown };
+    return {
+      total:
+        typeof record.total === 'number'
+          ? record.total
+          : Array.isArray(record.devices)
+            ? record.devices.length
+            : 0,
+    };
   }
 
   /**

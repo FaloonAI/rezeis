@@ -15,6 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
   AtSign,
+  Apple,
   Calendar,
   ChevronDown,
   Copy,
@@ -952,6 +953,160 @@ function CardBackgroundControl({
   )
 }
 
+/**
+ * Admin HWID device interface — mirrors `RemnawaveHwidDevice` from the
+ * backend (`/admin/users/subscriptions/:id/devices`).
+ */
+interface AdminHwidDevice {
+  readonly hwid: string
+  readonly platform: string | null
+  readonly osVersion: string | null
+  readonly deviceModel: string | null
+  readonly userAgent: string | null
+  readonly createdAt: string
+  readonly lastSeenAt: string | null
+}
+
+/**
+ * DevicesSection
+ * ──────────────
+ * Lists the HWID devices bound to a subscription's Remnawave profile and
+ * lets the operator revoke any of them. Left side shows the platform icon +
+ * device name; right side shows the HWID and a trash button.
+ *
+ * Only rendered for subscriptions that have a Remnawave profile (a `hwid`
+ * list is meaningless otherwise). The list query is keyed on the
+ * subscription id and invalidated after a revoke.
+ */
+function DevicesSection({ subscriptionId }: { subscriptionId: string }) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const queryKey = ['admin', 'subscription-devices', subscriptionId]
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey,
+    queryFn: async () => {
+      const res = await api.get<{ devices: AdminHwidDevice[]; deviceCount: number }>(
+        `/admin/users/subscriptions/${subscriptionId}/devices`,
+      )
+      return res.data
+    },
+  })
+
+  const revokeMutation = useMutation({
+    mutationFn: (hwid: string) =>
+      api.delete(`/admin/users/subscriptions/${subscriptionId}/devices/${encodeURIComponent(hwid)}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey })
+      toast.success(t('userDetailPanel.subscriptions.devicesList.removed'))
+    },
+    onError: () => toast.error(t('userDetailPanel.subscriptions.devicesList.removeFailed')),
+  })
+
+  const devices = data?.devices ?? []
+
+  return (
+    <div className="mt-1.5 border-t pt-1.5">
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <Smartphone className="h-3 w-3 text-muted-foreground/60" />
+        <span>{t('userDetailPanel.subscriptions.devicesList.title')}</span>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-1.5 py-1 text-[11px] text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+        </div>
+      ) : isError ? (
+        <p className="py-1 text-[11px] text-destructive">
+          {t('userDetailPanel.subscriptions.devicesList.loadError')}
+        </p>
+      ) : devices.length === 0 ? (
+        <p className="py-1 text-[11px] text-muted-foreground">
+          {t('userDetailPanel.subscriptions.devicesList.empty')}
+        </p>
+      ) : (
+        <div className="space-y-1">
+          {devices.map((device) => {
+            const name =
+              device.deviceModel ??
+              device.platform ??
+              t('userDetailPanel.subscriptions.devicesList.unknownPlatform')
+            const subtitle = [device.platform, device.osVersion].filter(Boolean).join(' · ')
+            return (
+              <div
+                key={device.hwid}
+                className="flex items-center gap-2 rounded-md border bg-muted/30 px-2 py-1.5"
+              >
+                {/* Left: platform icon + device name */}
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-background">
+                  {platformDeviceIcon(device.platform)}
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-[11px] font-medium">{name}</span>
+                  {subtitle && (
+                    <span className="truncate text-[10px] text-muted-foreground">{subtitle}</span>
+                  )}
+                </div>
+                {/* Right: HWID + delete */}
+                <span
+                  className="max-w-[120px] truncate font-mono text-[10px] text-muted-foreground"
+                  title={device.hwid}
+                >
+                  {device.hwid}
+                </span>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                      aria-label={t('userDetailPanel.subscriptions.devicesList.remove')}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>
+                        {t('userDetailPanel.subscriptions.devicesList.removeConfirmTitle')}
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {t('userDetailPanel.subscriptions.devicesList.removeConfirmText', { name })}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>
+                        {t('userDetailPanel.subscriptions.devicesList.cancel')}
+                      </AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => revokeMutation.mutate(device.hwid)}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        {t('userDetailPanel.subscriptions.devicesList.removeConfirmAction')}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Maps a Remnawave platform string to a Lucide device icon. */
+function platformDeviceIcon(platform: string | null) {
+  if (!platform) return <Smartphone className="h-3.5 w-3.5 text-muted-foreground" />
+  const p = platform.toLowerCase()
+  if (p.includes('android')) return <Smartphone className="h-3.5 w-3.5 text-emerald-500" />
+  if (p.includes('ios') || p.includes('iphone') || p.includes('ipad') || p.includes('mac'))
+    return <Apple className="h-3.5 w-3.5 text-foreground" />
+  if (p.includes('windows')) return <Monitor className="h-3.5 w-3.5 text-blue-500" />
+  return <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+}
+
 function SubscriptionCard({
   sub,
   isOpen,
@@ -1130,6 +1285,8 @@ function SubscriptionCard({
               )}
               {/* Per-card animated background override */}
               <CardBackgroundControl sub={sub} onUpdate={onUpdate} />
+              {/* HWID devices bound to this Remnawave profile */}
+              {sub.remnawaveId && <DevicesSection subscriptionId={sub.id} />}
               {/* Footer */}
               <div className="flex items-center justify-between gap-2 pt-1.5">
                 <div className="flex gap-1">
