@@ -26,9 +26,7 @@ interface BrandingVerificationSettings {
 interface BrandingSettings {
   readonly projectName?: string
   readonly webTitle?: string
-  readonly supportLink?: string
   readonly channelUsername?: string
-  readonly botMenuButtonText?: string
   readonly verification?: BrandingVerificationSettings
 }
 
@@ -101,23 +99,33 @@ function PlatformTab({ settings }: { settings: AdminSettings | undefined }) {
       readonly defaultCurrency: string
       readonly rulesRequired: boolean
       readonly channelRequired: boolean
-      readonly rulesLink: string
-      readonly channelLink: string
-      readonly channelId: bigint | null
+      readonly rulesLink: string | null
+      readonly channelLink: string | null
+      readonly channelId: string | null
     }) => api.patch('/admin/settings/platform', data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] }); toast.success(t('settingsPage.platform.saved')) },
     onError: () => toast.error(t('settingsPage.platform.saveFailed')),
   })
 
   const handleSave = () => {
+    // The platform DTO validates rulesLink/channelLink with @IsUrl and
+    // channelId with a numeric-string regex, each guarded by
+    // `@ValidateIf(value !== null)`. An empty string is NOT null, so it
+    // still hits @IsUrl and 400s. Normalise blanks to null. channelId
+    // must be sent as a string (the DTO matches /^-?\d+$/) — never a
+    // BigInt, which axios' JSON.stringify cannot serialise.
+    const normalize = (v: string): string | null => {
+      const trimmed = v.trim()
+      return trimmed.length > 0 ? trimmed : null
+    }
     mutation.mutate({
       accessMode,
       defaultCurrency,
       rulesRequired,
       channelRequired,
-      rulesLink,
-      channelLink,
-      channelId: channelId ? BigInt(channelId) : null,
+      rulesLink: normalize(rulesLink),
+      channelLink: normalize(channelLink),
+      channelId: normalize(channelId),
     })
   }
 
@@ -259,9 +267,7 @@ function BrandingTab({ settings }: { settings: AdminSettings | undefined }) {
 
   const [projectName, setProjectName] = useState(branding.projectName ?? '')
   const [webTitle, setWebTitle] = useState(branding.webTitle ?? '')
-  const [supportLink, setSupportLink] = useState(branding.supportLink ?? '')
   const [channelUsername, setChannelUsername] = useState(branding.channelUsername ?? '')
-  const [botMenuButtonText, setBotMenuButtonText] = useState(branding.botMenuButtonText ?? 'Shop')
 
   // Verification templates
   const verification = branding.verification ?? {}
@@ -280,9 +286,7 @@ function BrandingTab({ settings }: { settings: AdminSettings | undefined }) {
     mutation.mutate({
       projectName,
       webTitle,
-      supportLink,
       channelUsername,
-      botMenuButtonText,
       verification: {
         telegramTemplate: { ru: verifyTelegramRu, en: verifyTelegramEn },
         passwordResetTelegramTemplate: { ru: passwordResetRu, en: passwordResetEn },
@@ -309,17 +313,8 @@ function BrandingTab({ settings }: { settings: AdminSettings | undefined }) {
             <p className="text-xs text-muted-foreground">{t('settingsPage.branding.webTitleHint')}</p>
           </div>
           <div className="space-y-2">
-            <Label>{t('settingsPage.branding.supportLink')}</Label>
-            <Input value={supportLink} onChange={(e) => setSupportLink(e.target.value)} placeholder={t('settingsPage.branding.supportLinkPlaceholder')} />
-          </div>
-          <div className="space-y-2">
             <Label>{t('settingsPage.branding.channelUsername')}</Label>
             <Input value={channelUsername} onChange={(e) => setChannelUsername(e.target.value)} placeholder={t('settingsPage.branding.channelUsernamePlaceholder')} />
-          </div>
-          <div className="space-y-2">
-            <Label>{t('settingsPage.branding.botMenuButtonText')}</Label>
-            <Input value={botMenuButtonText} onChange={(e) => setBotMenuButtonText(e.target.value)} placeholder={t('settingsPage.branding.botMenuButtonTextPlaceholder')} />
-            <p className="text-xs text-muted-foreground">{t('settingsPage.branding.botMenuButtonTextHint')}</p>
           </div>
         </div>
 

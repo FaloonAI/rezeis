@@ -1,7 +1,14 @@
 /**
- * BrandingPage
- * ────────────
- * Admin configurator for the user-facing branding (reiwa SPA).
+ * WEB Reiwa — visual configurator for the user-facing reiwa cabinet.
+ *
+ * Operators skin the whole cabinet here: one-click theme presets, brand colour
+ * pickers (with a "generate card gradient from primary" helper), logo, font and
+ * background-effect selection. A live phone-frame preview mirrors the real
+ * redesigned dashboard (Reiwa mark + aurora card + bottom-nav pill) so every
+ * change is visible instantly.
+ *
+ * Persists through `GET/PATCH /admin/settings/branding`, which feeds the reiwa
+ * SPA via the internal `public-config` endpoint.
  */
 
 import { useEffect } from "react";
@@ -10,7 +17,7 @@ import { useTranslation } from 'react-i18next';
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Paintbrush, RotateCcw, Save } from "lucide-react";
+import { Check, Paintbrush, RotateCcw, Save, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
 import api from "@/lib/api";
@@ -20,8 +27,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-
 import { BrandingPreview } from "./branding-preview";
+import { CARD_LOGO_PRESETS, CardLogoMark, type CardLogoPreset } from "./card-logo-mark";
+import { CardEffectSection } from "./card-effect-section";
+import { GradientBuilder } from "./gradient-builder";
+import { IconColorsSection } from "./icon-colors-section";
+import { FONT_OPTIONS, THEME_PRESETS, CARD_GRADIENT_PRESETS, gradientFromPrimary, type ThemePreset } from "./theme-presets";
 
 // ── Schema ──────────────────────────────────────────────────────────────────
 
@@ -39,7 +50,14 @@ function useBrandingSchema() {
     bgSecondary: z.string().regex(hexPattern, hexMessage),
     cardGradient: z.string().min(1).max(512),
     cardPattern: z.string().max(8192).optional().nullable(),
+    cardLogo: z.enum(CARD_LOGO_PRESETS),
+    cardLogoUrl: z.string().max(8192).optional().nullable(),
+    cardEffect: z.string().max(32),
+    cardEffectProps: z.record(z.string(), z.unknown()).optional(),
+    cardEffectOpacity: z.number().min(0.05).max(1),
     bgEffect: z.enum(["NONE", "MESH", "PARTICLES", "NOISE", "AURORA"]),
+    iconColorMode: z.enum(["default", "theme", "custom"]),
+    iconColors: z.record(z.string(), z.string()).optional(),
     borderRadius: z.string().min(1).max(64),
     fontFamily: z.string().min(1).max(256),
   });
@@ -47,7 +65,6 @@ function useBrandingSchema() {
 
 type BrandingFormValues = z.infer<ReturnType<typeof useBrandingSchema>>;
 
-const BG_EFFECT_VALUES = ["NONE", "MESH", "PARTICLES", "NOISE", "AURORA"] as const;
 const BORDER_RADIUS_VALUES = [
   { value: "rounded-none", labelKey: "brandingPage.radiusOptions.none" },
   { value: "rounded-lg", labelKey: "brandingPage.radiusOptions.lg" },
@@ -71,7 +88,7 @@ async function updateBranding(values: Partial<BrandingFormValues>): Promise<Bran
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
-export default function BrandingPage() {
+export default function WebReiwaPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const brandingSchema = useBrandingSchema();
@@ -85,16 +102,23 @@ export default function BrandingPage() {
   const form = useForm<BrandingFormValues>({
     resolver: zodResolver(brandingSchema),
     defaultValues: {
-      brandName: "Rezeis",
+      brandName: "Reiwa",
       primary: "#22c55e",
       primaryFg: "#0a0a0a",
       bgPrimary: "#0a0a0a",
       bgSecondary: "#171717",
       cardGradient: "linear-gradient(135deg, #064e3b 0%, #22c55e 100%)",
       cardPattern: null,
-      bgEffect: "NONE",
+      cardLogo: "DEFAULT",
+      cardLogoUrl: null,
+      cardEffect: "aurora",
+      cardEffectProps: {},
+      cardEffectOpacity: 1,
+      bgEffect: "AURORA",
+      iconColorMode: "default",
+      iconColors: {},
       borderRadius: "rounded-2xl",
-      fontFamily: "Inter, system-ui, sans-serif",
+      fontFamily: "Geist Variable, system-ui, sans-serif",
       logoUrl: null,
     },
   });
@@ -117,6 +141,20 @@ export default function BrandingPage() {
   const onSubmit = form.handleSubmit((values) => {
     mutation.mutate(values);
   });
+
+  function applyPreset(preset: ThemePreset): void {
+    form.setValue("primary", preset.primary, { shouldDirty: true });
+    form.setValue("primaryFg", preset.primaryFg, { shouldDirty: true });
+    form.setValue("bgPrimary", preset.bgPrimary, { shouldDirty: true });
+    form.setValue("bgSecondary", preset.bgSecondary, { shouldDirty: true });
+    form.setValue("cardGradient", preset.cardGradient, { shouldDirty: true });
+    form.setValue("bgEffect", preset.bgEffect, { shouldDirty: true });
+  }
+
+  function generateGradient(): void {
+    const primary = form.getValues("primary");
+    form.setValue("cardGradient", gradientFromPrimary(primary), { shouldDirty: true });
+  }
 
   // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form watch() pattern
   const watchedValues = form.watch();
@@ -158,21 +196,80 @@ export default function BrandingPage() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
+      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         <div className="space-y-6">
+          {/* Theme presets — the headline "visual" control */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4" /> {t('brandingPage.sections.presets.title')}
+              </CardTitle>
+              <CardDescription>{t('brandingPage.sections.presets.description')}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {THEME_PRESETS.map((preset) => {
+                  const isActive = watchedValues.primary?.toLowerCase() === preset.primary.toLowerCase();
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => applyPreset(preset)}
+                      className={`group relative flex flex-col gap-2 rounded-xl border p-3 text-left transition-all hover:scale-[1.02] ${
+                        isActive ? "border-primary ring-2 ring-primary/40" : "border-border hover:border-primary/40"
+                      }`}
+                    >
+                      <div
+                        className="h-12 w-full rounded-lg ring-1 ring-white/10"
+                        style={{ backgroundImage: preset.cardGradient }}
+                      />
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium">
+                          {t(`brandingPage.presets.${preset.id}`)}
+                        </span>
+                        <span
+                          className="h-3 w-3 rounded-full ring-1 ring-white/20"
+                          style={{ backgroundColor: preset.primary }}
+                        />
+                      </div>
+                      {isActive && (
+                        <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                          <Check className="h-3 w-3" />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>{t('brandingPage.sections.identity.title')}</CardTitle>
               <CardDescription>{t('brandingPage.sections.identity.description')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="brandName">{t('brandingPage.sections.identity.brandName')}</Label>
-                <Input id="brandName" {...form.register("brandName")} placeholder={t('brandingPage.sections.identity.brandNamePlaceholder')} />
+              <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
+                <div className="space-y-2">
+                  <Label htmlFor="brandName">{t('brandingPage.sections.identity.brandName')}</Label>
+                  <Input id="brandName" {...form.register("brandName")} placeholder={t('brandingPage.sections.identity.brandNamePlaceholder')} />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t('brandingPage.sections.identity.logoPreview')}</Label>
+                  <div className="flex h-9 items-center justify-center rounded-md border bg-muted/40 px-4">
+                    {watchedValues.logoUrl ? (
+                      <img src={watchedValues.logoUrl} alt="logo" className="h-6 w-6 object-contain" />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{t('brandingPage.sections.identity.logoDefault')}</span>
+                    )}
+                  </div>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="logoUrl">{t('brandingPage.sections.identity.logoUrl')}</Label>
                 <Input id="logoUrl" {...form.register("logoUrl")} placeholder={t('brandingPage.sections.identity.logoUrlPlaceholder')} />
+                <p className="text-[11px] text-muted-foreground">{t('brandingPage.sections.identity.logoHint')}</p>
               </div>
             </CardContent>
           </Card>
@@ -199,11 +296,78 @@ export default function BrandingPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="cardGradient">{t('brandingPage.sections.card.gradient')}</Label>
-                <Input
-                  id="cardGradient"
-                  {...form.register("cardGradient")}
-                  placeholder={t('brandingPage.sections.card.gradientPlaceholder')}
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="cardGradient">{t('brandingPage.sections.card.gradient')}</Label>
+                  <Button type="button" variant="ghost" size="sm" onClick={generateGradient}>
+                    <Wand2 className="mr-1.5 h-3.5 w-3.5" />
+                    {t('brandingPage.sections.card.generate')}
+                  </Button>
+                </div>
+                {/* Preset swatches — one-click ready-made gradients */}
+                <Controller
+                  name="cardGradient"
+                  control={form.control}
+                  render={({ field }) => (
+                    <div className="grid grid-cols-5 gap-2 sm:grid-cols-8">
+                      {CARD_GRADIENT_PRESETS.map((preset) => {
+                        const isActive =
+                          (field.value ?? "").trim().toLowerCase() ===
+                          preset.value.toLowerCase();
+                        return (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            aria-label={t(`brandingPage.cardGradients.${preset.id}`)}
+                            title={t(`brandingPage.cardGradients.${preset.id}`)}
+                            onClick={() => field.onChange(preset.value)}
+                            className={`relative aspect-square rounded-lg ring-1 transition-all hover:scale-[1.06] ${
+                              isActive ? "ring-2 ring-primary" : "ring-white/10 hover:ring-primary/40"
+                            }`}
+                            style={{ backgroundImage: preset.value }}
+                          >
+                            {isActive && (
+                              <span className="absolute inset-0 flex items-center justify-center">
+                                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-black/50 text-white">
+                                  <Check className="h-2.5 w-2.5" />
+                                </span>
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                />
+                <div
+                  className="h-10 w-full rounded-md ring-1 ring-border"
+                  style={{ backgroundImage: watchedValues.cardGradient }}
+                />
+                {/* Visual gradient builder — angle + colour stops → CSS */}
+                <Controller
+                  name="cardGradient"
+                  control={form.control}
+                  render={({ field }) => (
+                    <GradientBuilder
+                      value={field.value ?? ""}
+                      onChange={(css) => field.onChange(css)}
+                    />
+                  )}
+                />
+                {/* Manual CSS field — controlled so it mirrors builder / preset
+                    / generator edits live (stays in sync with form state). */}
+                <Controller
+                  name="cardGradient"
+                  control={form.control}
+                  render={({ field }) => (
+                    <Input
+                      id="cardGradient"
+                      value={field.value ?? ""}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      className="font-mono text-xs"
+                      placeholder={t('brandingPage.sections.card.gradientPlaceholder')}
+                    />
+                  )}
                 />
               </div>
               <div className="space-y-2">
@@ -211,11 +375,105 @@ export default function BrandingPage() {
                 <Input
                   id="cardPattern"
                   {...form.register("cardPattern")}
+                  className="font-mono text-xs"
                   placeholder={t('brandingPage.sections.card.patternPlaceholder')}
                 />
               </div>
             </CardContent>
           </Card>
+
+          {/* Card logo / watermark — preset glyphs + custom upload */}
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('brandingPage.sections.cardLogo.title')}</CardTitle>
+              <CardDescription>{t('brandingPage.sections.cardLogo.description')}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Controller
+                name="cardLogo"
+                control={form.control}
+                render={({ field }) => (
+                  <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                    {CARD_LOGO_PRESETS.map((preset) => {
+                      const isActive = field.value === preset && !watchedValues.cardLogoUrl;
+                      return (
+                        <button
+                          key={preset}
+                          type="button"
+                          aria-label={t(`brandingPage.cardLogos.${preset}`)}
+                          title={t(`brandingPage.cardLogos.${preset}`)}
+                          onClick={() => {
+                            field.onChange(preset);
+                            // Selecting a preset clears any custom upload so the
+                            // glyph actually shows (custom URL takes priority).
+                            form.setValue("cardLogoUrl", null, { shouldDirty: true });
+                          }}
+                          className={`relative flex aspect-square items-center justify-center rounded-xl border bg-muted/30 transition-all hover:scale-[1.04] ${
+                            isActive ? "border-primary ring-2 ring-primary/40" : "border-border hover:border-primary/40"
+                          }`}
+                        >
+                          {preset === "NONE" ? (
+                            <span className="text-[10px] font-medium text-muted-foreground">
+                              {t('brandingPage.cardLogos.NONE')}
+                            </span>
+                          ) : (
+                            <CardLogoMark
+                              preset={preset as CardLogoPreset}
+                              className="h-6 w-6"
+                              style={{ color: watchedValues.primary }}
+                            />
+                          )}
+                          {isActive && (
+                            <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                              <Check className="h-2.5 w-2.5" />
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              />
+              <div className="space-y-2">
+                <Label htmlFor="cardLogoUrl">{t('brandingPage.sections.cardLogo.customUrl')}</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="cardLogoUrl"
+                    {...form.register("cardLogoUrl")}
+                    className="font-mono text-xs"
+                    placeholder={t('brandingPage.sections.cardLogo.customUrlPlaceholder')}
+                  />
+                  {watchedValues.cardLogoUrl && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => form.setValue("cardLogoUrl", null, { shouldDirty: true })}
+                    >
+                      {t('brandingPage.sections.cardLogo.clearCustom')}
+                    </Button>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground">{t('brandingPage.sections.cardLogo.customHint')}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Animated card background effect */}
+          <Controller
+            name="cardEffect"
+            control={form.control}
+            render={({ field }) => (
+              <CardEffectSection
+                effect={field.value}
+                props={watchedValues.cardEffectProps ?? {}}
+                opacity={watchedValues.cardEffectOpacity ?? 1}
+                onEffectChange={(e) => field.onChange(e)}
+                onPropsChange={(p) => form.setValue("cardEffectProps", p, { shouldDirty: true })}
+                onOpacityChange={(o) => form.setValue("cardEffectOpacity", o, { shouldDirty: true })}
+              />
+            )}
+          />
 
           <Card>
             <CardHeader>
@@ -224,27 +482,6 @@ export default function BrandingPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>{t('brandingPage.sections.effects.bgEffect')}</Label>
-                  <Controller
-                    name="bgEffect"
-                    control={form.control}
-                    render={({ field }) => (
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {BG_EFFECT_VALUES.map((v) => (
-                            <SelectItem key={v} value={v}>
-                              {t(`brandingPage.bgEffects.${v}`)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                </div>
                 <div className="space-y-2">
                   <Label>{t('brandingPage.sections.effects.borderRadius')}</Label>
                   <Controller
@@ -266,17 +503,47 @@ export default function BrandingPage() {
                     )}
                   />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="fontFamily">{t('brandingPage.sections.effects.fontFamily')}</Label>
-                <Input
-                  id="fontFamily"
-                  {...form.register("fontFamily")}
-                  placeholder={t('brandingPage.sections.effects.fontFamilyPlaceholder')}
-                />
+                <div className="space-y-2">
+                  <Label>{t('brandingPage.sections.effects.fontFamily')}</Label>
+                  <Controller
+                    name="fontFamily"
+                    control={form.control}
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {FONT_OPTIONS.map((f) => (
+                            <SelectItem key={f.id} value={f.value}>
+                              <span style={{ fontFamily: f.value }}>
+                                {t(`brandingPage.fonts.${f.id}`)}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
+
+          {/* Cabinet menu icon colours */}
+          <Controller
+            name="iconColorMode"
+            control={form.control}
+            render={({ field }) => (
+              <IconColorsSection
+                mode={field.value}
+                colors={watchedValues.iconColors ?? {}}
+                primary={watchedValues.primary}
+                onModeChange={(m) => field.onChange(m)}
+                onColorsChange={(c) => form.setValue("iconColors", c, { shouldDirty: true })}
+              />
+            )}
+          />
         </div>
 
         <div className="lg:sticky lg:top-6 lg:self-start">

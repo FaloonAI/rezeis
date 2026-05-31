@@ -26,6 +26,7 @@ import {
   HelpCircle,
   ShieldAlert,
   BarChart3,
+  Smartphone,
 } from 'lucide-react'
 
 import type { SidebarGroupOrder } from '@/stores/sidebar-store'
@@ -78,6 +79,7 @@ export const navGroups: ReadonlyArray<NavGroup> = [
     key: 'configuration',
     items: [
       { key: 'platform', path: '/settings', icon: Settings },
+      { key: 'webReiwa', path: '/web-reiwa', icon: Smartphone },
       { key: 'gateways', path: '/payments/gateways', icon: CreditCard },
       { key: 'botConfig', path: '/bot-config', icon: Bot },
       { key: 'remnawave', path: '/remnawave', icon: RemnawaveIcon },
@@ -104,6 +106,12 @@ export const navItemMap: ReadonlyMap<string, NavItem> = new Map(
 /**
  * Build the resolved nav structure from the user's persisted custom
  * order. Returns the default tree when nothing has been customised.
+ *
+ * Forward-compatibility: any nav item shipped in the default config but
+ * absent from the persisted custom order (e.g. a feature added after the
+ * operator last customised their sidebar) is appended to its default
+ * group — or to the first group when its default group is gone — so newly
+ * released pages never silently disappear from the sidebar.
  */
 export function resolveNavOrder(
   customGroups: ReadonlyArray<SidebarGroupOrder> | null,
@@ -114,13 +122,13 @@ export function resolveNavOrder(
   const defaultGroupMap = new Map(navGroups.map((g) => [g.key, g]))
   const groupKeys = customGroupOrder ?? navGroups.map((g) => g.key)
 
-  return groupKeys
+  const resolved = groupKeys
     .map((gKey) => {
       const customGroup = customGroups?.find((cg) => cg.groupKey === gKey)
       const defaultGroup = defaultGroupMap.get(gKey)
-      if (!defaultGroup) return null
+      if (!defaultGroup && !customGroup) return null
 
-      if (!customGroup) return defaultGroup
+      if (!customGroup) return defaultGroup ?? null
 
       const items = customGroup.itemKeys
         .map((key) => navItemMap.get(key))
@@ -129,4 +137,28 @@ export function resolveNavOrder(
       return { key: gKey, items }
     })
     .filter((g): g is NavGroup => g != null)
+
+  // Append any default items missing from the persisted order so newly
+  // shipped pages still show up for operators with a customised sidebar.
+  const seen = new Set(resolved.flatMap((g) => g.items.map((i) => i.key)))
+  const mutableGroups = resolved.map((g) => ({ key: g.key, items: [...g.items] }))
+  const groupByKey = new Map(mutableGroups.map((g) => [g.key, g]))
+
+  for (const defaultGroup of navGroups) {
+    for (const item of defaultGroup.items) {
+      if (seen.has(item.key)) continue
+      seen.add(item.key)
+      const target =
+        groupByKey.get(defaultGroup.key) ?? mutableGroups[0] ?? null
+      if (target) {
+        target.items.push(item)
+      } else {
+        const created = { key: defaultGroup.key, items: [item] }
+        mutableGroups.push(created)
+        groupByKey.set(defaultGroup.key, created)
+      }
+    }
+  }
+
+  return mutableGroups
 }

@@ -132,7 +132,10 @@ export class ProfileSyncProcessor extends WorkerHost {
     }
 
     // Generate profile name using the naming service
-    const naming = await this.namingService.generateProfileName(subscription.userId);
+    const naming = await this.namingService.generateProfileName(
+      subscription.userId,
+      subscription.id,
+    );
     const contacts = await this.namingService.getContactInfo(subscription.userId);
 
     // Read plan snapshot for squads/limits
@@ -143,6 +146,31 @@ export class ProfileSyncProcessor extends WorkerHost {
     // Calculate expiry as ISO string
     const expireAt = subscription.expiresAt?.toISOString() ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
+    // Idempotency guard: a prior attempt may have created the panel profile
+    // but failed to persist the link (e.g. crash between API call and DB
+    // write, or a duplicate-name retry). Reuse the existing profile instead
+    // of re-creating it — the panel rejects duplicate usernames with 400.
+    const existing = await this.remnawaveApiService.getPanelUserByUsername(naming.username);
+    if (existing !== null && typeof existing.uuid === 'string' && existing.uuid.length > 0) {
+      await this.prismaService.subscription.update({
+        where: { id: subscription.id },
+        data: {
+          remnawaveId: existing.uuid,
+          configUrl: existing.subscriptionUrl,
+        },
+      });
+      this.logger.log(
+        `Linked existing Remnawave profile '${existing.uuid}' (username: ${naming.username}) to subscription ${subscription.id}`,
+      );
+      this.events.info(EVENT_TYPES.SUBSCRIPTION_CREATED, 'SUBSCRIPTION', `Remnawave profile linked: ${naming.username}`, {
+        subscriptionId: subscription.id,
+        userId: subscription.userId,
+        remnawaveId: existing.uuid,
+        username: naming.username,
+      });
+      return;
+    }
+
     // Create user on Remnawave panel
     const panelUser = await this.remnawaveApiService.createPanelUser({
       username: naming.username,
@@ -152,7 +180,7 @@ export class ProfileSyncProcessor extends WorkerHost {
       tag,
       expireAt,
       trafficLimitBytes: (subscription.trafficLimit ?? 0) * 1024 * 1024 * 1024, // GB → bytes
-      hwidDeviceLimit: subscription.deviceLimit,
+      hwidDeviceLimit: toPanelDeviceLimit(subscription.deviceLimit),
       trafficLimitStrategy,
       activeInternalSquads: subscription.internalSquads,
       externalSquadUuid: subscription.externalSquad,
@@ -200,7 +228,7 @@ export class ProfileSyncProcessor extends WorkerHost {
       tag,
       expireAt: subscription.expiresAt?.toISOString(),
       trafficLimitBytes: (subscription.trafficLimit ?? 0) * 1024 * 1024 * 1024,
-      hwidDeviceLimit: subscription.deviceLimit,
+      hwidDeviceLimit: toPanelDeviceLimit(subscription.deviceLimit),
       trafficLimitStrategy,
       activeInternalSquads: subscription.internalSquads,
       externalSquadUuid: subscription.externalSquad,
@@ -272,4 +300,20 @@ function readOptionalString(record: Record<string, unknown>, key: string): strin
     return candidate.trim();
   }
   return null;
+}
+
+/**
+ * Maps rezeis' device-limit convention to Remnawave's `hwidDeviceLimit`.
+ *
+ * In rezeis, `-1` or `null` means "unlimited devices". Remnawave validates
+ * `hwidDeviceLimit >= 0` and treats `0` as unlimited, so a `-1`/null limit
+ * MUST be sent as `0` — otherwise the panel rejects the create/update with
+ * `400 "Device limit must be greater than 0"` and the profile is never
+ * provisioned.
+ */
+function toPanelDeviceLimit(deviceLimit: number | null | undefined): number {
+  if (deviceLimit === null || deviceLimit === undefined || deviceLimit < 0) {
+    return 0;
+  }
+  return deviceLimit;
 }

@@ -37,6 +37,13 @@ export interface UserSubscription {
     readonly type?: string | null
   } | null
   readonly devices?: ReadonlyArray<{ readonly hwid: string; readonly title?: string | null; readonly seenAt?: string | null }>
+  /** Per-subscription card-appearance override (animated background, gradient, opacity). */
+  readonly cardBranding?: {
+    readonly cardEffect?: string | null
+    readonly cardEffectProps?: Record<string, unknown> | null
+    readonly cardEffectOpacity?: number | null
+    readonly cardGradient?: string | null
+  } | null
 }
 
 export interface UserTransaction {

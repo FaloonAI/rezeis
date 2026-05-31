@@ -52,6 +52,7 @@ export interface Plan {
   readonly name: string
   readonly description: string | null
   readonly tag: string | null
+  readonly icon: string | null
   readonly type: string
   readonly availability: string
   readonly trafficLimit: number

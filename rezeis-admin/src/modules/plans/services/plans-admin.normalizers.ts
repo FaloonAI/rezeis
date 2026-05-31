@@ -11,6 +11,7 @@ export interface NormalizedPlanWriteInput {
   readonly name: string;
   readonly description: string | null;
   readonly tag: string | null;
+  readonly icon: string | null;
   readonly isActive: boolean;
   readonly isArchived: boolean;
   readonly archivedRenewMode: ArchivedPlanRenewModeValue;
@@ -37,6 +38,7 @@ export function normalizeCreatePlanInput(input: CreatePlanDto): NormalizedPlanWr
     name: input.name.trim(),
     description: normalizeNullableString(input.description),
     tag: normalizeNullableString(input.tag),
+    icon: normalizeNullableString(input.icon),
     isActive: input.isActive ?? true,
     isArchived: input.isArchived ?? false,
     archivedRenewMode: input.archivedRenewMode ?? ArchivedPlanRenewModeValue.SELF_RENEW,
@@ -68,6 +70,7 @@ export function normalizeUpdatePlanInput(
     description:
       input.description === undefined ? currentPlan.description : normalizeNullableString(input.description),
     tag: input.tag === undefined ? currentPlan.tag : normalizeNullableString(input.tag),
+    icon: input.icon === undefined ? currentPlan.icon : normalizeNullableString(input.icon),
     isActive: input.isActive ?? currentPlan.isActive,
     isArchived: input.isArchived ?? currentPlan.isArchived,
     archivedRenewMode: input.archivedRenewMode ?? currentPlan.archivedRenewMode,
@@ -113,6 +116,7 @@ export function buildPlanWriteData(input: NormalizedPlanWriteInput): Prisma.Plan
     name: input.name,
     description: input.description,
     tag: input.tag,
+    icon: input.icon,
     isActive: input.isActive,
     isArchived: input.isArchived,
     archivedRenewMode: input.archivedRenewMode,

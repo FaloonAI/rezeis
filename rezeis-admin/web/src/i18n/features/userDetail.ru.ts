@@ -132,6 +132,11 @@ export const ru = {
       planType: 'Тип',
       startedAt: 'Создана',
       quickEdits: 'Быстрые действия',
+      cardBackground: {
+        label: 'Фон карточки',
+        inherit: 'Как у всех',
+        opacity: 'Прозрачность',
+      },
       trafficLabel: 'Лимит трафика (GB)',
       devicesLabel: 'Лимит устройств',
       resetBtn: 'Сбросить',

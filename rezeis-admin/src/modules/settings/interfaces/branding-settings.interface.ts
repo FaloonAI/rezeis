@@ -16,6 +16,94 @@
 export const BG_EFFECTS = ['NONE', 'MESH', 'PARTICLES', 'NOISE', 'AURORA'] as const;
 export type BgEffect = (typeof BG_EFFECTS)[number];
 
+/**
+ * Built-in watermark glyphs that can sit on the subscription card. These map
+ * to Lucide icon names the reiwa SPA renders inline (tintable, scalable, no
+ * extra assets). `DEFAULT` keeps the canonical Reiwa origami mark; `NONE`
+ * hides the watermark entirely. Operators can also supply a fully custom
+ * image via `cardLogoUrl` (which takes priority when set).
+ *
+ * Adding a preset requires updates in three places:
+ *   1. `CARD_LOGO_PRESETS` here,
+ *   2. the SPA card-watermark renderer (icon map),
+ *   3. the admin configurator preset grid.
+ */
+export const CARD_LOGO_PRESETS = [
+  'DEFAULT',
+  'NONE',
+  'SHIELD',
+  'BOLT',
+  'GLOBE',
+  'ROCKET',
+  'GHOST',
+  'CROWN',
+  'GEM',
+  'FLAME',
+  'WAVES',
+  'MOUNTAIN',
+  'ORBIT',
+  'HEXAGON',
+] as const;
+export type CardLogoPreset = (typeof CARD_LOGO_PRESETS)[number];
+
+/**
+ * Animated ReactBits effects that can render BEHIND the subscription card.
+ * `NONE` keeps the plain gradient. The rest map to lazy-loaded ogl/canvas
+ * components in the reiwa SPA (`components/reactbits/registry.ts`). Only the
+ * dependency-light effects are exposed (reiwa ships `ogl`, not three.js).
+ *
+ * Adding an effect requires updates in three places:
+ *   1. `CARD_EFFECTS` here,
+ *   2. the SPA effect registry + renderer,
+ *   3. the admin configurator effect grid.
+ */
+export const CARD_EFFECTS = [
+  'NONE',
+  'aurora',
+  'threads',
+  'softAurora',
+  'rippleGrid',
+  'radar',
+  'plasma',
+  'particles',
+  'liquidChrome',
+  'lineWaves',
+  'iridescence',
+  'grainient',
+  'galaxy',
+  'balatro',
+  'waves',
+  'silk',
+  'beams',
+  'dither',
+] as const;
+export type CardEffect = (typeof CARD_EFFECTS)[number];
+
+/**
+ * How the menu/section icons in the reiwa cabinet are coloured:
+ *   - `default` — each icon keeps its own distinct accent (current look).
+ *   - `theme`   — every icon uses the brand `primary` colour.
+ *   - `custom`  — each icon uses an operator-picked colour from `iconColors`.
+ */
+export const ICON_COLOR_MODES = ['default', 'theme', 'custom'] as const;
+export type IconColorMode = (typeof ICON_COLOR_MODES)[number];
+
+/**
+ * Stable keys for the cabinet's themeable menu/section icons. Used as the keys
+ * of the `iconColors` map (custom mode) and to render the per-icon colour
+ * pickers in the admin configurator.
+ */
+export const ICON_KEYS = [
+  'privacy',
+  'notifications',
+  'transactions',
+  'promocodes',
+  'language',
+  'support',
+  'faq',
+] as const;
+export type IconKey = (typeof ICON_KEYS)[number];
+
 export interface BrandingSettingsInterface {
   /** Display name shown on the subscription card and headers. */
   readonly brandName: string;
@@ -36,8 +124,48 @@ export interface BrandingSettingsInterface {
   /** Optional CSS background-image (pattern overlay) for the card. */
   readonly cardPattern: string | null;
 
+  /**
+   * Watermark glyph shown on the subscription card. One of the built-in
+   * `CARD_LOGO_PRESETS` keys. `DEFAULT` = Reiwa mark, `NONE` = hidden.
+   * Ignored when `cardLogoUrl` is set.
+   */
+  readonly cardLogo: CardLogoPreset;
+  /**
+   * Optional custom watermark image (data: URI or http(s) URL). When set it
+   * overrides `cardLogo`. Rendered as a faint, low-opacity overlay on the
+   * card just like the built-in glyphs.
+   */
+  readonly cardLogoUrl: string | null;
+
+  /**
+   * Animated effect rendered behind the subscription card. `NONE` keeps the
+   * plain `cardGradient`. Any other value is a ReactBits effect id the SPA
+   * renders as a live WebGL/canvas layer.
+   */
+  readonly cardEffect: CardEffect;
+  /**
+   * Per-effect tunable parameters (colors, speed, density…), keyed by the
+   * effect's control props. Free-form JSON validated loosely on the backend;
+   * the SPA merges it over the effect's defaults.
+   */
+  readonly cardEffectProps: Record<string, unknown>;
+  /** Effect layer opacity behind the card (0.05–1). */
+  readonly cardEffectOpacity: number;
+
   /** Site-wide background-effect preset. */
   readonly bgEffect: BgEffect;
+
+  /**
+   * Colouring strategy for the cabinet's menu/section icons.
+   * `default` keeps each icon's own accent, `theme` paints them all in the
+   * brand primary, `custom` uses per-icon colours from `iconColors`.
+   */
+  readonly iconColorMode: IconColorMode;
+  /**
+   * Per-icon hex colours, keyed by `IconKey`. Only consulted when
+   * `iconColorMode === 'custom'`; missing keys fall back to the brand primary.
+   */
+  readonly iconColors: Record<string, string>;
 
   /** Tailwind-friendly border-radius token (e.g. `rounded-2xl`). */
   readonly borderRadius: string;
@@ -46,7 +174,7 @@ export interface BrandingSettingsInterface {
 }
 
 export const DEFAULT_BRANDING: BrandingSettingsInterface = {
-  brandName: 'Rezeis',
+  brandName: 'Reiwa',
   logoUrl: null,
   primary: '#22c55e',
   primaryFg: '#0a0a0a',
@@ -54,7 +182,14 @@ export const DEFAULT_BRANDING: BrandingSettingsInterface = {
   bgSecondary: '#171717',
   cardGradient: 'linear-gradient(135deg, #064e3b 0%, #22c55e 100%)',
   cardPattern: null,
+  cardLogo: 'DEFAULT',
+  cardLogoUrl: null,
+  cardEffect: 'aurora',
+  cardEffectProps: {},
+  cardEffectOpacity: 1,
   bgEffect: 'NONE',
+  iconColorMode: 'default',
+  iconColors: {},
   borderRadius: 'rounded-2xl',
   fontFamily: 'Inter, system-ui, sans-serif',
 };

@@ -21,6 +21,7 @@ export interface AdminPlanInterface {
   readonly name: string;
   readonly description: string | null;
   readonly tag: string | null;
+  readonly icon: string | null;
   readonly isActive: boolean;
   readonly isArchived: boolean;
   readonly archivedRenewMode: ArchivedPlanRenewModeValue;

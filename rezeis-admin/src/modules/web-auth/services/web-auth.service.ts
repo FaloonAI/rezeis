@@ -113,6 +113,27 @@ export class WebAuthService {
     });
   }
 
+  /**
+   * Non-mutating availability probe for a login. Used by the SPA's
+   * register form to give live "username taken" feedback **without**
+   * creating an account or burning the registration rate limit (the old
+   * behaviour fired a real `register` per keystroke with a dummy hash).
+   *
+   * Returns `{ available: false }` for malformed logins too, so the UI
+   * doesn't advertise an invalid handle as free.
+   */
+  public async checkLoginAvailable(login: string): Promise<{ available: boolean }> {
+    if (!loginPolicy.isValidLogin(login)) {
+      return { available: false };
+    }
+    const loginNormalized = loginPolicy.normalizeLogin(login);
+    const existing = await this.prismaService.webAccount.findUnique({
+      where: { loginNormalized },
+      select: { id: true },
+    });
+    return { available: existing === null };
+  }
+
   public async login(input: WebAuthLoginDto): Promise<WebAuthLoginResultInterface> {
     if (!loginPolicy.isValidLogin(input.login)) {
       throw new UnauthorizedException('Invalid login or password');

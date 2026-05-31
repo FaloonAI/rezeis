@@ -20,6 +20,7 @@ export interface InternalUserPlanInterface {
   readonly name: string;
   readonly description: string | null;
   readonly tag: string | null;
+  readonly icon: string | null;
   readonly type: PlanType;
   readonly trafficLimit: number | null;
   readonly deviceLimit: number;

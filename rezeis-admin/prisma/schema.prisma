@@ -1043,6 +1043,11 @@ model Subscription {
   startedAt      DateTime?          @map("started_at") @db.Timestamptz(3)
   expiresAt      DateTime?          @map("expires_at") @db.Timestamptz(3)
   deviceType     DeviceType?        @map("device_type")
+  /// Optional per-subscription card-appearance override. Lets multi-sub
+  /// users get a distinct animated background per card. Shape mirrors the
+  /// branding card fields: `{ cardEffect, cardEffectProps, cardEffectOpacity,
+  /// cardGradient }`. `null`/empty = inherit the global branding.
+  cardBranding   Json?              @map("card_branding")
   createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -1100,6 +1105,9 @@ model Plan {
   name                 String                @unique @map("name")
   description          String?               @map("description")
   tag                  String?               @map("tag")
+  /// Optional icon key (lucide glyph name) shown on the plan card in the
+  /// reiwa cabinet. `null` falls back to a type-derived default icon.
+  icon                 String?               @map("icon")
   trafficLimit         Int?                  @map("traffic_limit")
   deviceLimit          Int                   @default(0) @map("device_limit")
   trafficLimitStrategy TrafficLimitStrategy  @default(NO_RESET) @map("traffic_limit_strategy")

@@ -71,7 +71,9 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
+import { CARD_EFFECT_REGISTRY } from '@/features/branding/card-effect-registry'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   AlertDialog,
@@ -873,6 +875,83 @@ function SubscriptionsTab({ user, telegramId, queryKey }: { user: UserDetail; te
   )
 }
 
+/**
+ * CardBackgroundControl — per-subscription animated background override.
+ * Lets the operator pick a distinct card effect + opacity for this specific
+ * subscription (multi-sub users get individual cards). Persists via the
+ * generic subscription PATCH (`{ cardBranding }`); "Inherit" clears it.
+ */
+function CardBackgroundControl({
+  sub,
+  onUpdate,
+}: {
+  sub: UserSubscription
+  onUpdate: (data: Record<string, unknown>) => void
+}) {
+  const { t } = useTranslation()
+  const current = sub.cardBranding ?? null
+  const effect = (current?.cardEffect ?? 'INHERIT') as string
+  const opacity = typeof current?.cardEffectOpacity === 'number' ? current.cardEffectOpacity : 1
+
+  const apply = (patch: { cardEffect?: string; cardEffectOpacity?: number } | null) => {
+    if (patch === null) {
+      onUpdate({ cardBranding: null })
+      return
+    }
+    const next = {
+      ...(current ?? {}),
+      ...patch,
+    }
+    onUpdate({ cardBranding: next })
+  }
+
+  return (
+    <div className="space-y-1.5 rounded-md border border-dashed border-border/60 p-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <Wifi className="h-3 w-3 text-muted-foreground/60" />
+          {t('userDetailPanel.subscriptions.cardBackground.label')}
+        </span>
+        <Select
+          value={effect}
+          onValueChange={(v) => {
+            if (v === 'INHERIT') apply(null)
+            else apply({ cardEffect: v, cardEffectOpacity: opacity })
+          }}
+        >
+          <SelectTrigger className="h-7 w-40 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="INHERIT">{t('userDetailPanel.subscriptions.cardBackground.inherit')}</SelectItem>
+            <SelectItem value="NONE">{t('brandingPage.cardEffects.NONE')}</SelectItem>
+            {CARD_EFFECT_REGISTRY.map((e) => (
+              <SelectItem key={e.id} value={e.id}>
+                {t(`brandingPage.cardEffects.${e.id}`, { defaultValue: e.name })}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {current?.cardEffect && current.cardEffect !== 'NONE' && (
+        <div className="flex items-center gap-2">
+          <span className="w-20 shrink-0 text-[10px] text-muted-foreground">
+            {t('userDetailPanel.subscriptions.cardBackground.opacity')}
+          </span>
+          <Slider
+            value={[opacity]}
+            min={0.05}
+            max={1}
+            step={0.05}
+            onValueChange={(v: number[]) => apply({ cardEffectOpacity: v[0] ?? 1 })}
+          />
+          <span className="w-8 shrink-0 text-right font-mono text-[10px] text-muted-foreground">
+            {(opacity * 100).toFixed(0)}%
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SubscriptionCard({
   sub,
   isOpen,
@@ -1049,6 +1128,8 @@ function SubscriptionCard({
                   </Select>
                 </div>
               )}
+              {/* Per-card animated background override */}
+              <CardBackgroundControl sub={sub} onUpdate={onUpdate} />
               {/* Footer */}
               <div className="flex items-center justify-between gap-2 pt-1.5">
                 <div className="flex gap-1">

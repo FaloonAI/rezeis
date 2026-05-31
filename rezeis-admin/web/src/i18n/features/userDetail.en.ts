@@ -132,6 +132,11 @@ export const en = {
       planType: 'Type',
       startedAt: 'Started',
       quickEdits: 'Quick edits',
+      cardBackground: {
+        label: 'Card background',
+        inherit: 'Inherit',
+        opacity: 'Opacity',
+      },
       trafficLabel: 'Traffic limit (GB)',
       devicesLabel: 'Device limit',
       resetBtn: 'Reset',

@@ -9,6 +9,8 @@ const DRAFT_PURCHASE_TYPES: readonly PurchaseType[] = [
   PurchaseType.UPGRADE,
 ];
 
+const DEVICE_TYPES = ['ANDROID', 'IPHONE', 'WINDOWS', 'MAC', 'OTHER'] as const;
+
 export class CreateTransactionDraftDto {
   @IsString()
   @MinLength(1)
@@ -41,4 +43,9 @@ export class CreateTransactionDraftDto {
   @IsOptional()
   @IsEnum(PurchaseChannel)
   public channel?: PurchaseChannel;
+
+  /** Device the user intends to use the subscription on (cosmetic hint). */
+  @IsOptional()
+  @IsIn(DEVICE_TYPES as readonly string[])
+  public deviceType?: string;
 }

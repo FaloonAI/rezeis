@@ -20,5 +20,6 @@ import { SettingsService } from './services/settings.service';
     InternalEventsController,
   ],
   providers: [SettingsService],
+  exports: [SettingsService],
 })
 export class SettingsModule {}

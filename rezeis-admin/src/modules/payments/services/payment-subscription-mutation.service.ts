@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   AddOnType,
+  DeviceType,
   Plan,
   ProfileSyncJob,
   Prisma,
@@ -185,6 +186,7 @@ export class PaymentSubscriptionMutationService {
           deviceLimit: input.purchasedPlan.deviceLimit,
           internalSquads: input.purchasedPlan.internalSquads,
           externalSquad: input.purchasedPlan.externalSquad,
+          deviceType: resolveDeviceType(input.transaction.deviceTypes),
           startedAt: now,
           expiresAt: calculateExpiry(now, input.selectedDurationDays),
         },
@@ -433,4 +435,20 @@ function calculateExpiry(baseDate: Date, durationDays: number): Date | null {
   const expiresAt = new Date(baseDate);
   expiresAt.setUTCDate(expiresAt.getUTCDate() + durationDays);
   return expiresAt;
+}
+
+/**
+ * Maps the transaction's recorded device-type hint (first entry) to the
+ * `DeviceType` enum. Returns `null` for missing/unknown values so the
+ * subscription's `deviceType` stays absent rather than throwing.
+ */
+function resolveDeviceType(deviceTypes: readonly string[]): DeviceType | null {
+  const first = deviceTypes[0];
+  if (typeof first !== 'string') {
+    return null;
+  }
+  const upper = first.toUpperCase();
+  return (Object.values(DeviceType) as string[]).includes(upper)
+    ? (upper as DeviceType)
+    : null;
 }

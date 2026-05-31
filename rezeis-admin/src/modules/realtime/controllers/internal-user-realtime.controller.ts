@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Controller,
   Get,
   Param,
@@ -12,6 +11,7 @@ import { Request, Response } from 'express';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { InternalAdminAuthGuard } from '../../auth/guards/internal-admin-auth.guard';
+import { buildUserReferenceWhere } from '../../internal-user/utils/user-reference.util';
 import { UserRealtimeEventInterface } from '../interfaces/user-realtime-event.interface';
 import { UserRealtimeService } from '../services/user-realtime.service';
 
@@ -49,22 +49,22 @@ export class InternalUserRealtimeController {
     private readonly userRealtimeService: UserRealtimeService,
   ) {}
 
-  @Get(':telegramId/stream')
+  @Get(':userRef/stream')
   @ApiOperation({
     summary: 'Opens an SSE stream of public events scoped to a single user',
+    description:
+      '`:userRef` is a reiwa_id (CUID, for web-first users with no Telegram) or a numeric telegramId. The stream is scoped to that user.',
   })
   public async stream(
-    @Param('telegramId') telegramIdRaw: string,
+    @Param('userRef') userRefRaw: string,
     @Req() request: Request,
     @Res() response: Response,
   ): Promise<void> {
-    const telegramId = telegramIdRaw.trim();
-    if (!/^\d+$/.test(telegramId)) {
-      throw new BadRequestException('telegramId must be a numeric string');
-    }
+    // Accept either identity form. `buildUserReferenceWhere` discriminates
+    // a numeric telegramId from a CUID reiwa_id and throws 400 on garbage.
     const user = await this.prismaService.user.findUnique({
-      where: { telegramId: BigInt(telegramId) },
-      select: { id: true, isBlocked: true },
+      where: buildUserReferenceWhere(userRefRaw),
+      select: { id: true, telegramId: true, isBlocked: true },
     });
     // We deliberately ALWAYS open the stream, even for unknown users:
     // reiwa polls subscriptions for users that may not yet have events,
@@ -72,6 +72,10 @@ export class InternalUserRealtimeController {
     // checks `userId`/`telegramId`, so a non-existent user simply gets
     // nothing.
     const userId = user?.id ?? null;
+    const telegramId =
+      user?.telegramId !== null && user?.telegramId !== undefined
+        ? user.telegramId.toString()
+        : null;
     if (user?.isBlocked === true) {
       // Blocked users get an immediate close with `403`. We do this
       // upfront because subsequent admin events might still mention

@@ -64,6 +64,11 @@ export class InternalPaymentCheckoutDto {
   @IsEnum(PurchaseChannel)
   public channel?: PurchaseChannel;
 
+  /** Device the user intends to use the subscription on (cosmetic hint). */
+  @IsOptional()
+  @IsIn(['ANDROID', 'IPHONE', 'WINDOWS', 'MAC', 'OTHER'] as readonly string[])
+  public deviceType?: string;
+
   /**
    * URL the payment provider redirects the customer to on a successful payment.
    * Reiwa supplies a context-aware URL (web origin for browser, Telegram deep link for Mini App).

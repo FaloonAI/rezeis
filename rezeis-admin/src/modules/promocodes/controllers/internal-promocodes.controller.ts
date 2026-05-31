@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, HttpStatus, NotFoundException, Param, 
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { InternalAdminAuthGuard } from '../../auth/guards/internal-admin-auth.guard';
+import { buildUserReferenceWhere } from '../../internal-user/utils/user-reference.util';
 import { ActivatePromocodeDto } from '../dto/activate-promocode.dto';
 import { PromocodeActivationInterface, PromocodeActivationResultInterface } from '../interfaces/promocode.interface';
 import { PromocodeLifecycleService } from '../services/promocode-lifecycle.service';
@@ -48,29 +49,31 @@ export class InternalPromocodesController {
   }
 
   /**
-   * Telegram-friendly variant: takes `{ telegramId, code }` directly as
-   * sent by the reiwa bot, resolves the rezeis-admin user, and forwards
-   * to the same activation pipeline used by `POST /activate`.
+   * Reference-friendly variant: takes `{ userRef, code }` where `userRef`
+   * is the canonical reiwa_id (CUID) for web / web-first users OR a numeric
+   * telegramId for Telegram flows. Resolves the rezeis-admin user and
+   * forwards to the same activation pipeline used by `POST /activate`.
    *
-   * Existing for the bot side only — the SPA already operates with the
-   * resolved `userId` and uses the canonical `POST /activate` endpoint.
+   * This is the endpoint reiwa's SPA/Mini App edge calls — it forwards the
+   * identity resolved from its own session (reiwa_id first), so users with
+   * no Telegram are fully supported.
    */
-  @Post('activate-by-telegram')
+  @Post('activate-by-ref')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Activate a promocode by Telegram id (reiwa bot)' })
-  public async activateByTelegram(
-    @Body() body: { telegramId: string; code: string },
+  @ApiOperation({ summary: 'Activate a promocode by user reference (reiwa edge)' })
+  public async activateByRef(
+    @Body() body: { userRef: string; code: string },
   ): Promise<PromocodeActivationResultInterface> {
-    const user = await this.prismaService.user.findFirst({
-      where: { telegramId: BigInt(body.telegramId) },
-      select: { id: true },
+    const user = await this.prismaService.user.findUnique({
+      where: buildUserReferenceWhere(body.userRef),
+      select: { id: true, telegramId: true },
     });
     if (user === null) {
-      throw new NotFoundException(`User with telegramId=${body.telegramId} not found`);
+      throw new NotFoundException(`User with reference=${body.userRef} not found`);
     }
     return this.portalService.activate({
       userId: user.id,
-      userTelegramId: BigInt(body.telegramId),
+      userTelegramId: user.telegramId,
       dto: { code: body.code },
     });
   }
@@ -81,7 +84,7 @@ export class InternalPromocodesController {
     summary: 'Resolve eligible subscription ids for a given promocode + user',
   })
   public async getEligibleSubscriptions(
-    @Query('userId') userId: string,
+    @Query('userRef') userRef: string,
     @Query('code') code: string,
   ): Promise<{
     readonly subscriptionIds: readonly string[];
@@ -91,9 +94,16 @@ export class InternalPromocodesController {
     if (promocode === null) {
       return { subscriptionIds: [], hasPromocode: false };
     }
+    const user = await this.prismaService.user.findUnique({
+      where: buildUserReferenceWhere(userRef),
+      select: { id: true },
+    });
+    if (user === null) {
+      return { subscriptionIds: [], hasPromocode: true };
+    }
     const subscriptionIds =
       await this.portalService['validationService'].getEligibleSubscriptionIds({
-        userId,
+        userId: user.id,
         promocode,
       });
     return { subscriptionIds, hasPromocode: true };
@@ -101,20 +111,21 @@ export class InternalPromocodesController {
 
   /**
    * Returns the user's promocode activation history (paginated).
-   * Used by reiwa settings → Promocodes page.
+   * Used by reiwa settings → Promocodes page. `:userRef` is the canonical
+   * reiwa_id (CUID) or a numeric telegramId.
    */
-  @Get('user/:telegramId/activations')
+  @Get('user/:userRef/activations')
   @ApiOperation({ summary: 'Get user promocode activation history' })
   public async getUserActivations(
-    @Param('telegramId') telegramId: string,
+    @Param('userRef') userRef: string,
     @Query('limit') limitStr?: string,
     @Query('offset') offsetStr?: string,
   ): Promise<{
     readonly entries: readonly PromocodeActivationInterface[];
     readonly total: number;
   }> {
-    const user = await this.prismaService.user.findFirst({
-      where: { telegramId: BigInt(telegramId) },
+    const user = await this.prismaService.user.findUnique({
+      where: buildUserReferenceWhere(userRef),
       select: { id: true },
     });
     if (!user) return { entries: [], total: 0 };

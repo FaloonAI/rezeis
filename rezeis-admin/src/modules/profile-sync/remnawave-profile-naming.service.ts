@@ -50,16 +50,40 @@ const DEFAULT_CONFIG: NamingConfig = {
   suffixBase: 'sub',
 };
 
+/**
+ * Reduces an arbitrary identity string (login, username, telegramId) to a
+ * Remnawave-safe slug: only `[A-Za-z0-9_-]` survive, runs of disallowed
+ * characters collapse to a single `_`, and leading/trailing separators are
+ * trimmed. Email-like logins (`john.doe@mail.com`) become `john_doe_mail_com`.
+ */
+function sanitizePanelIdentifier(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/[^A-Za-z0-9_-]+/g, '_')
+    .replace(/_{2,}/g, '_')
+    .replace(/^[_-]+|[_-]+$/g, '');
+}
+
 @Injectable()
 export class RemnawaveProfileNamingService {
   public constructor(private readonly prismaService: PrismaService) {}
 
   /**
-   * Generates the Remnawave profile username and description for a new subscription.
+   * Generates the Remnawave profile username and description for a subscription.
+   *
+   * The suffix is derived from the subscription's **stable ordinal** among the
+   * user's subscriptions (ordered by creation), NOT a live total count — so two
+   * subscriptions of the same user get distinct, deterministic usernames
+   * (`rz_john_sub`, `rz_john_sub_1`) and re-running a sync never collides with
+   * an already-provisioned profile on the panel.
    *
    * @param userId - The rezeis-admin user ID (cuid)
+   * @param subscriptionId - The subscription being provisioned (for ordinal).
    */
-  public async generateProfileName(userId: string): Promise<ProfileNamingResult> {
+  public async generateProfileName(
+    userId: string,
+    subscriptionId?: string,
+  ): Promise<ProfileNamingResult> {
     const user = await this.prismaService.user.findUnique({
       where: { id: userId },
       select: {
@@ -68,6 +92,7 @@ export class RemnawaveProfileNamingService {
         name: true,
         telegramId: true,
         email: true,
+        webAccount: { select: { login: true } },
       },
     });
 
@@ -76,16 +101,29 @@ export class RemnawaveProfileNamingService {
     }
 
     const config = await this.loadNamingConfig();
-    const userIdentifier = user.username ?? user.telegramId?.toString() ?? user.id.slice(0, 8);
+    // Identity precedence for the panel username: the user's web-account
+    // login (the credential a web-first user actually signs in with) wins,
+    // then the Telegram @username, then the numeric telegramId, and finally
+    // the reiwa_id prefix as a last resort. Previously `login` was never
+    // queried, so pure web users fell through to `id.slice(0,8)` and their
+    // panel profile looked like an internal id.
+    const rawIdentifier =
+      user.webAccount?.login ??
+      user.username ??
+      user.telegramId?.toString() ??
+      user.id.slice(0, 8);
+    // Remnawave usernames only allow [A-Za-z0-9_-]. Logins may be email-like
+    // (contain `@`, `.`), so sanitise to a safe slug; fall back to the
+    // reiwa_id prefix if sanitising leaves nothing usable.
+    const userIdentifier = sanitizePanelIdentifier(rawIdentifier) || user.id.slice(0, 8);
 
-    // Count existing subscriptions to determine suffix
-    const existingSubCount = await this.prismaService.subscription.count({
-      where: { userId },
-    });
+    // Determine this subscription's stable ordinal among the user's subs
+    // (oldest = 0). Falls back to the live count when no id is supplied.
+    const ordinal = await this.resolveSubscriptionOrdinal(userId, subscriptionId);
 
-    const suffix = existingSubCount === 0
+    const suffix = ordinal === 0
       ? config.suffixBase
-      : `${config.suffixBase}${config.separator}${existingSubCount}`;
+      : `${config.suffixBase}${config.separator}${ordinal}`;
 
     const username = [config.prefix, userIdentifier, suffix]
       .filter(Boolean)
@@ -94,6 +132,7 @@ export class RemnawaveProfileNamingService {
     // Build description with internal identifiers
     const descriptionLines: string[] = [];
     if (user.name) descriptionLines.push(`name: ${user.name}`);
+    if (user.webAccount?.login) descriptionLines.push(`login: ${user.webAccount.login}`);
     if (user.username) descriptionLines.push(`username: ${user.username}`);
     descriptionLines.push(`reiwa_id: ${user.id}`);
 
@@ -101,6 +140,29 @@ export class RemnawaveProfileNamingService {
       username,
       description: descriptionLines.join('\n'),
     };
+  }
+
+  /**
+   * Resolves the 0-based position of `subscriptionId` among the user's
+   * subscriptions ordered by creation. Stable across re-runs, so the
+   * generated username never changes for a given subscription. When
+   * `subscriptionId` is omitted (legacy callers) it falls back to the
+   * current subscription count.
+   */
+  private async resolveSubscriptionOrdinal(
+    userId: string,
+    subscriptionId?: string,
+  ): Promise<number> {
+    const subs = await this.prismaService.subscription.findMany({
+      where: { userId },
+      select: { id: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    if (subscriptionId === undefined) {
+      return subs.length === 0 ? 0 : subs.length - 1;
+    }
+    const index = subs.findIndex((s) => s.id === subscriptionId);
+    return index < 0 ? subs.length : index;
   }
 
   /**

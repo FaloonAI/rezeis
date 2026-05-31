@@ -3,6 +3,7 @@ import { Prisma, Transaction, TransactionStatus } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { PartnerEarningsService } from '../../partners/services/partner-earnings.service';
+import { ProfileSyncQueueService } from '../../profile-sync/profile-sync-queue.service';
 import { ReferralQualificationService } from '../../referrals/services/referral-qualification.service';
 import {
   PAYMENT_WEBHOOK_STATUS_FAILED,
@@ -22,6 +23,7 @@ export class PaymentReconciliationService {
     private readonly paymentOpsAlertService: PaymentOpsAlertService,
     private readonly partnerEarningsService: PartnerEarningsService,
     private readonly referralQualificationService: ReferralQualificationService,
+    private readonly profileSyncQueueService: ProfileSyncQueueService,
   ) {}
 
   public async reconcileWebhookEvent(eventId: string): Promise<void> {
@@ -60,7 +62,12 @@ export class PaymentReconciliationService {
           throw new NotFoundException('Payment transaction not found');
         }
         if (refreshedTransaction.subscriptionId === null) {
-          await this.paymentSubscriptionMutationService.applyCompletedTransaction(refreshedTransaction);
+          const { syncJob } =
+            await this.paymentSubscriptionMutationService.applyCompletedTransaction(refreshedTransaction);
+          // Push the freshly-created sync job to BullMQ so the Remnawave
+          // profile is provisioned immediately. Without this the row would
+          // sit PENDING until the profile-sync sweep cron picks it up.
+          await this.profileSyncQueueService.enqueue(syncJob.id);
         }
         await this.runReferralAndPartnerHooks(refreshedTransaction);
       }

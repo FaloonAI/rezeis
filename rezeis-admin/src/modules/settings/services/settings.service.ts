@@ -660,7 +660,9 @@ function buildSettingsUpdateChanges(
     updatedFields.push('rulesRequired');
   }
   if (hasOwnField(updatePlatformSettingsDto, 'rulesLink')) {
-    data.rulesLink = updatePlatformSettingsDto.rulesLink ?? null;
+    // `rulesLink` is a non-nullable column (`String @default("")`). The
+    // SPA sends `null` to mean "cleared", so coerce null/undefined to "".
+    data.rulesLink = updatePlatformSettingsDto.rulesLink ?? '';
     updatedFields.push('rulesLink');
   }
   if (hasOwnField(updatePlatformSettingsDto, 'channelRequired')) {
@@ -672,7 +674,8 @@ function buildSettingsUpdateChanges(
     updatedFields.push('channelId');
   }
   if (hasOwnField(updatePlatformSettingsDto, 'channelLink')) {
-    data.channelLink = updatePlatformSettingsDto.channelLink ?? null;
+    // Non-nullable column (`String @default("")`) — same null→"" coercion.
+    data.channelLink = updatePlatformSettingsDto.channelLink ?? '';
     updatedFields.push('channelLink');
   }
   if (hasOwnField(updatePlatformSettingsDto, 'accessMode')) {
@@ -788,7 +791,14 @@ function extractUpdatedBrandingFields(
     'bgSecondary',
     'cardGradient',
     'cardPattern',
+    'cardLogo',
+    'cardLogoUrl',
+    'cardEffect',
+    'cardEffectProps',
+    'cardEffectOpacity',
     'bgEffect',
+    'iconColorMode',
+    'iconColors',
     'borderRadius',
     'fontFamily',
   ];

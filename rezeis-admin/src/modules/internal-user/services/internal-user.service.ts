@@ -61,6 +61,7 @@ import {
   collapseLegacyCatalogPrices,
   INTERNAL_USER_INCLUDE,
   InternalUserRecord,
+  mapCardBrandingOverride,
   mapDateValue,
   mapInternalEmailVerificationChallenge,
   mapInternalUserSession,
@@ -108,6 +109,7 @@ export class InternalUserService {
         name: plan.name,
         description: plan.description,
         tag: plan.tag,
+        icon: plan.icon,
         type: plan.type,
         trafficLimit: plan.trafficLimit,
         deviceLimit: plan.deviceLimit,
@@ -148,6 +150,7 @@ export class InternalUserService {
       name: plan.name,
       description: plan.description,
       tag: plan.tag,
+      icon: plan.icon,
       type: plan.type,
       trafficLimit: plan.trafficLimit,
       deviceLimit: plan.deviceLimit,
@@ -498,23 +501,38 @@ export class InternalUserService {
       },
       orderBy: [{ createdAt: 'desc' }],
     });
+    // Resolve each subscription's panel profile name + used traffic in
+    // parallel so the carousel cards show the real profile name (not the
+    // UUID) and a populated traffic bar — matching the single-subscription
+    // path. Best-effort: failures resolve to nulls and the card degrades.
+    const usages = await Promise.all(
+      subscriptions.map((sub) => this.resolvePanelUsage(sub.remnawaveId)),
+    );
     return {
-      subscriptions: subscriptions.map((sub) => ({
-        id: sub.id,
-        status: sub.status,
-        isTrial: sub.isTrial,
-        plan: mapSubscriptionPlanSnapshot(sub.planSnapshot),
-        trafficLimit: sub.trafficLimit,
-        trafficUsed: null,
-        deviceLimit: sub.deviceLimit,
-        userRemnaId: sub.remnawaveId,
-        url: sub.configUrl,
-        configUrl: sub.configUrl,
-        startedAt: mapDateValue(sub.startedAt),
-        expiresAt: mapDateValue(sub.expiresAt),
-        createdAt: sub.createdAt.toISOString(),
-        updatedAt: sub.updatedAt.toISOString(),
-      })),
+      subscriptions: subscriptions.map((sub, i) => {
+        const cardBranding = mapCardBrandingOverride(sub.cardBranding);
+        return {
+          id: sub.id,
+          status: sub.status,
+          isTrial: sub.isTrial,
+          plan: mapSubscriptionPlanSnapshot(sub.planSnapshot),
+          trafficLimit: sub.trafficLimit,
+          trafficUsed: usages[i].trafficUsedGb,
+          deviceLimit: sub.deviceLimit,
+          userRemnaId: sub.remnawaveId,
+          profileName: usages[i].profileName,
+          cardEffect: cardBranding.cardEffect,
+          cardEffectProps: cardBranding.cardEffectProps,
+          cardEffectOpacity: cardBranding.cardEffectOpacity,
+          cardGradient: cardBranding.cardGradient,
+          url: sub.configUrl,
+          configUrl: sub.configUrl,
+          startedAt: mapDateValue(sub.startedAt),
+          expiresAt: mapDateValue(sub.expiresAt),
+          createdAt: sub.createdAt.toISOString(),
+          updatedAt: sub.updatedAt.toISOString(),
+        };
+      }),
     };
   }
 
@@ -548,18 +566,22 @@ export class InternalUserService {
     if (subscription === null) {
       return null;
     }
-    const trafficUsed = await this.resolveTrafficUsedGb(
-      subscription.remnawaveId,
-    );
+    const usage = await this.resolvePanelUsage(subscription.remnawaveId);
+    const cardBranding = mapCardBrandingOverride(subscription.cardBranding);
     return {
       id: subscription.id,
       status: subscription.status,
       isTrial: subscription.isTrial,
       plan: mapSubscriptionPlanSnapshot(subscription.planSnapshot),
       trafficLimit: subscription.trafficLimit,
-      trafficUsed,
+      trafficUsed: usage.trafficUsedGb,
       deviceLimit: subscription.deviceLimit,
       userRemnaId: subscription.remnawaveId,
+      profileName: usage.profileName,
+      cardEffect: cardBranding.cardEffect,
+      cardEffectProps: cardBranding.cardEffectProps,
+      cardEffectOpacity: cardBranding.cardEffectOpacity,
+      cardGradient: cardBranding.cardGradient,
       url: subscription.configUrl,
       configUrl: subscription.configUrl,
       startedAt: mapDateValue(subscription.startedAt),
@@ -570,25 +592,27 @@ export class InternalUserService {
   }
 
   /**
-   * Best-effort conversion of the Remnawave used-traffic counter (bytes)
-   * to GB for the subscription card progress bar. Returns `null` when
-   * the panel client is absent (worker context, degraded boot), the
-   * subscription has no upstream profile, or the panel read fails — the
-   * SPA then hides the bar instead of rendering a misleading 0%.
+   * Best-effort single-call fetch of a subscription's Remnawave profile
+   * name and used traffic (converted to GB). Returns nulls when the panel
+   * client is absent (worker context), the subscription has no upstream
+   * profile, or the panel read fails — the SPA then shows the local data
+   * and hides the bar instead of rendering a misleading 0%.
    */
-  private async resolveTrafficUsedGb(
+  private async resolvePanelUsage(
     remnawaveId: string | null,
-  ): Promise<number | null> {
+  ): Promise<{ profileName: string | null; trafficUsedGb: number | null }> {
     if (this.remnawaveApiService === undefined || remnawaveId === null) {
-      return null;
+      return { profileName: null, trafficUsedGb: null };
     }
-    const usedBytes =
-      await this.remnawaveApiService.getPanelUserUsedTrafficBytes(remnawaveId);
-    if (usedBytes === null) {
-      return null;
+    const usage = await this.remnawaveApiService.getPanelUserUsage(remnawaveId);
+    if (usage === null) {
+      return { profileName: null, trafficUsedGb: null };
     }
-    // Bytes → GB (1 GB = 1024³ bytes), rounded to 2 decimals.
-    return Math.round((usedBytes / 1024 ** 3) * 100) / 100;
+    const trafficUsedGb =
+      usage.usedTrafficBytes === null
+        ? null
+        : Math.round((usage.usedTrafficBytes / 1024 ** 3) * 100) / 100;
+    return { profileName: usage.username, trafficUsedGb };
   }
 
   private async getRequiredUser(

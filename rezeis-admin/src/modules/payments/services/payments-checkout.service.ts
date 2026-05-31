@@ -74,6 +74,7 @@ export class PaymentsCheckoutService {
       gatewayType: input.gatewayType,
       sourceSubscriptionId: input.subscriptionId,
       channel,
+      deviceType: input.deviceType,
     });
     const transaction = await this.prismaService.transaction.findUnique({
       where: { paymentId: createdDraft.paymentId },

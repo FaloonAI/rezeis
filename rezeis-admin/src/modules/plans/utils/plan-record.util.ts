@@ -28,6 +28,7 @@ export function mapAdminPlan(plan: PlanRecord): AdminPlanInterface {
     name: plan.name,
     description: plan.description,
     tag: plan.tag,
+    icon: plan.icon,
     isActive: plan.isActive,
     isArchived: plan.isArchived,
     archivedRenewMode: plan.archivedRenewMode,

@@ -5,8 +5,10 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PartnersModule } from '../partners/partners.module';
 import { PlansModule } from '../plans/plans.module';
+import { ProfileSyncModule } from '../profile-sync/profile-sync.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 import { RemnawaveModule } from '../remnawave/remnawave.module';
+import { SettingsModule } from '../settings/settings.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { PAYMENT_RECONCILIATION_QUEUE } from './constants/payment-reconciliation.constant';
 import { AdminPaymentGatewaysController } from './controllers/admin-payment-gateways.controller';
@@ -43,6 +45,8 @@ import { TelegramStarsWebhookService } from './services/telegram-stars-webhook.s
     PlansModule,
     PartnersModule,
     ReferralsModule,
+    SettingsModule,
+    ProfileSyncModule,
     BullModule.registerQueue({
       name: PAYMENT_RECONCILIATION_QUEUE,
     }),

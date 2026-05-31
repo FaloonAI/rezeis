@@ -25,6 +25,7 @@ export interface PlanCatalogPlanInterface {
   readonly name: string;
   readonly description: string | null;
   readonly tag: string | null;
+  readonly icon: string | null;
   readonly type: PlanType;
   readonly availability: PlanAvailability;
   readonly trafficLimit: number | null;

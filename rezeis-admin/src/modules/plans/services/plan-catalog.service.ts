@@ -145,6 +145,7 @@ export class PlanCatalogService {
       name: plan.name,
       description: plan.description,
       tag: plan.tag,
+      icon: plan.icon,
       type: plan.type,
       availability: plan.availability,
       trafficLimit: plan.trafficLimit,

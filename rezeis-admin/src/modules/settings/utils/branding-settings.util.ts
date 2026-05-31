@@ -11,7 +11,13 @@ import {
   BG_EFFECTS,
   BgEffect,
   BrandingSettingsInterface,
+  CARD_EFFECTS,
+  CARD_LOGO_PRESETS,
+  CardEffect,
+  CardLogoPreset,
   DEFAULT_BRANDING,
+  ICON_COLOR_MODES,
+  IconColorMode,
 } from '../interfaces/branding-settings.interface';
 
 /** Hex colour validation: 3, 4, 6 or 8 hex chars after a leading `#`. */
@@ -28,7 +34,14 @@ export function readBrandingSettings(value: unknown): BrandingSettingsInterface 
     bgSecondary: readHex(record, 'bgSecondary', DEFAULT_BRANDING.bgSecondary),
     cardGradient: readString(record, 'cardGradient', DEFAULT_BRANDING.cardGradient),
     cardPattern: readNullableString(record, 'cardPattern'),
+    cardLogo: readCardLogo(record, DEFAULT_BRANDING.cardLogo),
+    cardLogoUrl: readNullableString(record, 'cardLogoUrl'),
+    cardEffect: readCardEffect(record, DEFAULT_BRANDING.cardEffect),
+    cardEffectProps: readJsonRecord(record, 'cardEffectProps'),
+    cardEffectOpacity: readClampedNumber(record, 'cardEffectOpacity', 0.05, 1, DEFAULT_BRANDING.cardEffectOpacity),
     bgEffect: readBgEffect(record, DEFAULT_BRANDING.bgEffect),
+    iconColorMode: readIconColorMode(record, DEFAULT_BRANDING.iconColorMode),
+    iconColors: readHexMap(record, 'iconColors'),
     borderRadius: readString(record, 'borderRadius', DEFAULT_BRANDING.borderRadius),
     fontFamily: readString(record, 'fontFamily', DEFAULT_BRANDING.fontFamily),
   };
@@ -111,6 +124,89 @@ function readBgEffect(
     if ((BG_EFFECTS as readonly string[]).includes(upper)) {
       return upper;
     }
+  }
+  return fallback;
+}
+
+function readCardLogo(
+  record: Record<string, unknown>,
+  fallback: CardLogoPreset,
+): CardLogoPreset {
+  const value = record['cardLogo'];
+  if (typeof value === 'string') {
+    const upper = value.toUpperCase() as CardLogoPreset;
+    if ((CARD_LOGO_PRESETS as readonly string[]).includes(upper)) {
+      return upper;
+    }
+  }
+  return fallback;
+}
+
+function readCardEffect(
+  record: Record<string, unknown>,
+  fallback: CardEffect,
+): CardEffect {
+  const value = record['cardEffect'];
+  if (typeof value === 'string' && (CARD_EFFECTS as readonly string[]).includes(value)) {
+    return value as CardEffect;
+  }
+  return fallback;
+}
+
+function readIconColorMode(
+  record: Record<string, unknown>,
+  fallback: IconColorMode,
+): IconColorMode {
+  const value = record['iconColorMode'];
+  if (typeof value === 'string' && (ICON_COLOR_MODES as readonly string[]).includes(value)) {
+    return value as IconColorMode;
+  }
+  return fallback;
+}
+
+/**
+ * Reads a `{ key: hexColor }` map, keeping only string values that pass hex
+ * validation. Defends the SPA against malformed/oversized payloads (the values
+ * are injected into inline styles, so we never store non-hex strings).
+ */
+function readHexMap(
+  record: Record<string, unknown>,
+  key: string,
+): Record<string, string> {
+  const value = record[key];
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return {};
+  }
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === 'string' && HEX_PATTERN.test(v.trim())) {
+      out[k] = v.trim();
+    }
+  }
+  return out;
+}
+
+function readJsonRecord(
+  record: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> {
+  const value = record[key];
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function readClampedNumber(
+  record: Record<string, unknown>,
+  key: string,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
+  const value = record[key];
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.min(Math.max(value, min), max);
   }
   return fallback;
 }

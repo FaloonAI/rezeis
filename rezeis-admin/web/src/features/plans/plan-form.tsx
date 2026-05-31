@@ -23,6 +23,7 @@ import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { remnawaveApi } from '@/features/remnawave/remnawave-api'
 import { usePlans, type Plan } from './plans-api'
+import { PLAN_ICON_OPTIONS } from './plan-icon-options'
 
 const PLAN_TYPES = ['TRAFFIC', 'DEVICES', 'BOTH', 'UNLIMITED'] as const
 const AVAILABILITIES = ['ALL', 'NEW', 'EXISTING', 'INVITED', 'ALLOWED', 'TRIAL'] as const
@@ -42,6 +43,7 @@ export interface PlanFormData {
   name: string
   description?: string
   tag?: string
+  icon?: string | null
   type: string
   availability: string
   trafficLimit: number
@@ -77,6 +79,7 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
   const [name, setName] = useState(plan?.name ?? '')
   const [description, setDescription] = useState(plan?.description ?? '')
   const [tag, setTag] = useState(plan?.tag ?? '')
+  const [icon, setIcon] = useState<string | null>(plan?.icon ?? null)
   const [type, setType] = useState(plan?.type ?? 'TRAFFIC')
   const [availability, setAvailability] = useState(plan?.availability ?? 'ALL')
   const [trafficLimitGB, setTrafficLimitGB] = useState(
@@ -167,6 +170,7 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
       name,
       description: description || undefined,
       tag: tag || undefined,
+      icon: icon ?? null,
       type,
       availability,
       trafficLimit: Math.round(parseFloat(trafficLimitGB || '0')),
@@ -227,6 +231,43 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
             onChange={(e) => setDescription(e.target.value)}
             placeholder={t('planForm.descriptionPlaceholder')}
           />
+        </div>
+
+        {/* Plan icon — shown on the cabinet plan card */}
+        <div className="space-y-2">
+          <Label>{t('planForm.icon')}</Label>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setIcon(null)}
+              aria-label={t('planForm.iconNone')}
+              title={t('planForm.iconNone')}
+              className={cn(
+                'flex h-9 w-9 items-center justify-center rounded-lg border text-[10px] font-medium text-muted-foreground transition-all',
+                icon === null ? 'border-primary ring-2 ring-primary/40' : 'border-border hover:border-primary/40',
+              )}
+            >
+              {t('planForm.iconAuto')}
+            </button>
+            {PLAN_ICON_OPTIONS.map(({ key, Icon }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setIcon(key)}
+                aria-label={key}
+                title={key}
+                className={cn(
+                  'flex h-9 w-9 items-center justify-center rounded-lg border transition-all',
+                  icon === key
+                    ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/40'
+                    : 'border-border text-muted-foreground hover:border-primary/40',
+                )}
+              >
+                <Icon className="h-4 w-4" />
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">{t('planForm.iconHint')}</p>
         </div>
       </div>
 

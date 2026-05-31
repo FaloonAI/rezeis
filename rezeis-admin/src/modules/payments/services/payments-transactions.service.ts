@@ -155,7 +155,7 @@ export class PaymentsTransactionsService {
         currency: quote.price.currency,
         amount: quote.price.price,
         planSnapshot: draftPlanSnapshot as Prisma.InputJsonValue,
-        deviceTypes: [],
+        deviceTypes: input.deviceType ? [input.deviceType] : [],
       },
     });
     return mapAdminPaymentTransaction(createdTransaction);

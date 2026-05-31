@@ -1,6 +1,9 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { PurchaseChannel } from '@prisma/client';
 
 import { InternalAdminAuthGuard } from '../../auth/guards/internal-admin-auth.guard';
+import { SettingsService } from '../../settings/services/settings.service';
+import { isGatewayAvailableForChannel } from '../../plans/utils/purchase-gateway-policy.util';
 import { InternalPaymentCheckoutDto } from '../dto/internal-payment-checkout.dto';
 import {
   InternalPaymentCheckoutInterface,
@@ -16,6 +19,7 @@ export class InternalPaymentsController {
   public constructor(
     private readonly paymentsCheckoutService: PaymentsCheckoutService,
     private readonly paymentGatewayRegistryService: PaymentGatewayRegistryService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   /**
@@ -24,18 +28,51 @@ export class InternalPaymentsController {
    * control the visual layout from the admin panel without code
    * changes. Disabled gateways are filtered out — there's no point in
    * leaking them to user-facing surfaces.
+   *
+   * The optional `channel` query (defaults to `WEB`) additionally drops
+   * gateways that can't operate in that context — most importantly
+   * `TELEGRAM_STARS`, which only works inside a Telegram invoice and is
+   * meaningless in the browser cabinet.
+   *
+   * Gateways accepting the operator's default currency (Settings →
+   * "Валюта по умолчанию") are floated to the top, preserving the
+   * admin-defined `orderIndex` within each currency group. No conversion
+   * happens — this is display priority only.
    */
   @Get('gateways')
-  public async listEnabledGateways(): Promise<readonly InternalPaymentGatewayInterface[]> {
-    const all = await this.paymentGatewayRegistryService.listGateways();
+  public async listEnabledGateways(
+    @Query('channel') channelRaw?: string,
+  ): Promise<readonly InternalPaymentGatewayInterface[]> {
+    const channel = this.parseChannel(channelRaw);
+    const [all, policy] = await Promise.all([
+      this.paymentGatewayRegistryService.listGateways(),
+      this.settingsService.getInternalPlatformPolicy(),
+    ]);
+    const defaultCurrency = policy.defaultCurrency;
     return all
       .filter((gateway) => gateway.isActive)
+      .filter((gateway) => isGatewayAvailableForChannel(gateway.type, channel))
       .map((gateway): InternalPaymentGatewayInterface => ({
         id: gateway.id,
         type: gateway.type,
         currency: gateway.currency,
         orderIndex: gateway.orderIndex,
-      }));
+      }))
+      .sort((a, b) => {
+        // Default-currency gateways first; stable on orderIndex within a group.
+        const aDefault = a.currency === defaultCurrency ? 0 : 1;
+        const bDefault = b.currency === defaultCurrency ? 0 : 1;
+        if (aDefault !== bDefault) return aDefault - bDefault;
+        return a.orderIndex - b.orderIndex;
+      });
+  }
+
+  private parseChannel(raw: string | undefined): PurchaseChannel {
+    const upper = (raw ?? '').toUpperCase();
+    if (upper in PurchaseChannel) {
+      return PurchaseChannel[upper as keyof typeof PurchaseChannel];
+    }
+    return PurchaseChannel.WEB;
   }
 
   @Post('checkout')

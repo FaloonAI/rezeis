@@ -72,6 +72,18 @@ export interface RemnawavePanelUser {
   externalSquadUuid: string | null;
 }
 
+/**
+ * Unwraps the Remnawave `{ response: {...} }` envelope returned by the
+ * create/update user endpoints. The panel wraps the user object under
+ * `response`; callers need the inner object so `uuid` / `subscriptionUrl`
+ * are read correctly (otherwise the profile link is silently lost — the
+ * sync job "completes" but `remnawaveId` is never persisted).
+ */
+function unwrapPanelUser(raw: unknown): RemnawavePanelUser {
+  const root = (raw as { response?: unknown } | null)?.response ?? raw;
+  return root as RemnawavePanelUser;
+}
+
 export interface RemnawaveHwidDevice {
   hwid: string;
   platform: string | null;
@@ -113,7 +125,7 @@ export class RemnawaveApiService {
     activeInternalSquads: string[];
     externalSquadUuid: string | null;
   }): Promise<RemnawavePanelUser> {
-    return this.requestJsonWithBody<RemnawavePanelUser>('post', '/api/users', {
+    const raw = await this.requestJsonWithBody<unknown>('post', '/api/users', {
       username: input.username,
       telegramId: input.telegramId,
       email: input.email,
@@ -126,6 +138,7 @@ export class RemnawaveApiService {
       activeInternalSquads: input.activeInternalSquads,
       externalSquadUuid: input.externalSquadUuid,
     });
+    return unwrapPanelUser(raw);
   }
 
   /**
@@ -166,7 +179,8 @@ export class RemnawaveApiService {
     if (input.trafficLimitStrategy !== undefined) body['trafficLimitStrategy'] = input.trafficLimitStrategy;
     if (input.activeInternalSquads !== undefined) body['activeInternalSquads'] = input.activeInternalSquads;
     if (input.externalSquadUuid !== undefined) body['externalSquadUuid'] = input.externalSquadUuid;
-    return this.requestJsonWithBody<RemnawavePanelUser>('patch', '/api/users', body);
+    const raw = await this.requestJsonWithBody<unknown>('patch', '/api/users', body);
+    return unwrapPanelUser(raw);
   }
 
   /**
@@ -202,6 +216,30 @@ export class RemnawaveApiService {
   }
 
   /**
+   * Looks up a panel user by username. Returns `null` when not found
+   * (404) or on any upstream error. Used by the profile-sync CREATE path
+   * for idempotency: if a previous attempt already created the profile
+   * (but failed to persist the link, or the row was reset), we reuse the
+   * existing profile instead of trying to create a duplicate — which the
+   * panel rejects with `400 "username already exists"`.
+   */
+  public async getPanelUserByUsername(username: string): Promise<RemnawavePanelUser | null> {
+    try {
+      const result = await this.requestJson<unknown>({
+        method: 'get',
+        url: `/api/users/by-username/${encodeURIComponent(username)}`,
+      });
+      const root = (result as { response?: unknown })?.response ?? result;
+      if (root === null || typeof root !== 'object') return null;
+      const record = root as Record<string, unknown>;
+      if (typeof record['uuid'] !== 'string') return null;
+      return record as unknown as RemnawavePanelUser;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Best-effort read of a user's *used* traffic (bytes) by UUID.
    *
    * Remnawave moved the counter around between versions: newer panels
@@ -227,6 +265,49 @@ export class RemnawaveApiService {
         this.coerceTrafficNumber(record['usedTrafficBytes']) ??
         this.coerceTrafficNumber(record['trafficUsedBytes'])
       );
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Single-call fetch of the panel profile's display username AND used
+   * traffic (bytes). The subscription card needs both — the human-readable
+   * profile name (e.g. `rz_login_sub`) to display instead of the raw UUID,
+   * and the usage counter for the progress bar. Doing it in one
+   * `GET /api/users/{uuid}` avoids a second round-trip per card.
+   *
+   * Returns `null` when the panel is unreachable or the profile is missing,
+   * so callers fall back to the local data (UUID hidden, bar hidden).
+   */
+  public async getPanelUserUsage(
+    uuid: string,
+  ): Promise<{ username: string | null; usedTrafficBytes: number | null } | null> {
+    try {
+      const result = await this.requestJson<unknown>({ method: 'get', url: `/api/users/${uuid}` });
+      const root = (result as { response?: unknown })?.response ?? result;
+      if (root === null || typeof root !== 'object') return null;
+      const record = root as Record<string, unknown>;
+
+      const username =
+        typeof record['username'] === 'string' && record['username'].length > 0
+          ? (record['username'] as string)
+          : null;
+
+      let usedTrafficBytes: number | null = null;
+      const nested = record['userTraffic'];
+      if (nested !== null && typeof nested === 'object') {
+        usedTrafficBytes = this.coerceTrafficNumber(
+          (nested as Record<string, unknown>)['usedTrafficBytes'],
+        );
+      }
+      if (usedTrafficBytes === null) {
+        usedTrafficBytes =
+          this.coerceTrafficNumber(record['usedTrafficBytes']) ??
+          this.coerceTrafficNumber(record['trafficUsedBytes']);
+      }
+
+      return { username, usedTrafficBytes };
     } catch {
       return null;
     }

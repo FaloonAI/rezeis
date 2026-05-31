@@ -5,6 +5,7 @@ import { InternalAdminAuthGuard } from '../../auth/guards/internal-admin-auth.gu
 import { BotSigninConsumeDto } from '../dto/bot-signin-consume.dto';
 import { BotSigninIssueDto } from '../dto/bot-signin-issue.dto';
 import { WebAuthChangePasswordDto } from '../dto/web-auth-change-password.dto';
+import { WebAuthCheckLoginDto } from '../dto/web-auth-check-login.dto';
 import { WebAuthLoginDto } from '../dto/web-auth-login.dto';
 import { WebAuthRecoverDto } from '../dto/web-auth-recover.dto';
 import { WebAuthRegisterDto } from '../dto/web-auth-register.dto';
@@ -47,6 +48,17 @@ export class InternalWebAuthController {
   @ApiOperation({ summary: 'Create a WebAccount + (optionally) link to existing Telegram User' })
   public register(@Body() body: WebAuthRegisterDto): Promise<WebAuthRegisterResultInterface> {
     return this.webAuthService.register(body);
+  }
+
+  @Post('check-login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Non-mutating availability probe for a login',
+    description:
+      'Returns { available } without creating an account or consuming the registration rate limit. Used by the SPA register form for live feedback.',
+  })
+  public checkLogin(@Body() body: WebAuthCheckLoginDto): Promise<{ available: boolean }> {
+    return this.webAuthService.checkLoginAvailable(body.login);
   }
 
   @Post('login')

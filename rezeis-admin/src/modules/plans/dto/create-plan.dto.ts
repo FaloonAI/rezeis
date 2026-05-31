@@ -43,6 +43,13 @@ export class CreatePlanDto {
   @MaxLength(64)
   public tag?: string | null;
 
+  @Transform(({ value }: { readonly value: unknown }): unknown => trimString(value))
+  @IsOptional()
+  @ValidateIf((_object: object, value: unknown): boolean => value !== null)
+  @IsString()
+  @MaxLength(64)
+  public icon?: string | null;
+
   @IsOptional()
   @IsBoolean()
   public isActive?: boolean;

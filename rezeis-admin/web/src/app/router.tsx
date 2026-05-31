@@ -41,6 +41,7 @@ const ApiTokensPage = lazy(
   ),
 )
 const PanelSettingsHub = lazy(() => import('@/features/settings/panel-settings-hub'))
+const WebReiwaPage = lazy(() => import('@/features/branding/branding-page'))
 const AnalyticsPage = lazy(
   withFeatureBundle('analytics', () => import('@/features/analytics/analytics-page')),
 )
@@ -127,6 +128,7 @@ export const router = createBrowserRouter([
           { path: 'broadcast', element: withSuspense(<BroadcastPage />) },
           { path: 'remnawave', element: withSuspense(<RemnaWavePage />) },
           { path: 'settings', element: withSuspense(<SettingsPage />) },
+          { path: 'web-reiwa', element: withSuspense(<WebReiwaPage />) },
           { path: 'settings/api-tokens', element: withSuspense(<ApiTokensPage />) },
           { path: 'settings/panel', element: withSuspense(<PanelSettingsHub />) },
           { path: 'bot-config', element: withSuspense(<BotConfigPage />) },

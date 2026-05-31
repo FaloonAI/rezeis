@@ -1,11 +1,15 @@
 import {
   IsHexColor,
   IsIn,
+  IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   Length,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
   ValidateIf,
 } from 'class-validator';
@@ -13,6 +17,12 @@ import {
 import {
   BG_EFFECTS,
   BgEffect,
+  CARD_EFFECTS,
+  CARD_LOGO_PRESETS,
+  CardEffect,
+  CardLogoPreset,
+  ICON_COLOR_MODES,
+  IconColorMode,
 } from '../interfaces/branding-settings.interface';
 
 /**
@@ -73,8 +83,43 @@ export class UpdateBrandingSettingsDto {
   public cardPattern?: string | null;
 
   @IsOptional()
+  @IsIn(CARD_LOGO_PRESETS as readonly string[])
+  public cardLogo?: CardLogoPreset;
+
+  @IsOptional()
+  @ValidateIf((_, value: unknown) => typeof value === 'string' && value.length > 0)
+  @IsString()
+  @MaxLength(8192)
+  @Matches(/^(?:data:image\/[a-z0-9+.-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/.+)$/i, {
+    message: 'cardLogoUrl must be a data: URI or an http(s) URL',
+  })
+  public cardLogoUrl?: string | null;
+
+  @IsOptional()
+  @IsIn(CARD_EFFECTS as readonly string[])
+  public cardEffect?: CardEffect;
+
+  @IsOptional()
+  @IsObject()
+  public cardEffectProps?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0.05)
+  @Max(1)
+  public cardEffectOpacity?: number;
+
+  @IsOptional()
   @IsIn(BG_EFFECTS as readonly string[])
   public bgEffect?: BgEffect;
+
+  @IsOptional()
+  @IsIn(ICON_COLOR_MODES as readonly string[])
+  public iconColorMode?: IconColorMode;
+
+  @IsOptional()
+  @IsObject()
+  public iconColors?: Record<string, string>;
 
   @IsOptional()
   @IsString()

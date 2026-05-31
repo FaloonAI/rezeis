@@ -20,6 +20,14 @@ export interface InternalPublicConfigInterface {
   readonly branding: BrandingSettingsInterface;
   readonly locales: readonly string[];
   readonly defaultLocale: string;
+  /**
+   * Operator-chosen default currency (Settings → "Валюта по умолчанию").
+   * Drives display priority on the user edge: gateways that accept this
+   * currency are listed first and plan prices in this currency are shown
+   * first. It does NOT convert anything — prices still come from what the
+   * operator configured per plan.
+   */
+  readonly defaultCurrency: string;
 }
 
 @Controller('internal/branding')
@@ -46,13 +54,17 @@ export class InternalBrandingController {
    */
   @Get('public-config')
   public async getPublicConfig(): Promise<InternalPublicConfigInterface> {
-    const branding = await this.settingsService.getBrandingSettings();
+    const [branding, policy] = await Promise.all([
+      this.settingsService.getBrandingSettings(),
+      this.settingsService.getInternalPlatformPolicy(),
+    ]);
     const locales = this.appConfiguration.locales;
     const defaultLocale = this.appConfiguration.defaultLocale;
     return {
       branding,
       locales,
       defaultLocale,
+      defaultCurrency: policy.defaultCurrency,
     };
   }
 }
