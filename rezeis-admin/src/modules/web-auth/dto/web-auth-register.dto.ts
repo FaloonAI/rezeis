@@ -38,4 +38,15 @@ export class WebAuthRegisterDto {
   @IsString()
   @Matches(/^\d{1,19}$/, { message: 'telegramIdToLink must be a positive numeric string up to 19 digits' })
   public readonly telegramIdToLink?: string;
+
+  /**
+   * Optional referral code captured from the invite link
+   * (`/register?ref=<code>`). The code is the referrer's reiwa_id (CUID),
+   * telegramId, username, or referralCode. When present and resolvable, the
+   * new user is attached as a referral of that referrer.
+   */
+  @IsOptional()
+  @IsString()
+  @Length(1, 64)
+  public readonly referralCode?: string;
 }

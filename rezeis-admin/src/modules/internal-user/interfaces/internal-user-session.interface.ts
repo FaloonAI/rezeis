@@ -51,6 +51,12 @@ export interface InternalUserSessionInterface {
   readonly isBlocked: boolean;
   readonly isBotBlocked: boolean;
   readonly isRulesAccepted: boolean;
+  /**
+   * Whether the user has finished/skipped the cabinet onboarding tour.
+   * `false` → the SPA auto-starts the tour. Server-persisted so the state
+   * follows the user across devices.
+   */
+  readonly onboardingCompleted: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly webAccount: InternalUserWebAccountInterface | null;

@@ -922,6 +922,11 @@ model User {
   referralInviteSettings         Json?     @map("referral_invite_settings")
   /// Maximum number of concurrent active subscriptions per user.
   maxSubscriptions               Int       @default(1) @map("max_subscriptions")
+  /// Timestamp the user finished (or skipped) the cabinet onboarding tour.
+  /// NULL = never completed → the tour auto-starts. Persisted server-side so
+  /// the "seen" state survives across devices/browsers (the SPA also keeps a
+  /// localStorage hint for instant first paint).
+  onboardingCompletedAt          DateTime? @map("onboarding_completed_at") @db.Timestamptz(3)
   /// Optional pointer to the user's currently selected subscription.
   currentSubscriptionId          String?   @unique @map("current_subscription_id")
   createdAt                      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)

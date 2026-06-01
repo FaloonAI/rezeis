@@ -38,6 +38,7 @@ export function mapInternalUserSession(user: InternalUserRecord): InternalUserSe
     isBlocked: user.isBlocked,
     isBotBlocked: user.isBotBlocked,
     isRulesAccepted: user.isRulesAccepted,
+    onboardingCompleted: user.onboardingCompletedAt !== null,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
     webAccount: user.webAccount === null ? null : {

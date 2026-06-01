@@ -35,17 +35,19 @@ export class InternalReferralsController {
   @Get('summary')
   public async getSummary(@Param('userRef') userRef: string) {
     const user = await this.resolveUser(userRef);
-    if (!user) return { totalReferrals: 0, qualifiedReferrals: 0, pointsBalance: 0 };
+    if (!user) return { totalReferrals: 0, qualifiedReferrals: 0, pointsBalance: 0, programAvailable: false };
 
-    const [totalReferrals, qualifiedReferrals] = await Promise.all([
+    const [totalReferrals, qualifiedReferrals, programAvailable] = await Promise.all([
       this.prismaService.referral.count({ where: { referrerId: user.id } }),
       this.prismaService.referral.count({ where: { referrerId: user.id, qualifiedAt: { not: null } } }),
+      this.isReferralProgramAvailable(user.id),
     ]);
 
     return {
       totalReferrals,
       qualifiedReferrals,
       pointsBalance: user.points,
+      programAvailable,
     };
   }
 
@@ -119,6 +121,13 @@ export class InternalReferralsController {
   public async createInvite(@Param('userRef') userRef: string) {
     const user = await this.resolveUser(userRef);
     if (!user) return { error: 'User not found' };
+
+    // Invited-only gate: when the operator restricts the referral program to
+    // invited users, a user who was not themselves invited cannot create
+    // invites.
+    if (!(await this.isReferralProgramAvailable(user.id))) {
+      return { error: 'REFERRAL_PROGRAM_INVITED_ONLY' };
+    }
 
     // Validate slot capacity
     await this.inviteLimitsService.validateCanCreateInvite(user.id);
@@ -202,6 +211,27 @@ export class InternalReferralsController {
       where: buildUserReferenceWhere(userRef),
       select: { id: true, points: true },
     });
+  }
+
+  /**
+   * Whether the referral program is available to this user. When the operator
+   * sets `referralSettings.invitedOnly = true`, only users who were themselves
+   * invited (have a `Referral` edge as the referred party) may participate.
+   */
+  private async isReferralProgramAvailable(userId: string): Promise<boolean> {
+    const settings = await this.prismaService.settings.findUnique({
+      where: { id: 1 },
+      select: { referralSettings: true },
+    });
+    const referralSettings = (settings?.referralSettings ?? {}) as Record<string, unknown>;
+    if (referralSettings['invitedOnly'] !== true) {
+      return true;
+    }
+    const invitedEdge = await this.prismaService.referral.findUnique({
+      where: { referredId: userId },
+      select: { id: true },
+    });
+    return invitedEdge !== null;
   }
 }
 

@@ -39,6 +39,7 @@ type RewardType = 'EXTRA_DAYS' | 'POINTS'
 interface ReferralSettings {
   enabled?: boolean
   enable?: boolean
+  invitedOnly?: boolean
   accrualStrategy?: AccrualStrategy
   rewardType?: RewardType
   level1Reward?: number | string
@@ -94,6 +95,7 @@ function ReferralSettingsForm({ referral }: ReferralSettingsFormProps) {
 
   const schema = z.object({
     enabled: z.boolean(),
+    invitedOnly: z.boolean(),
     accrualStrategy: z.enum(['ON_FIRST_PAYMENT', 'ON_EACH_PAYMENT']),
     rewardType: z.enum(['EXTRA_DAYS', 'POINTS']),
     level1Reward: numString,
@@ -128,6 +130,7 @@ function ReferralSettingsForm({ referral }: ReferralSettingsFormProps) {
     resolver: zodResolver(schema),
     defaultValues: {
       enabled: referral.enabled ?? referral.enable ?? true,
+      invitedOnly: referral.invitedOnly ?? false,
       accrualStrategy: referral.accrualStrategy ?? 'ON_FIRST_PAYMENT',
       rewardType: referral.rewardType ?? 'EXTRA_DAYS',
       level1Reward: String(referral.level1Reward ?? referral.pointsPerReferral ?? '5'),
@@ -173,6 +176,7 @@ function ReferralSettingsForm({ referral }: ReferralSettingsFormProps) {
     mutationFn: (values: FormValues) =>
       api.patch('/admin/settings/referral', {
         enabled: values.enabled,
+        invitedOnly: values.invitedOnly,
         accrualStrategy: values.accrualStrategy,
         rewardType: values.rewardType,
         level1Reward: values.level1Reward ? parseInt(values.level1Reward, 10) : undefined,
@@ -260,6 +264,23 @@ function ReferralSettingsForm({ referral }: ReferralSettingsFormProps) {
                       <FormLabel>{t('referralSettingsPage.general.enable')}</FormLabel>
                       <FormDescription className="text-xs">
                         {t('referralSettingsPage.general.enableHint')}
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="invitedOnly"
+                render={({ field }) => (
+                  <FormItem className="flex items-center justify-between space-y-0">
+                    <div>
+                      <FormLabel>{t('referralSettingsPage.general.invitedOnly')}</FormLabel>
+                      <FormDescription className="text-xs">
+                        {t('referralSettingsPage.general.invitedOnlyHint')}
                       </FormDescription>
                     </div>
                     <FormControl>

@@ -39,6 +39,7 @@ export class InternalPartnerController {
       balance: partner.balance,
       totalEarned: partner.totalEarned,
       totalWithdrawn: partner.totalWithdrawn,
+      programAvailable: await this.isPartnerProgramAvailable(user.id),
       createdAt: partner.createdAt.toISOString(),
     };
   }
@@ -203,6 +204,12 @@ export class InternalPartnerController {
       return { error: 'Partner not found' };
     }
 
+    // Invited-only gate: when the operator restricts the partner program to
+    // invited users, a non-invited partner cannot withdraw.
+    if (!(await this.isPartnerProgramAvailable(user.id))) {
+      return { error: 'PARTNER_PROGRAM_INVITED_ONLY' };
+    }
+
     const withdrawal = await this.partnersService.createWithdrawalRequest({
       partnerId: partner.id,
       amount: body.amount,
@@ -218,6 +225,27 @@ export class InternalPartnerController {
       where: buildUserReferenceWhere(telegramId),
       select: { id: true },
     });
+  }
+
+  /**
+   * Whether the partner program is available to this user. When the operator
+   * sets `partnerSettings.invitedOnly = true`, only users who were themselves
+   * invited (have a `Referral` edge as the referred party) may participate.
+   */
+  private async isPartnerProgramAvailable(userId: string): Promise<boolean> {
+    const settings = await this.prismaService.settings.findUnique({
+      where: { id: 1 },
+      select: { partnerSettings: true },
+    });
+    const partnerSettings = (settings?.partnerSettings ?? {}) as Record<string, unknown>;
+    if (partnerSettings['invitedOnly'] !== true) {
+      return true;
+    }
+    const invitedEdge = await this.prismaService.referral.findUnique({
+      where: { referredId: userId },
+      select: { id: true },
+    });
+    return invitedEdge !== null;
   }
 }
 

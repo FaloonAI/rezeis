@@ -250,6 +250,24 @@ export class InternalUserService {
   }
 
   /**
+   * Records whether the resolved user has finished/skipped the cabinet
+   * onboarding tour. `completed=false` resets it (so the tour replays from
+   * the "replay tutorial" control). Returns the refreshed session payload.
+   */
+  public async setOnboardingCompleted(
+    userId: string | undefined,
+    completed: boolean,
+  ): Promise<InternalUserSessionInterface> {
+    const resolvedUserId = this.getRequiredUserId(userId);
+    await this.prismaService.user.update({
+      where: { id: resolvedUserId },
+      data: { onboardingCompletedAt: completed ? new Date() : null },
+    });
+    const refreshedUser = await this.getRequiredUserById(resolvedUserId);
+    return mapInternalUserSession(refreshedUser);
+  }
+
+  /**
    * Snoozes the resolved user's linked web-account prompt and returns the refreshed session payload.
    */
   public async snoozeWebAccountLinkPrompt(
@@ -498,7 +516,9 @@ export class InternalUserService {
         userId: user.id,
         status: { not: SubscriptionStatus.DELETED },
       },
-      orderBy: [{ createdAt: 'desc' }],
+      // Oldest first: the first subscription a user bought stays first in the
+      // carousel; newly purchased subscriptions append to the end.
+      orderBy: [{ createdAt: 'asc' }],
     });
     // Resolve each subscription's panel profile name + used traffic in
     // parallel so the carousel cards show the real profile name (not the

@@ -68,6 +68,22 @@ export class InternalUserController {
   }
 
   /**
+   * Records the resolved user's onboarding-tour state. Body `{ completed }`
+   * — `true` marks the tour finished/skipped, `false` resets it so the
+   * cabinet "replay tutorial" control re-triggers the tour.
+   */
+  @Patch('session/onboarding')
+  public async setOnboarding(
+    @Query() query: InternalUserSessionQueryDto,
+    @Body() body: { completed?: boolean },
+  ): Promise<InternalUserSessionInterface> {
+    return this.internalUserService.setOnboardingCompleted(
+      query.userId,
+      body?.completed !== false,
+    );
+  }
+
+  /**
    * Snoozes the resolved user's linked web-account prompt.
    */
   @Patch('session/web-account-link-prompt-snooze')

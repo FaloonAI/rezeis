@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -10,6 +11,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { PasswordHashService } from '../../auth/services/password-hash.service';
 import { loginPolicy } from '../../auth/utils/login-policy.util';
+import { ReferralManualAttachService } from '../../referrals/services/referral-manual-attach.service';
 import { WebAuthChangePasswordDto } from '../dto/web-auth-change-password.dto';
 import { WebAuthLoginDto } from '../dto/web-auth-login.dto';
 import { WebAuthRecoverDto } from '../dto/web-auth-recover.dto';
@@ -50,9 +52,12 @@ import {
  */
 @Injectable()
 export class WebAuthService {
+  private readonly logger = new Logger(WebAuthService.name);
+
   public constructor(
     private readonly prismaService: PrismaService,
     private readonly passwordHashService: PasswordHashService,
+    private readonly referralManualAttachService: ReferralManualAttachService,
   ) {}
 
   public async register(input: WebAuthRegisterDto): Promise<WebAuthRegisterResultInterface> {
@@ -66,7 +71,7 @@ export class WebAuthService {
     });
     const emailNormalized = input.email ? input.email.trim().toLowerCase() : null;
 
-    return this.prismaService.$transaction(async (tx) => {
+    const result = await this.prismaService.$transaction(async (tx) => {
       // Phase 1 — pick or create the User row that owns this credential.
       const user = await this.resolveOrCreateUser(tx, {
         telegramIdToLink: input.telegramIdToLink ?? null,
@@ -110,6 +115,66 @@ export class WebAuthService {
         userId: user.id,
         webAccountId: webAccount.id,
       };
+    });
+
+    // Phase 5 — consume the referral invite link (best-effort, outside the
+    // credential transaction so a referral hiccup never blocks sign-up).
+    // The `?ref=<code>` carries the referrer's identity (reiwa_id / telegramId
+    // / username / referralCode); attaching creates the Referral edge that the
+    // "invited-only" gating and partner chain rely on.
+    if (input.referralCode) {
+      await this.consumeReferralCode(result.userId, input.referralCode);
+    }
+
+    return result;
+  }
+
+  /**
+   * Resolves a referral code to a referrer user and attaches the new user as
+   * their referral. Silently no-ops on self-referral, unknown codes, or an
+   * already-attributed user — registration must never fail because of a bad
+   * or duplicate referral link.
+   */
+  private async consumeReferralCode(newUserId: string, rawCode: string): Promise<void> {
+    try {
+      const code = rawCode.trim();
+      if (code.length === 0) {
+        return;
+      }
+      const referrer = await this.resolveReferrer(code);
+      if (referrer === null || referrer.id === newUserId) {
+        return;
+      }
+      await this.referralManualAttachService.attachReferrerManually({
+        userId: newUserId,
+        referrerId: referrer.id,
+      });
+    } catch (error) {
+      // Duplicate attribution / self-referral throw BadRequest — these are
+      // expected and must not break the registration response.
+      this.logger.warn(
+        `Referral consume skipped for user ${newUserId}: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * Resolves a referral code into a referrer `User`. Accepts the canonical
+   * reiwa_id (CUID), a numeric telegramId, a username, or the user's
+   * `referralCode`. Returns `null` when nothing matches.
+   */
+  private async resolveReferrer(code: string): Promise<{ id: string } | null> {
+    const orConditions: Prisma.UserWhereInput[] = [
+      { id: code },
+      { username: code },
+      { referralCode: code },
+    ];
+    if (/^\d{1,19}$/.test(code)) {
+      orConditions.push({ telegramId: BigInt(code) });
+    }
+    return this.prismaService.user.findFirst({
+      where: { OR: orConditions },
+      select: { id: true },
     });
   }
 

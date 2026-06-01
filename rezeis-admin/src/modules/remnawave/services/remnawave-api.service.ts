@@ -419,6 +419,56 @@ export class RemnawaveApiService {
   }
 
   /**
+   * Deletes ALL HWID devices bound to a user's Remnawave profile.
+   *
+   * Remnawave 2.7.x contract: `POST /api/hwid/devices/delete-all` with body
+   * `{ userUuid }`. Returns `{ total }` (should be 0) in the `{ response }`
+   * envelope. Used when regenerating a subscription so stale clients can't
+   * keep a slot.
+   */
+  public async deleteAllPanelUserDevices(userUuid: string): Promise<{ total: number }> {
+    const result = await this.requestJsonWithBody<unknown>('post', '/api/hwid/devices/delete-all', {
+      userUuid,
+    });
+    const root = (result as { response?: unknown })?.response ?? result;
+    const record = (root ?? {}) as { total?: number; devices?: unknown };
+    return {
+      total:
+        typeof record.total === 'number'
+          ? record.total
+          : Array.isArray(record.devices)
+            ? record.devices.length
+            : 0,
+    };
+  }
+
+  /**
+   * Regenerates (revokes) a user's subscription link on the panel — the old
+   * short UUID is invalidated and a brand-new subscription URL is issued, so
+   * every previously-distributed link stops working.
+   *
+   * Remnawave 2.7.x contract: `POST /api/users/{uuid}/actions/revoke`. Passing
+   * no body (or an empty one) rotates the short UUID; the response carries the
+   * fresh `subscriptionUrl`. Returns the new URL (or `null` if the panel
+   * omitted it).
+   */
+  public async regeneratePanelUserSubscription(uuid: string): Promise<{ subscriptionUrl: string | null }> {
+    const result = await this.requestJsonWithBody<unknown>(
+      'post',
+      `/api/users/${uuid}/actions/revoke`,
+      {},
+    );
+    const root = (result as { response?: unknown })?.response ?? result;
+    const record = (root ?? {}) as { subscriptionUrl?: unknown };
+    return {
+      subscriptionUrl:
+        typeof record.subscriptionUrl === 'string' && record.subscriptionUrl.length > 0
+          ? record.subscriptionUrl
+          : null,
+    };
+  }
+
+  /**
    * Lists all users on the Remnawave panel, paginating through `/api/users`.
    *
    * Donor: altshop's `RemnawaveSDK.users.get_all` — but since we're inside

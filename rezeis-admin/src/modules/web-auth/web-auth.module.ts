@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
+import { ReferralsModule } from '../referrals/referrals.module';
 import { InternalWebAuthController } from './controllers/internal-web-auth.controller';
 import { BotSigninTokenService } from './services/bot-signin-token.service';
 import { WebAuthService } from './services/web-auth.service';
@@ -18,7 +19,7 @@ import { WebAuthService } from './services/web-auth.service';
  * user gets a real WebSession without typing a password.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, ReferralsModule],
   controllers: [InternalWebAuthController],
   providers: [WebAuthService, BotSigninTokenService],
   exports: [WebAuthService, BotSigninTokenService],
