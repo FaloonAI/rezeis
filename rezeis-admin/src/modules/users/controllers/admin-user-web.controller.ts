@@ -1,25 +1,26 @@
 /**
  * AdminUserWebController
  * ──────────────────────
- * DEV-only operations against the user's linked `WebAccount`. Carved
- * out of `admin-user-management.controller.ts` so the privileged
- * surface is obvious at the route level.
- *
- * Donor parity: altshop's `WebCabinetAdminService` (subset) — we do
- * NOT implement the cross-Telegram rebind flow because in our model
- * `WebAccount` is 1:1 with a `User`, identified by reiwa-id. There is
- * nothing to "rebind to a different telegramId" in this architecture.
+ * Operator actions against the user's linked `WebAccount`, surfaced in the
+ * admin user-profile panel. Carved out of `admin-user-management.controller.ts`
+ * so the privileged surface is obvious at the route level.
  *
  * Endpoints:
- *   POST  /admin/users/:telegramId/web/reset-password
- *   PATCH /admin/users/:telegramId/web/login
+ *   POST  /admin/users/:telegramId/web/reset-password   — issue a 24h temp password
+ *   PATCH /admin/users/:telegramId/web/login            — change the login (replace)
+ *   PATCH /admin/users/:telegramId/telegram-binding     — manually bind a Telegram id
+ *
+ * Password convention: the reiwa cabinet hashes passwords client-side with
+ * SHA-256 before they reach this service, so stored hashes are
+ * `scrypt(SHA256(password))`. A temp password issued here MUST therefore be
+ * stored as `scrypt(SHA256(temp))` — otherwise the user could never sign in
+ * with it. The plain temp password is returned to the operator once.
  */
 import {
   BadRequestException,
   Body,
   ConflictException,
   Controller,
-  ForbiddenException,
   HttpCode,
   HttpStatus,
   NotFoundException,
@@ -29,9 +30,9 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { Prisma, UserRole } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { Request } from 'express';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CurrentAdmin } from '../../auth/decorators/current-admin.decorator';
@@ -40,6 +41,7 @@ import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.inter
 import { PasswordHashService } from '../../auth/services/password-hash.service';
 import { extractRequestMetadata } from '../../auth/utils/request-metadata.util';
 import { loginPolicy } from '../../auth/utils/login-policy.util';
+import { BindTelegramIdDto } from '../dto/bind-telegram-id.dto';
 import { RenameWebLoginDto } from '../dto/rename-web-login.dto';
 
 /** Default lifespan of an admin-issued temporary password. */
@@ -58,14 +60,12 @@ export class AdminUserWebController {
   /**
    * Issues a temporary password for the user's `WebAccount`. The plain
    * text is returned **once** so the operator can hand it over out of
-   * band; we never store it.
+   * band; we never store the plain value.
    *
    * Side effects:
-   *   • `passwordHash`               ← scrypt(temp)
-   *   • `requiresPasswordChange`     ← true
+   *   • `passwordHash`               ← scrypt(SHA256(temp))
+   *   • `requiresPasswordChange`     ← true (cabinet forces a reset on next login)
    *   • `temporaryPasswordExpiresAt` ← now + TTL
-   *
-   * Donor parity: `EmailRecoveryService.issue_temporary_password_for_dev`.
    */
   @Post(':telegramId/web/reset-password')
   @HttpCode(HttpStatus.OK)
@@ -74,7 +74,6 @@ export class AdminUserWebController {
     @CurrentAdmin() admin: CurrentAdminInterface,
     @Req() req: Request,
   ) {
-    this.assertDev(admin);
     const user = await this.findUserByTelegramId(telegramId);
     const webAccount = await this.prismaService.webAccount.findFirst({
       where: { userId: user.id },
@@ -83,8 +82,10 @@ export class AdminUserWebController {
       throw new NotFoundException('User has no linked web account');
     }
     const temporaryPassword = generateTemporaryPassword();
+    // The cabinet SHA-256s the password client-side, so we must store the
+    // scrypt of that SHA-256 digest — not of the raw temp string.
     const passwordHash = await this.passwordHashService.hashPassword({
-      plainTextPassword: temporaryPassword,
+      plainTextPassword: sha256Hex(temporaryPassword),
     });
     const expiresAt = new Date(Date.now() + TEMPORARY_PASSWORD_TTL_HOURS * 60 * 60 * 1000);
 
@@ -112,10 +113,8 @@ export class AdminUserWebController {
   }
 
   /**
-   * Renames the user's web login. Conflicts on `loginNormalized` surface
-   * as a 409 so the operator knows the new name is taken.
-   *
-   * Donor parity: `WebCabinetAdminService.rename_web_login`.
+   * Renames the user's web login (replace — the old login is removed).
+   * Conflicts on `loginNormalized` surface as a 409.
    */
   @Patch(':telegramId/web/login')
   public async renameWebLogin(
@@ -124,7 +123,6 @@ export class AdminUserWebController {
     @CurrentAdmin() admin: CurrentAdminInterface,
     @Req() req: Request,
   ) {
-    this.assertDev(admin);
     if (!loginPolicy.isValidLogin(body.login)) {
       throw new BadRequestException('Invalid login format');
     }
@@ -166,13 +164,53 @@ export class AdminUserWebController {
     }
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────
-
-  private assertDev(admin: CurrentAdminInterface): void {
-    if (admin.role !== UserRole.DEV) {
-      throw new ForbiddenException('DEV role required');
+  /**
+   * Manually binds (or rebinds) a Telegram id to the user. The Telegram id
+   * is globally unique, so attaching one already used by another account
+   * surfaces as a 409.
+   */
+  @Patch(':telegramId/telegram-binding')
+  public async bindTelegramId(
+    @Param('telegramId') telegramId: string,
+    @Body() body: BindTelegramIdDto,
+    @CurrentAdmin() admin: CurrentAdminInterface,
+    @Req() req: Request,
+  ) {
+    const user = await this.findUserByTelegramId(telegramId);
+    let nextTelegramId: bigint;
+    try {
+      nextTelegramId = BigInt(body.telegramId);
+    } catch {
+      throw new BadRequestException('telegramId must be a numeric string');
     }
+    if (nextTelegramId <= 0n) {
+      throw new BadRequestException('telegramId must be positive');
+    }
+    // No-op when the user already owns this Telegram id.
+    if (user.telegramId !== null && user.telegramId === nextTelegramId) {
+      return { telegramId: nextTelegramId.toString(), changed: false };
+    }
+    // Guard against attaching an id already used by a different account.
+    const conflict = await this.prismaService.user.findUnique({
+      where: { telegramId: nextTelegramId },
+      select: { id: true },
+    });
+    if (conflict !== null && conflict.id !== user.id) {
+      throw new ConflictException('Telegram id is already bound to another user');
+    }
+    await this.prismaService.user.update({
+      where: { id: user.id },
+      data: { telegramId: nextTelegramId },
+    });
+    await this.auditLog(admin, req, 'user.telegram.bound', {
+      userId: user.id,
+      previousTelegramId: user.telegramId?.toString() ?? null,
+      newTelegramId: nextTelegramId.toString(),
+    });
+    return { telegramId: nextTelegramId.toString(), changed: true };
   }
+
+  // ── Helpers ──────────────────────────────────────────────────────────
 
   private async findUserByTelegramId(telegramId: string) {
     const isNumeric = /^\d+$/.test(telegramId);
@@ -204,6 +242,11 @@ export class AdminUserWebController {
       },
     });
   }
+}
+
+/** SHA-256 hex digest — mirrors the cabinet's client-side password hashing. */
+function sha256Hex(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
 /**

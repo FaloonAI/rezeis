@@ -41,7 +41,6 @@ import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { useAuthMe } from '@/features/auth/use-auth-me'
 import { usePlans } from '@/features/plans/plans-api'
 import { getErrorMessage } from '@/lib/http-errors'
 import { RemnawaveIcon } from '@/features/remnawave/remnawave-icon'
@@ -101,8 +100,6 @@ interface UserDetailPanelProps {
 export default function UserDetailPanel({ telegramId }: UserDetailPanelProps) {
   const { t } = useTranslation()
   const queryKey = ['admin', 'users', telegramId]
-  const { data: authUser } = useAuthMe()
-  const isDev = authUser?.role === 'DEV'
 
   const { data: user, isLoading } = useQuery<UserDetail>({
     queryKey,
@@ -149,9 +146,7 @@ export default function UserDetailPanel({ telegramId }: UserDetailPanelProps) {
           <TabsTrigger value="transactions">
             {t('userDetailPanel.tabs.transactions')} ({user.transactions?.length ?? 0})
           </TabsTrigger>
-          {isDev && user.webAccount && (
-            <TabsTrigger value="web">{t('userDetailPanel.tabs.web')}</TabsTrigger>
-          )}
+          <TabsTrigger value="web">{t('userDetailPanel.tabs.web')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile">
@@ -176,11 +171,9 @@ export default function UserDetailPanel({ telegramId }: UserDetailPanelProps) {
         <TabsContent value="transactions">
           <TransactionsTab user={user} />
         </TabsContent>
-        {isDev && user.webAccount && (
-          <TabsContent value="web">
-            <WebCabinetTab user={user} telegramId={telegramId} queryKey={queryKey} />
-          </TabsContent>
-        )}
+        <TabsContent value="web">
+          <WebCabinetTab user={user} telegramId={telegramId} queryKey={queryKey} />
+        </TabsContent>
       </Tabs>
     </div>
   )
@@ -2201,16 +2194,32 @@ function WebCabinetTab({
     expiresAt: string
   } | null>(null)
   const [newLogin, setNewLogin] = useState(user.webAccount?.login ?? '')
+  const [telegramInput, setTelegramInput] = useState(
+    user.telegramId !== undefined && user.telegramId !== null ? String(user.telegramId) : '',
+  )
+
+  // Auto-copies "login / password" together. Used right after issuing a temp
+  // password so the operator can paste both into the user's chat in one go.
+  const copyCredentials = (login: string | null, password: string) => {
+    const text = `${t('userDetailPanel.web.currentLogin')}: ${login ?? '—'}\n${t('userDetailPanel.web.tempPasswordLabel')}: ${password}`
+    navigator.clipboard.writeText(text).then(
+      () => toast.success(t('userDetailPanel.web.credentialsCopied')),
+      () => {/* clipboard blocked — the modal still shows the values */},
+    )
+  }
 
   const resetMutation = useMutation({
     mutationFn: () => api.post(`/admin/users/${telegramId}/web/reset-password`),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey })
-      setTempCredentials({
+      const creds = {
         login: res.data.login,
         temporaryPassword: res.data.temporaryPassword,
         expiresAt: res.data.expiresAt,
-      })
+      }
+      setTempCredentials(creds)
+      // Auto-copy login+password for hand-off (requirement).
+      copyCredentials(creds.login, creds.temporaryPassword)
       toast.success(t('userDetailPanel.web.passwordReset'))
     },
     onError: (err) =>
@@ -2228,101 +2237,177 @@ function WebCabinetTab({
       toast.error(getErrorMessage(err, t('userDetailPanel.web.renameFailed'))),
   })
 
-  // Tab is only rendered when user.webAccount exists; guard the type narrowing.
-  if (!user.webAccount) return null
+  const bindTelegramMutation = useMutation({
+    mutationFn: () =>
+      api.patch(`/admin/users/${telegramId}/telegram-binding`, { telegramId: telegramInput.trim() }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey })
+      toast.success(t('userDetailPanel.web.telegramBound'))
+    },
+    onError: (err) =>
+      toast.error(getErrorMessage(err, t('userDetailPanel.web.telegramBindFailed'))),
+  })
+
   const webAccount = user.webAccount
+  const currentTelegramId =
+    user.telegramId !== undefined && user.telegramId !== null ? String(user.telegramId) : null
 
   return (
     <div className="space-y-3">
+      {/* ── Telegram binding (always available) ─────────────────── */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">{t('userDetailPanel.web.title')}</CardTitle>
+          <CardTitle className="text-base">{t('userDetailPanel.web.telegramTitle')}</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3 text-sm">
+        <CardContent className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            {t('userDetailPanel.web.telegramHint')}
+          </p>
           <InfoRow
-            label={t('userDetailPanel.web.currentLogin')}
-            value={webAccount.login ?? '—'}
+            label={t('userDetailPanel.web.currentTelegram')}
+            value={currentTelegramId ?? '—'}
             mono
           />
-          {webAccount.email && (
-            <InfoRow label="Email" value={webAccount.email} mono />
-          )}
-          {webAccount.requiresPasswordChange && (
-            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-              {t('userDetailPanel.web.requiresChangeNotice')}
-            </div>
-          )}
-          {webAccount.temporaryPasswordExpiresAt && (
-            <InfoRow
-              label={t('userDetailPanel.web.tempUntil')}
-              value={new Date(webAccount.temporaryPasswordExpiresAt).toLocaleString(
-                i18n.language === 'ru' ? 'ru-RU' : 'en-US',
-              )}
-            />
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            {t('userDetailPanel.web.resetPasswordTitle')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            {t('userDetailPanel.web.resetPasswordHint')}
-          </p>
-          <Button
-            onClick={() => resetMutation.mutate()}
-            disabled={resetMutation.isPending}
-            variant="destructive"
-          >
-            {resetMutation.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            {t('userDetailPanel.web.resetPasswordButton')}
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            {t('userDetailPanel.web.renameLoginTitle')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            {t('userDetailPanel.web.renameLoginHint')}
-          </p>
           <div className="flex gap-2">
             <Input
-              value={newLogin}
-              onChange={(e) => setNewLogin(e.target.value)}
-              placeholder={t('userDetailPanel.web.newLoginPlaceholder')}
+              value={telegramInput}
+              onChange={(e) => setTelegramInput(e.target.value.replace(/[^\d]/g, ''))}
+              placeholder={t('userDetailPanel.web.telegramPlaceholder')}
+              inputMode="numeric"
               className="h-9"
             />
             <Button
-              onClick={() => renameMutation.mutate()}
+              onClick={() => bindTelegramMutation.mutate()}
               disabled={
-                renameMutation.isPending
-                || newLogin.trim() === ''
-                || newLogin === webAccount.login
+                bindTelegramMutation.isPending
+                || telegramInput.trim() === ''
+                || telegramInput.trim() === (currentTelegramId ?? '')
               }
             >
-              {renameMutation.isPending ? (
+              {bindTelegramMutation.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Save className="mr-2 h-4 w-4" />
               )}
-              {t('userDetailPanel.web.renameButton')}
+              {t('userDetailPanel.web.telegramBindButton')}
             </Button>
           </div>
         </CardContent>
       </Card>
+
+      {webAccount ? (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">{t('userDetailPanel.web.title')}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <InfoRow
+                label={t('userDetailPanel.web.currentLogin')}
+                value={webAccount.login ?? '—'}
+                mono
+              />
+              {webAccount.email && (
+                <InfoRow label="Email" value={webAccount.email} mono />
+              )}
+              {webAccount.requiresPasswordChange && (
+                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                  {t('userDetailPanel.web.requiresChangeNotice')}
+                </div>
+              )}
+              {webAccount.temporaryPasswordExpiresAt && (
+                <InfoRow
+                  label={t('userDetailPanel.web.tempUntil')}
+                  value={new Date(webAccount.temporaryPasswordExpiresAt).toLocaleString(
+                    i18n.language === 'ru' ? 'ru-RU' : 'en-US',
+                  )}
+                />
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                {t('userDetailPanel.web.resetPasswordTitle')}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                {t('userDetailPanel.web.resetPasswordHint')}
+              </p>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button disabled={resetMutation.isPending} variant="destructive">
+                    {resetMutation.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    {t('userDetailPanel.web.resetPasswordButton')}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t('userDetailPanel.web.resetConfirmTitle')}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t('userDetailPanel.web.resetConfirmText')}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('userDetailPanel.actions.cancel')}</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => resetMutation.mutate()}>
+                      {t('userDetailPanel.web.resetPasswordButton')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                {t('userDetailPanel.web.renameLoginTitle')}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                {t('userDetailPanel.web.renameLoginHint')}
+              </p>
+              <div className="flex gap-2">
+                <Input
+                  value={newLogin}
+                  onChange={(e) => setNewLogin(e.target.value)}
+                  placeholder={t('userDetailPanel.web.newLoginPlaceholder')}
+                  className="h-9"
+                />
+                <Button
+                  onClick={() => renameMutation.mutate()}
+                  disabled={
+                    renameMutation.isPending
+                    || newLogin.trim() === ''
+                    || newLogin === webAccount.login
+                  }
+                >
+                  {renameMutation.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="mr-2 h-4 w-4" />
+                  )}
+                  {t('userDetailPanel.web.renameButton')}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      ) : (
+        <Card>
+          <CardContent className="py-4 text-xs text-muted-foreground">
+            {t('userDetailPanel.web.noWebAccount')}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Temp password modal */}
       <Dialog
@@ -2355,16 +2440,25 @@ function WebCabinetTab({
                   <Button
                     variant="outline"
                     size="icon"
-                    onClick={() => {
-                      navigator.clipboard.writeText(tempCredentials.temporaryPassword)
-                      toast.success(t('userDetailPanel.web.tempCopied'))
-                    }}
-                    aria-label={t('userDetailPanel.web.tempCopied')}
+                    onClick={() =>
+                      copyCredentials(tempCredentials.login, tempCredentials.temporaryPassword)
+                    }
+                    aria-label={t('userDetailPanel.web.credentialsCopied')}
                   >
                     <Copy className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={() =>
+                  copyCredentials(tempCredentials.login, tempCredentials.temporaryPassword)
+                }
+              >
+                <Copy className="mr-2 h-4 w-4" />
+                {t('userDetailPanel.web.copyCredentials')}
+              </Button>
               <p className="text-xs text-muted-foreground">
                 {t('userDetailPanel.web.tempExpires', {
                   expiresAt: new Date(tempCredentials.expiresAt).toLocaleString(
