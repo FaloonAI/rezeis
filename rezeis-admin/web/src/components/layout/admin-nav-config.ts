@@ -50,6 +50,17 @@ export interface NavGroup {
   readonly items: ReadonlyArray<NavItem>
 }
 
+type PermissionChecker = (resource: string, action: RbacAction) => boolean
+
+export function canShowNavItem(
+  item: NavItem,
+  permissionsLoaded: boolean,
+  hasPermission: PermissionChecker,
+): boolean {
+  if (!permissionsLoaded || !item.requiredPermission) return true
+  return hasPermission(item.requiredPermission.resource, item.requiredPermission.action)
+}
+
 export const navGroups: ReadonlyArray<NavGroup> = [
   {
     key: 'operations',
@@ -57,7 +68,7 @@ export const navGroups: ReadonlyArray<NavGroup> = [
       { key: 'dashboard', path: '/', icon: LayoutDashboard },
       { key: 'users', path: '/users', icon: Users },
       { key: 'subscriptions', path: '/subscriptions', icon: CreditCard },
-      { key: 'payments', path: '/payments', icon: DollarSign },
+      { key: 'payments', path: '/payments', icon: DollarSign, requiredPermission: { resource: 'payments', action: 'view' } },
       { key: 'supportTickets', path: '/support-tickets', icon: Bell },
       { key: 'fraudSignals', path: '/fraud', icon: ShieldAlert },
       { key: 'automations', path: '/automations', icon: Zap },

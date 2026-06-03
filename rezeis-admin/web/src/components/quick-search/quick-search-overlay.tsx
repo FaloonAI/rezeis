@@ -9,7 +9,8 @@ import { cn } from '@/lib/utils';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { motion, AnimatePresence } from '@/lib/motion';
-import { navGroups, type NavItem } from '@/components/layout/admin-nav-config';
+import { canShowNavItem, navGroups, type NavItem } from '@/components/layout/admin-nav-config';
+import { usePermissionStore } from '@/features/rbac';
 
 interface SearchResult {
   type: 'user' | 'subscription' | 'transaction' | 'promocode' | 'partner' | 'navigation';
@@ -72,6 +73,8 @@ export function QuickSearchOverlay({ open, onClose }: QuickSearchOverlayProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const permissionsLoaded = usePermissionStore((s) => s.loaded);
+  const hasPermission = usePermissionStore((s) => s.hasPermission);
 
   const { data, isFetching } = useQuery({
     queryKey: ['quick-search', query],
@@ -94,6 +97,7 @@ export function QuickSearchOverlay({ open, onClose }: QuickSearchOverlayProps) {
     if (trimmed.length < 2) return EMPTY_RESULTS;
     const hits: SearchResult[] = [];
     for (const { item, groupKey } of NAV_INDEX) {
+      if (!canShowNavItem(item, permissionsLoaded, hasPermission)) continue;
       const itemLabel = t(`adminNav.items.${item.key}`);
       const groupLabel = t(`adminNav.groups.${groupKey}`);
       const haystacks = [item.key.toLowerCase(), item.path.toLowerCase(), itemLabel.toLowerCase()];
@@ -110,7 +114,7 @@ export function QuickSearchOverlay({ open, onClose }: QuickSearchOverlayProps) {
       if (hits.length >= NAV_HITS_CAP) break;
     }
     return hits;
-  }, [query, t]);
+  }, [hasPermission, permissionsLoaded, query, t]);
 
   // Navigation always wins the top of the list — Cmd+K should feel like
   // Linear/Spotlight: type the page name, hit Enter, and you're there.

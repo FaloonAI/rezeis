@@ -25,7 +25,7 @@ import { Button } from '@/components/ui/button'
 import { usePermissionStore } from '@/features/rbac'
 import { useSidebarStore } from '@/stores/sidebar-store'
 
-import { navGroups, navItemMap, resolveNavOrder } from '../admin-nav-config'
+import { canShowNavItem, navGroups, navItemMap, resolveNavOrder } from '../admin-nav-config'
 import { EmptyGroupDropZone } from './empty-group-drop-zone'
 import { SortableNavItem } from './sortable-nav-item'
 
@@ -72,10 +72,7 @@ export function NavItems({ collapsed = false, onNavigate }: NavItemsProps) {
       if (!permissionsLoaded) return groups
       return groups.map((group) => ({
         ...group,
-        items: group.items.filter((item) => {
-          if (!item.requiredPermission) return true
-          return hasPermission(item.requiredPermission.resource, item.requiredPermission.action)
-        }),
+        items: group.items.filter((item) => canShowNavItem(item, permissionsLoaded, hasPermission)),
       }))
     },
     [effectiveGroups, groupKeyOrder, hasPermission, permissionsLoaded],

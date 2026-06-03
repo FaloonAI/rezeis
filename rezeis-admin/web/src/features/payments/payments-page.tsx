@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DatePicker } from '@/components/ui/date-picker'
+import { PermissionGate } from '@/features/rbac'
 
 const PaymentsAnalyticsTab = lazy(() => import('./payments-analytics-tab'))
 
@@ -40,17 +41,19 @@ interface WebhookEventRow {
   readonly gatewayType: string
   readonly providerEventId: string | null
   readonly status: string
-  readonly createdAt: string
-}
-
-interface WebhookEventsList {
-  readonly items: ReadonlyArray<WebhookEventRow>
+  readonly receivedAt: string
 }
 
 export default function PaymentsPage() {
   const { t } = useTranslation()
   return (
-    <div className="space-y-6">
+    <PermissionGate
+      resource="payments"
+      action="view"
+      hideWhileLoading
+      fallback={<PaymentsAccessDenied />}
+    >
+      <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{t('paymentsPage.title')}</h1>
         <p className="text-muted-foreground">{t('paymentsPage.subtitle')}</p>
@@ -71,7 +74,20 @@ export default function PaymentsPage() {
           </Suspense>
         </TabsContent>
       </Tabs>
-    </div>
+      </div>
+    </PermissionGate>
+  )
+}
+
+function PaymentsAccessDenied() {
+  const { t } = useTranslation()
+  return (
+    <Card>
+      <CardContent className="space-y-2 py-8">
+        <h1 className="text-2xl font-bold tracking-tight">{t('paymentsPage.accessDeniedTitle')}</h1>
+        <p className="text-muted-foreground">{t('paymentsPage.accessDeniedDescription')}</p>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -279,10 +295,10 @@ function TransactionsTab() {
 
 function WebhooksTab() {
   const { t } = useTranslation()
-  const { data, isLoading } = useQuery<WebhookEventsList>({
+  const { data, isLoading } = useQuery<ReadonlyArray<WebhookEventRow>>({
     queryKey: ['admin', 'payments', 'webhooks'],
     queryFn: async ({ signal }) =>
-      (await api.get<WebhookEventsList>('/admin/payments/webhooks?limit=30', { signal })).data,
+      (await api.get<ReadonlyArray<WebhookEventRow>>('/admin/payments/webhooks/events?limit=30', { signal })).data,
   })
 
   if (isLoading) return <Skeleton className="h-48 w-full mt-4" />
@@ -300,12 +316,12 @@ function WebhooksTab() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {data?.items?.map((ev) => (
+            {(data ?? []).map((ev) => (
               <TableRow key={ev.id}>
                 <TableCell className="text-xs uppercase">{ev.gatewayType}</TableCell>
                 <TableCell className="font-mono text-xs">{ev.providerEventId?.slice(0, 16)}…</TableCell>
                 <TableCell><Badge variant="outline">{ev.status}</Badge></TableCell>
-                <TableCell className="text-xs text-muted-foreground">{new Date(ev.createdAt).toLocaleString()}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">{new Date(ev.receivedAt).toLocaleString()}</TableCell>
               </TableRow>
             ))}
           </TableBody>

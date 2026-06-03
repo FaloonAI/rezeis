@@ -1873,6 +1873,8 @@
   paymentsPage: {
     title: 'Платежи',
     subtitle: 'Транзакции, шлюзы и события вебхуков',
+    accessDeniedTitle: 'Доступ к платежам ограничен',
+    accessDeniedDescription: 'В вашей роли администратора нет права payments:view. Попросите superadmin выдать доступ перед просмотром платёжных операций.',
     tabs: {
       transactions: 'Транзакции',
       gateways: 'Шлюзы',

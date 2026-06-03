@@ -1851,6 +1851,8 @@ export const en = {
   paymentsPage: {
     title: 'Payments',
     subtitle: 'Transactions, gateways, and webhook events',
+    accessDeniedTitle: 'Payment access is restricted',
+    accessDeniedDescription: 'Your admin role does not include payments:view. Ask a superadmin to grant access before inspecting payment operations.',
     tabs: {
       transactions: 'Transactions',
       gateways: 'Gateways',

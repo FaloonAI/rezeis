@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, TransactionStatus } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.interface';
+import { RbacService } from '../../rbac/services/rbac.service';
 import { QuickSearchHitInterface } from '../interfaces/quick-search-result.interface';
 
 const DEFAULT_LIMIT = 12;
@@ -18,19 +20,36 @@ const PER_DOMAIN_CAP = 5;
  */
 @Injectable()
 export class QuickSearchService {
-  public constructor(private readonly prismaService: PrismaService) {}
+  public constructor(
+    private readonly prismaService: PrismaService,
+    private readonly rbacService: RbacService,
+  ) {}
 
-  public async search(rawQuery: string, limit?: number): Promise<QuickSearchHitInterface[]> {
+  public async search(input: {
+    readonly rawQuery: string;
+    readonly limit?: number;
+    readonly currentAdmin: Pick<CurrentAdminInterface, 'id' | 'role' | 'rbacRoleId'>;
+  }): Promise<QuickSearchHitInterface[]> {
+    const rawQuery = input.rawQuery;
     const query = rawQuery.trim();
     if (query.length < 2) return [];
-    const cap = Math.max(1, Math.min(limit ?? DEFAULT_LIMIT, 25));
+    const cap = Math.max(1, Math.min(input.limit ?? DEFAULT_LIMIT, 25));
+
+    const [canSearchUsers, canSearchSubscriptions, canSearchPayments, canSearchPromocodes, canSearchPartners] =
+      await Promise.all([
+        this.rbacService.hasPermission(input.currentAdmin, 'users', 'view'),
+        this.rbacService.hasPermission(input.currentAdmin, 'subscriptions', 'view'),
+        this.rbacService.hasPermission(input.currentAdmin, 'payments', 'view'),
+        this.rbacService.hasPermission(input.currentAdmin, 'promocodes', 'view'),
+        this.rbacService.hasPermission(input.currentAdmin, 'partners', 'view'),
+      ]);
 
     const [users, subscriptions, transactions, promocodes, partners] = await Promise.all([
-      this.searchUsers(query),
-      this.searchSubscriptions(query),
-      this.searchTransactions(query),
-      this.searchPromocodes(query),
-      this.searchPartners(query),
+      canSearchUsers ? this.searchUsers(query) : [],
+      canSearchSubscriptions ? this.searchSubscriptions(query) : [],
+      canSearchPayments ? this.searchTransactions(query) : [],
+      canSearchPromocodes ? this.searchPromocodes(query) : [],
+      canSearchPartners ? this.searchPartners(query) : [],
     ]);
 
     const merged: QuickSearchHitInterface[] = [

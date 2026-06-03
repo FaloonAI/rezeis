@@ -1,12 +1,32 @@
+import 'reflect-metadata';
+
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { RequestMethod } from '@nestjs/common';
+import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { Currency, PaymentGatewayType, PurchaseChannel, PurchaseType, TransactionStatus } from '@prisma/client';
 
+import { AdminJwtAuthGuard } from '../src/modules/auth/guards/admin-jwt-auth.guard';
 import { AdminPaymentTransactionsController } from '../src/modules/payments/controllers/admin-payment-transactions.controller';
 import { PaymentsTransactionsService } from '../src/modules/payments/services/payments-transactions.service';
+import { REQUIRE_PERMISSION_KEY } from '../src/modules/rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../src/modules/rbac/guards/rbac.guard';
 
 describe('AdminPaymentTransactionsController', () => {
+  it('exposes transaction admin routes behind explicit payment RBAC', () => {
+    assert.equal(
+      Reflect.getMetadata(PATH_METADATA, AdminPaymentTransactionsController),
+      'admin/payments/transactions',
+    );
+    assert.deepStrictEqual(
+      Reflect.getMetadata(GUARDS_METADATA, AdminPaymentTransactionsController),
+      [AdminJwtAuthGuard, RbacGuard],
+    );
+    assertRoute(AdminPaymentTransactionsController.prototype.listTransactions, '/', RequestMethod.GET, 'view');
+    assertRoute(AdminPaymentTransactionsController.prototype.createDraft, 'draft', RequestMethod.POST, 'create');
+  });
+
   it('delegates current transaction list and draft endpoints', async () => {
     const calls: unknown[] = [];
     const transactionsService = {
@@ -66,3 +86,11 @@ describe('AdminPaymentTransactionsController', () => {
     ]);
   });
 });
+
+function assertRoute(method: unknown, path: string | undefined, requestMethod: RequestMethod, action: string): void {
+  assert.equal(Reflect.getMetadata(PATH_METADATA, method), path);
+  assert.equal(Reflect.getMetadata(METHOD_METADATA, method), requestMethod);
+  assert.deepStrictEqual(Reflect.getMetadata(REQUIRE_PERMISSION_KEY, method), [
+    { resource: 'payments', action },
+  ]);
+}
