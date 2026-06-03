@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { usePermissionStore } from '@/features/rbac'
 import { api } from '@/lib/api'
@@ -45,6 +46,52 @@ describe('AuthProvidersTab RBAC gating', () => {
 
     expect(await screen.findByText('GitHub')).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Toggle GitHub' })).toBeInTheDocument()
+  })
+
+  it('blocks invalid OAuth provider settings before submitting', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'get').mockResolvedValue({ data: [providerConfig()] })
+    const putSpy = vi.spyOn(api, 'put').mockResolvedValue({ data: providerConfig() })
+    grantPermissions([
+      { resource: 'auth_providers', action: 'view' },
+      { resource: 'auth_providers', action: 'edit' },
+    ])
+
+    renderWithProviders(<AuthProvidersTab />)
+
+    await user.click(await screen.findByRole('button', { name: /GitHub/ }))
+    await user.clear(screen.getByPlaceholderText('admin@example.com, dev@example.com'))
+    await user.type(screen.getByPlaceholderText('admin@example.com, dev@example.com'), 'bad-email')
+    await user.clear(screen.getByPlaceholderText('https://api.example.com'))
+    await user.type(screen.getByPlaceholderText('https://api.example.com'), 'not-a-url')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText('Enter valid email addresses separated by commas.')).toBeInTheDocument()
+    expect(screen.getByText('Enter a valid HTTP(S) URL.')).toBeInTheDocument()
+    expect(putSpy).not.toHaveBeenCalled()
+  })
+
+  it('submits normalized OAuth provider settings after validation passes', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'get').mockResolvedValue({ data: [providerConfig()] })
+    const putSpy = vi.spyOn(api, 'put').mockResolvedValue({ data: providerConfig() })
+    grantPermissions([
+      { resource: 'auth_providers', action: 'view' },
+      { resource: 'auth_providers', action: 'edit' },
+    ])
+
+    renderWithProviders(<AuthProvidersTab />)
+
+    await user.click(await screen.findByRole('button', { name: /GitHub/ }))
+    await user.clear(screen.getByPlaceholderText('admin@example.com, dev@example.com'))
+    await user.type(screen.getByPlaceholderText('admin@example.com, dev@example.com'), ' ops@example.com, dev@example.com ')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(putSpy).toHaveBeenCalledWith('/admin/oauth/config/GITHUB', expect.objectContaining({
+      allowedEmails: ['ops@example.com', 'dev@example.com'],
+      backendDomain: 'https://api.example.com',
+      frontendDomain: 'admin.example.com',
+    }))
   })
 })
 

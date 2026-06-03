@@ -1984,6 +1984,12 @@ export const en = {
       allowedTelegramIds: 'Allowed Telegram IDs',
       allowedTelegramIdsHint: 'Comma-separated numeric IDs. Empty = allow all.',
     },
+    validation: {
+      domain: 'Enter a domain without protocol or path, for example example.com.',
+      url: 'Enter a valid HTTP(S) URL.',
+      emails: 'Enter valid email addresses separated by commas.',
+      telegramIds: 'Enter positive numeric Telegram IDs separated by commas.',
+    },
     toasts: {
       toggled: 'Provider toggled',
       toggleFailed: 'Failed to toggle provider',

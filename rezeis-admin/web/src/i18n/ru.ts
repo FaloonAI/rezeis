@@ -2006,6 +2006,12 @@
       allowedTelegramIds: 'Разрешённые Telegram ID',
       allowedTelegramIdsHint: 'Числовые ID через запятую. Пусто = разрешить все.',
     },
+    validation: {
+      domain: 'Введите домен без протокола и пути, например example.com.',
+      url: 'Введите корректный HTTP(S) URL.',
+      emails: 'Введите корректные email-адреса через запятую.',
+      telegramIds: 'Введите положительные числовые Telegram ID через запятую.',
+    },
     toasts: {
       toggled: 'Провайдер переключён',
       toggleFailed: 'Не удалось переключить провайдер',

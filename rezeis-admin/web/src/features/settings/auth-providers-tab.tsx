@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { KeyRound, Shield, Loader2, Eye, EyeOff, ChevronDown } from 'lucide-react'
+import { Controller, useForm, type Resolver } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -135,12 +138,29 @@ export default function AuthProvidersTab({ embedded = false }: AuthProvidersTabP
   )
 }
 
-function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit: boolean }) {
-  const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const [isOpen, setIsOpen] = useState(false)
-  const [showSecret, setShowSecret] = useState(false)
-  const [formData, setFormData] = useState({
+interface ProviderFormValues {
+  readonly clientId: string
+  readonly clientSecret: string
+  readonly frontendDomain: string
+  readonly backendDomain: string
+  readonly authorizationUrl: string
+  readonly tokenUrl: string
+  readonly realm: string
+  readonly providerDomain: string
+  readonly usePkce: boolean
+  readonly allowedEmails: string
+  readonly allowedTelegramIds: string
+}
+
+interface ProviderValidationMessages {
+  readonly domain: string
+  readonly url: string
+  readonly emails: string
+  readonly telegramIds: string
+}
+
+function createProviderDefaults(provider: ProviderConfig): ProviderFormValues {
+  return {
     clientId: provider.clientId ?? '',
     clientSecret: '',
     frontendDomain: provider.frontendDomain ?? '',
@@ -152,7 +172,146 @@ function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit
     usePkce: provider.usePkce,
     allowedEmails: provider.allowedEmails.join(', '),
     allowedTelegramIds: provider.allowedTelegramIds.map(String).join(', '),
+  }
+}
+
+function createProviderFormSchema(providerType: string, messages: ProviderValidationMessages) {
+  return z.object({
+    clientId: z.string(),
+    clientSecret: z.string(),
+    frontendDomain: z.string(),
+    backendDomain: z.string(),
+    authorizationUrl: z.string(),
+    tokenUrl: z.string(),
+    realm: z.string(),
+    providerDomain: z.string(),
+    usePkce: z.boolean(),
+    allowedEmails: z.string(),
+    allowedTelegramIds: z.string(),
+  }).superRefine((values, ctx) => {
+    addDomainIssue(ctx, ['frontendDomain'], values.frontendDomain, messages.domain)
+
+    if (providerType !== 'TELEGRAM') {
+      addUrlIssue(ctx, ['backendDomain'], values.backendDomain, messages.url)
+      addEmailListIssue(ctx, ['allowedEmails'], values.allowedEmails, messages.emails)
+    }
+
+    if (providerType === 'GENERIC_OAUTH2') {
+      addUrlIssue(ctx, ['authorizationUrl'], values.authorizationUrl, messages.url)
+      addUrlIssue(ctx, ['tokenUrl'], values.tokenUrl, messages.url)
+    }
+
+    if (providerType === 'KEYCLOAK' || providerType === 'POCKETID') {
+      addDomainIssue(ctx, ['providerDomain'], values.providerDomain, messages.domain)
+    }
+
+    if (providerType === 'TELEGRAM') {
+      addTelegramIdsIssue(ctx, ['allowedTelegramIds'], values.allowedTelegramIds, messages.telegramIds)
+    }
   })
+}
+
+function addDomainIssue(ctx: z.RefinementCtx, path: string[], value: string, message: string): void {
+  const trimmed = value.trim()
+  if (trimmed.length === 0 || isDomainLike(trimmed)) return
+  ctx.addIssue({ code: 'custom', path, message })
+}
+
+function addUrlIssue(ctx: z.RefinementCtx, path: string[], value: string, message: string): void {
+  const trimmed = value.trim()
+  if (trimmed.length === 0 || isHttpUrl(trimmed)) return
+  ctx.addIssue({ code: 'custom', path, message })
+}
+
+function addEmailListIssue(ctx: z.RefinementCtx, path: string[], value: string, message: string): void {
+  const emails = splitCommaList(value)
+  if (emails.every((email) => z.string().email().safeParse(email).success)) return
+  ctx.addIssue({ code: 'custom', path, message })
+}
+
+function addTelegramIdsIssue(ctx: z.RefinementCtx, path: string[], value: string, message: string): void {
+  const ids = splitCommaList(value)
+  if (ids.every((id) => /^\d+$/.test(id) && BigInt(id) > 0n)) return
+  ctx.addIssue({ code: 'custom', path, message })
+}
+
+function isDomainLike(value: string): boolean {
+  if (value.includes('://') || value.includes('/') || /\s/.test(value)) return false
+  const [host, port, ...rest] = value.split(':')
+  if (!host || rest.length > 0) return false
+  if (port !== undefined) {
+    const portNumber = Number(port)
+    if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65_535) return false
+  }
+  return host.split('.').every((part) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(part))
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return (url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password
+  } catch {
+    return false
+  }
+}
+
+function splitCommaList(value: string): string[] {
+  return value.split(',').map((part) => part.trim()).filter(Boolean)
+}
+
+function optionalString(value: string): string | null {
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function buildProviderPayload(providerType: string, values: ProviderFormValues): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    clientId: optionalString(values.clientId),
+    frontendDomain: optionalString(values.frontendDomain),
+    backendDomain: optionalString(values.backendDomain),
+  }
+  if (values.clientSecret.length > 0) payload['clientSecret'] = values.clientSecret
+  if (providerType === 'GENERIC_OAUTH2') {
+    payload['authorizationUrl'] = optionalString(values.authorizationUrl)
+    payload['tokenUrl'] = optionalString(values.tokenUrl)
+    payload['usePkce'] = values.usePkce
+  }
+  if (providerType === 'KEYCLOAK') {
+    payload['realm'] = optionalString(values.realm)
+    payload['providerDomain'] = optionalString(values.providerDomain)
+  }
+  if (providerType === 'POCKETID') {
+    payload['providerDomain'] = optionalString(values.providerDomain)
+  }
+  payload['allowedEmails'] = splitCommaList(values.allowedEmails)
+  if (providerType === 'TELEGRAM' && values.allowedTelegramIds.trim()) {
+    payload['allowedTelegramIds'] = splitCommaList(values.allowedTelegramIds)
+  }
+  return payload
+}
+
+function FieldError({ message }: { readonly message?: string }): JSX.Element | null {
+  if (!message) return null
+  return <p className="text-[10px] text-destructive" role="alert">{message}</p>
+}
+
+function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit: boolean }) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [isOpen, setIsOpen] = useState(false)
+  const [showSecret, setShowSecret] = useState(false)
+  const form = useForm<ProviderFormValues>({
+    defaultValues: createProviderDefaults(provider),
+    mode: 'onSubmit',
+    reValidateMode: 'onBlur',
+    resolver: zodResolver(createProviderFormSchema(provider.type, {
+      domain: t('authProviders.validation.domain'),
+      url: t('authProviders.validation.url'),
+      emails: t('authProviders.validation.emails'),
+      telegramIds: t('authProviders.validation.telegramIds'),
+    })) as Resolver<ProviderFormValues>,
+  })
+  const errors = form.formState.errors
 
   const providerType = provider.type as AuthProviderIconType
   const meta = PROVIDER_META[providerType] ?? PROVIDER_META.GENERIC_OAUTH2
@@ -170,33 +329,8 @@ function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit
   })
 
   const saveMutation = useMutation({
-    mutationFn: async () => {
-      const payload: Record<string, unknown> = {
-        clientId: formData.clientId || null,
-        frontendDomain: formData.frontendDomain || null,
-        backendDomain: formData.backendDomain || null,
-      }
-      if (formData.clientSecret) payload['clientSecret'] = formData.clientSecret
-      if (provider.type === 'GENERIC_OAUTH2') {
-        payload['authorizationUrl'] = formData.authorizationUrl || null
-        payload['tokenUrl'] = formData.tokenUrl || null
-        payload['usePkce'] = formData.usePkce
-      }
-      if (provider.type === 'KEYCLOAK') {
-        payload['realm'] = formData.realm || null
-        payload['providerDomain'] = formData.providerDomain || null
-      }
-      if (provider.type === 'POCKETID') {
-        payload['providerDomain'] = formData.providerDomain || null
-      }
-      if (formData.allowedEmails.trim()) {
-        payload['allowedEmails'] = formData.allowedEmails.split(',').map((e) => e.trim()).filter(Boolean)
-      } else {
-        payload['allowedEmails'] = []
-      }
-      if (provider.type === 'TELEGRAM' && formData.allowedTelegramIds.trim()) {
-        payload['allowedTelegramIds'] = formData.allowedTelegramIds.split(',').map((id) => id.trim()).filter(Boolean)
-      }
+    mutationFn: async (values: ProviderFormValues) => {
+      const payload = buildProviderPayload(provider.type, values)
       await api.put(`/admin/oauth/config/${provider.type}`, payload)
     },
     onSuccess: () => {
@@ -244,6 +378,7 @@ function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit
 
         <CollapsibleContent className="collapsible-animate overflow-hidden">
           <CardContent className="space-y-4 border-t pt-4">
+            <form className="space-y-4" onSubmit={form.handleSubmit((values) => saveMutation.mutate(values))}>
             {/* Client ID */}
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">Client ID</Label>
@@ -251,11 +386,12 @@ function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit
                 {provider.type === 'TELEGRAM' ? t('authProviders.fields.botToken') : t('authProviders.fields.clientIdHint')}
               </p>
               <Input
-                value={formData.clientId}
-                onChange={(e) => setFormData({ ...formData, clientId: e.target.value })}
+                {...form.register('clientId')}
                 placeholder={provider.type === 'TELEGRAM' ? '1234567890:ABCdef...' : t('authProviders.fields.clientIdPlaceholder')}
                 disabled={!canEdit}
+                aria-invalid={!!errors.clientId}
               />
+              <FieldError message={errors.clientId?.message} />
             </div>
 
             {/* Client Secret (not for Telegram) */}
@@ -266,10 +402,10 @@ function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit
                 <div className="relative">
                   <Input
                     type={showSecret ? 'text' : 'password'}
-                    value={formData.clientSecret}
-                    onChange={(e) => setFormData({ ...formData, clientSecret: e.target.value })}
+                    {...form.register('clientSecret')}
                     placeholder={t('authProviders.fields.clientSecretPlaceholder')}
                     disabled={!canEdit}
+                    aria-invalid={!!errors.clientSecret}
                   />
                   {canEdit ? (
                     <Button
@@ -284,6 +420,7 @@ function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit
                     </Button>
                   ) : null}
                 </div>
+                <FieldError message={errors.clientSecret?.message} />
               </div>
             )}
 
@@ -292,11 +429,12 @@ function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit
               <Label className="text-xs font-medium">Frontend Domain</Label>
               <p className="text-xs text-muted-foreground">{t('authProviders.fields.frontendDomainHint')}</p>
               <Input
-                value={formData.frontendDomain}
-                onChange={(e) => setFormData({ ...formData, frontendDomain: e.target.value })}
+                {...form.register('frontendDomain')}
                 placeholder="example.com"
                 disabled={!canEdit}
+                aria-invalid={!!errors.frontendDomain}
               />
+              <FieldError message={errors.frontendDomain?.message} />
             </div>
 
             {/* Backend Domain */}
@@ -305,11 +443,12 @@ function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit
                 <Label className="text-xs font-medium">Backend Domain</Label>
                 <p className="text-xs text-muted-foreground">{t('authProviders.fields.backendDomainHint')}</p>
                 <Input
-                  value={formData.backendDomain}
-                  onChange={(e) => setFormData({ ...formData, backendDomain: e.target.value })}
+                  {...form.register('backendDomain')}
                   placeholder="https://api.example.com"
                   disabled={!canEdit}
+                  aria-invalid={!!errors.backendDomain}
                 />
+                <FieldError message={errors.backendDomain?.message} />
               </div>
             )}
 
@@ -319,20 +458,22 @@ function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium">Realm</Label>
                   <Input
-                    value={formData.realm}
-                    onChange={(e) => setFormData({ ...formData, realm: e.target.value })}
+                    {...form.register('realm')}
                     placeholder="master"
                     disabled={!canEdit}
+                    aria-invalid={!!errors.realm}
                   />
+                  <FieldError message={errors.realm?.message} />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium">{t('authProviders.fields.keycloakDomain')}</Label>
                   <Input
-                    value={formData.providerDomain}
-                    onChange={(e) => setFormData({ ...formData, providerDomain: e.target.value })}
+                    {...form.register('providerDomain')}
                     placeholder="keycloak.example.com"
                     disabled={!canEdit}
+                    aria-invalid={!!errors.providerDomain}
                   />
+                  <FieldError message={errors.providerDomain?.message} />
                 </div>
               </>
             )}
@@ -342,11 +483,12 @@ function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium">{t('authProviders.fields.pocketidDomain')}</Label>
                 <Input
-                  value={formData.providerDomain}
-                  onChange={(e) => setFormData({ ...formData, providerDomain: e.target.value })}
+                  {...form.register('providerDomain')}
                   placeholder="pocket.yoursite.com"
                   disabled={!canEdit}
+                  aria-invalid={!!errors.providerDomain}
                 />
+                <FieldError message={errors.providerDomain?.message} />
               </div>
             )}
 
@@ -356,27 +498,35 @@ function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium">Authorization URL</Label>
                   <Input
-                    value={formData.authorizationUrl}
-                    onChange={(e) => setFormData({ ...formData, authorizationUrl: e.target.value })}
+                    {...form.register('authorizationUrl')}
                     placeholder="https://example.com/oauth2/authorize"
                     disabled={!canEdit}
+                    aria-invalid={!!errors.authorizationUrl}
                   />
+                  <FieldError message={errors.authorizationUrl?.message} />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium">Token URL</Label>
                   <Input
-                    value={formData.tokenUrl}
-                    onChange={(e) => setFormData({ ...formData, tokenUrl: e.target.value })}
+                    {...form.register('tokenUrl')}
                     placeholder="https://example.com/oauth2/token"
                     disabled={!canEdit}
+                    aria-invalid={!!errors.tokenUrl}
                   />
+                  <FieldError message={errors.tokenUrl?.message} />
                 </div>
                 <div className="flex items-center gap-2">
-                  <Switch
-                    checked={formData.usePkce}
-                    onCheckedChange={(checked) => setFormData({ ...formData, usePkce: checked })}
-                    disabled={!canEdit}
-                    aria-label="PKCE"
+                  <Controller
+                    control={form.control}
+                    name="usePkce"
+                    render={({ field }) => (
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        disabled={!canEdit}
+                        aria-label="PKCE"
+                      />
+                    )}
                   />
                   <Label className="text-xs">With PKCE</Label>
                 </div>
@@ -389,11 +539,12 @@ function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit
                 <Label className="text-xs font-medium">{t('authProviders.fields.allowedEmails')}</Label>
                 <p className="text-xs text-muted-foreground">{t('authProviders.fields.allowedEmailsHint')}</p>
                 <Input
-                  value={formData.allowedEmails}
-                  onChange={(e) => setFormData({ ...formData, allowedEmails: e.target.value })}
+                  {...form.register('allowedEmails')}
                   placeholder="admin@example.com, dev@example.com"
                   disabled={!canEdit}
+                  aria-invalid={!!errors.allowedEmails}
                 />
+                <FieldError message={errors.allowedEmails?.message} />
               </div>
             )}
 
@@ -403,18 +554,19 @@ function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit
                 <Label className="text-xs font-medium">{t('authProviders.fields.allowedTelegramIds')}</Label>
                 <p className="text-xs text-muted-foreground">{t('authProviders.fields.allowedTelegramIdsHint')}</p>
                 <Input
-                  value={formData.allowedTelegramIds}
-                  onChange={(e) => setFormData({ ...formData, allowedTelegramIds: e.target.value })}
+                  {...form.register('allowedTelegramIds')}
                   placeholder="123456789, 987654321"
                   disabled={!canEdit}
+                  aria-invalid={!!errors.allowedTelegramIds}
                 />
+                <FieldError message={errors.allowedTelegramIds?.message} />
               </div>
             )}
 
             {/* Save button */}
             {canEdit ? (
               <Button
-                onClick={() => saveMutation.mutate()}
+                type="submit"
                 disabled={saveMutation.isPending}
                 size="sm"
               >
@@ -422,6 +574,7 @@ function ProviderCard({ provider, canEdit }: { provider: ProviderConfig; canEdit
                 {t('authProviders.save')}
               </Button>
             ) : null}
+            </form>
           </CardContent>
         </CollapsibleContent>
       </Card>
