@@ -1,5 +1,7 @@
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/features/auth/auth-provider";
+import { translateErrorMessage } from "@/lib/translate-error";
 
 /**
  * Gates the admin shell behind a verified session.
@@ -12,7 +14,10 @@ import { useAuth } from "@/features/auth/auth-provider";
  * All other authenticated states render the requested route via <Outlet />.
  */
 export default function ProtectedRoute() {
-  const { isAuthenticated, isLoading, mustChangePassword } = useAuth();
+  const { t } = useTranslation();
+  const { isAuthenticated, isLoading, mustChangePassword, sessionError, retrySession } = useAuth();
+  const location = useLocation();
+  const isPasswordChangeRoute = location.pathname === "/change-password";
 
   if (isLoading) {
     return (
@@ -25,12 +30,37 @@ export default function ProtectedRoute() {
     );
   }
 
+  if (sessionError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-6">
+        <div className="flex w-full max-w-sm flex-col items-center rounded-3xl border border-border/80 bg-card/95 p-8 text-center shadow-sm">
+          <p className="text-lg font-semibold">{t("auth.sessionCheckFailedTitle")}</p>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            {t("auth.sessionCheckFailedDescription")}
+          </p>
+          <p className="mt-4 text-sm text-destructive">{translateErrorMessage(t, sessionError.message)}</p>
+          <button
+            type="button"
+            className="mt-6 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            onClick={retrySession}
+          >
+            {t("auth.sessionCheckRetry")}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return <Navigate to="/sign-in" replace />;
   }
 
-  if (mustChangePassword) {
+  if (mustChangePassword && !isPasswordChangeRoute) {
     return <Navigate to="/change-password" replace />;
+  }
+
+  if (!mustChangePassword && isPasswordChangeRoute) {
+    return <Navigate to="/" replace />;
   }
 
   return <Outlet />;

@@ -102,12 +102,12 @@ export const router = createBrowserRouter([
     element: withSuspense(<SignInPage />),
   },
   {
-    path: '/change-password',
-    element: withSuspense(<ForcePasswordChangePage />),
-  },
-  {
     element: <ProtectedRoute />,
     children: [
+      {
+        path: 'change-password',
+        element: withSuspense(<ForcePasswordChangePage />),
+      },
       {
         element: (
           <ErrorBoundary>

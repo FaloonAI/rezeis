@@ -506,6 +506,8 @@ Latest S7 verification:
 
 ### F1 Auth Readiness
 
+Status: Completed 2026-06-04. Protected admin routes now treat the session as authenticated only after both `/admin/auth/me` and the effective permissions/mustChangePassword snapshot have resolved. Forced password-change admins stay on the locked verification screen until permissions resolve, then redirect to `/change-password` without rendering the admin shell. Permission probe failures keep the workspace locked with a retry path instead of silently falling through or spinning forever. `/change-password` is now authenticated-only through `ProtectedRoute`, but remains outside the full admin shell.
+
 Work:
 
 - Treat auth as ready only after `/me` and effective permissions/mustChangePassword are resolved or failed safely.
@@ -514,6 +516,13 @@ Work:
 Acceptance:
 
 - Forced password-change users cannot briefly render the admin shell.
+- Unauthenticated users cannot render `/change-password`.
+
+Verification:
+
+- `cd rezeis-admin/web && npx vitest run src/features/auth/auth-provider.test.tsx src/lib/admin-session.test.ts src/features/settings/api-tokens-page.test.tsx src/features/settings/auth-providers-tab.test.tsx src/features/backup/backup-page.test.tsx src/features/imports/imports-page.test.tsx src/features/config-portability/config-portability-page.test.tsx src/features/payments/payments-page.test.tsx src/features/payments/gateway-settings-page.test.tsx src/components/layout/admin-nav-config.test.ts` passed: 10 files, 24 tests.
+- `cd rezeis-admin/web && npx tsc -p tsconfig.app.json --noEmit --incremental false` passed.
+- `cd rezeis-admin/web && npx eslint src/features/auth/auth-provider.tsx src/features/auth/auth-provider.test.tsx src/features/rbac/use-permission-store.ts src/app/protected-route.tsx src/app/router.tsx src/features/auth/force-password-change-page.tsx src/features/rbac/roles-page.tsx` passed.
 
 ### F2 Query Key Factories And Realtime
 

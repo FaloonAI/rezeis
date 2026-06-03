@@ -11,11 +11,13 @@ import { getMeApi, type AdminProfile } from './auth-api'
 interface AuthContextValue {
   isAuthenticated: boolean
   isLoading: boolean
+  sessionError: Error | null
   admin: AdminProfile | null
   /** Snapshot from the latest permission probe — convenient for UI gates. */
   mustChangePassword: boolean
   login: (token: string) => void
   logout: () => void
+  retrySession: () => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -30,7 +32,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
   const token = useAuthStore((state) => state.token)
 
-  const { data: admin, isLoading: isQueryLoading, error: authError } = useQuery<AdminProfile>({
+  const { data: admin, isLoading: isQueryLoading, error: authError, refetch: refetchAdmin } = useQuery<AdminProfile>({
     queryKey: ['auth-me'],
     queryFn: getMeApi,
     enabled: token.length > 0,
@@ -43,33 +45,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // logout. The page-level RolesPage and PermissionGate consume the store.
   const loadPermissions = usePermissionStore((s) => s.loadPermissions)
   const permissionsLoaded = usePermissionStore((s) => s.loaded)
+  const permissionsLoading = usePermissionStore((s) => s.loading)
+  const permissionsError = usePermissionStore((s) => s.error)
   const mustChangePassword = usePermissionStore((s) => s.mustChangePassword)
+  const hasToken = token.length > 0
+  const authErrorIsUnauthorized = isUnauthorizedError(authError)
+  const sessionError = authErrorIsUnauthorized
+    ? null
+    : authError instanceof Error
+      ? authError
+      : permissionsError
+  const isSessionReady =
+    !hasToken ||
+    (!!admin && permissionsLoaded) ||
+    (!!admin && !!permissionsError && !permissionsLoading) ||
+    (!!authError && !isQueryLoading)
 
   useEffect(() => {
-    if (token && isUnauthorizedError(authError)) {
+    if (token && authErrorIsUnauthorized) {
       endAdminClientSession(queryClient)
     }
-  }, [authError, queryClient, token])
+  }, [authErrorIsUnauthorized, queryClient, token])
+
+  const handlePermissionLoadFailure = useCallback((err: unknown) => {
+    // Surface the failure: without permissions, the workspace stays locked
+    // so a forced password-change admin cannot briefly render the shell.
+    console.error('[auth-provider] loadPermissions failed:', err)
+    toast.error(t('authProvider.permissions.loadFailed'), {
+      duration: 8_000,
+      action: {
+        label: t('authProvider.permissions.retry'),
+        onClick: () => {
+          void loadPermissions().catch((retryErr: unknown) => {
+            console.error('[auth-provider] retry loadPermissions failed:', retryErr)
+          })
+        },
+      },
+    })
+  }, [loadPermissions, t])
 
   useEffect(() => {
     if (admin && !permissionsLoaded) {
-      loadPermissions().catch((err: unknown) => {
-        // Surface the failure: without permissions, the UI hides actions
-        // the operator might actually be allowed to perform. We log to
-        // the console for debugging and offer a one-click retry.
-        console.error('[auth-provider] loadPermissions failed:', err)
-        toast.error(t('authProvider.permissions.loadFailed'), {
-          duration: 8_000,
-          action: {
-            label: t('authProvider.permissions.retry'),
-            onClick: () => {
-              void loadPermissions()
-            },
-          },
-        })
-      })
+      loadPermissions().catch(handlePermissionLoadFailure)
     }
-  }, [admin, permissionsLoaded, loadPermissions, t])
+  }, [admin, permissionsLoaded, loadPermissions, handlePermissionLoadFailure])
+
+  const retrySession = useCallback(() => {
+    if (admin && !permissionsLoaded) {
+      void loadPermissions().catch(handlePermissionLoadFailure)
+      return
+    }
+    void refetchAdmin()
+  }, [admin, handlePermissionLoadFailure, loadPermissions, permissionsLoaded, refetchAdmin])
 
   const login = useCallback((newToken: string) => {
     startAdminClientSession(queryClient, newToken)
@@ -82,12 +109,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider
       value={{
-        isAuthenticated: !!admin,
-        isLoading: token.length > 0 && isQueryLoading,
+        isAuthenticated: !!admin && permissionsLoaded,
+        isLoading: hasToken && !isSessionReady,
+        sessionError,
         admin: admin ?? null,
         mustChangePassword,
         login,
         logout,
+        retrySession,
       }}
     >
       {children}

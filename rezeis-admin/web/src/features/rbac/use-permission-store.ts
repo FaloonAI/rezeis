@@ -68,6 +68,10 @@ function applyResponse(
   });
 }
 
+function toError(err: unknown, fallback: string): Error {
+  return err instanceof Error ? err : new Error(fallback);
+}
+
 const INITIAL: Omit<
   PermissionState,
   'loadPermissions' | 'refreshPermissions' | 'reset' | 'hasPermission'
@@ -90,7 +94,9 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
       const data = await getEffectivePermissions();
       applyResponse(set, data);
     } catch (err) {
-      set({ loading: false, error: err instanceof Error ? err : new Error('Failed to load permissions') });
+      const error = toError(err, 'Failed to load permissions');
+      set({ loading: false, error });
+      throw error;
     }
   },
   refreshPermissions: async () => {
@@ -99,7 +105,8 @@ export const usePermissionStore = create<PermissionState>((set, get) => ({
       const data = await getEffectivePermissions();
       applyResponse(set, data);
     } catch (err) {
-      set({ loading: false, error: err instanceof Error ? err : new Error('Failed to load permissions') });
+      const error = toError(err, 'Failed to load permissions');
+      set({ loading: false, error });
     }
   },
   reset: () => {
