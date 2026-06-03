@@ -17,5 +17,4 @@ export interface PaymentWebhookIngressResultInterface {
   readonly accepted: true;
   readonly duplicate: boolean;
   readonly lifecycleStatus: PaymentWebhookLifecycleStatus;
-  readonly envelope: PaymentWebhookEnvelopeInterface;
 }

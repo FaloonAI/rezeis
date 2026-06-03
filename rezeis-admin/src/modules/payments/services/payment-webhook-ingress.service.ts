@@ -90,7 +90,6 @@ export class PaymentWebhookIngressService {
         receivedEvent.duplicate
           ? receivedEvent.event.status ?? PAYMENT_WEBHOOK_STATUS_ENQUEUED
           : PAYMENT_WEBHOOK_STATUS_ENQUEUED,
-      envelope,
     };
   }
 }

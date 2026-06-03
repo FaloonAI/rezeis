@@ -118,6 +118,65 @@ describe('PaymentWebhookIngressService', () => {
     assert.deepStrictEqual(calls, []);
   });
 
+  it('does not echo normalized raw webhook payload in the ingress response', async () => {
+    const rawPayload = {
+      apiKey: 'provider-secret-key',
+      customerEmail: 'payer@example.com',
+      object: { id: 'payment-1' },
+    };
+    const persistedPayloads: unknown[] = [];
+    const service = new PaymentWebhookIngressService(
+      {
+        paymentGateway: {
+          findUnique: async () => ({ type: PaymentGatewayType.YOOKASSA, settings: {} }),
+        },
+      } as never,
+      {
+        normalizeWebhook: () => ({
+          gatewayType: PaymentGatewayType.YOOKASSA,
+          paymentId: 'payment-1',
+          providerEventId: 'event-1',
+          eventStatus: 'succeeded',
+          receivedAt: '2026-04-19T12:00:00.000Z',
+          payloadHash: 'hash-1',
+          rawPayload,
+        }),
+      } as never,
+      {
+        recordReceived: async (input: { readonly envelope: { readonly rawPayload: unknown } }) => {
+          persistedPayloads.push(input.envelope.rawPayload);
+          return {
+            duplicate: false,
+            event: { id: 'event-row-1', paymentId: 'payment-1', gatewayType: PaymentGatewayType.YOOKASSA },
+          };
+        },
+        markEnqueued: async (eventId: string) => ({ id: eventId, status: 'ENQUEUED' }),
+      } as never,
+      {
+        add: async () => ({ id: 'job-1' }),
+      } as never,
+    );
+
+    const result = await service.ingestWebhook({
+      gatewayType: PaymentGatewayType.YOOKASSA,
+      rawBody: Buffer.from('{}', 'utf8'),
+      headers: {},
+      clientIp: '185.71.76.1',
+      verifySignature: true,
+    });
+    const serializedResult = JSON.stringify(result);
+
+    assert.deepStrictEqual(result, {
+      accepted: true,
+      duplicate: false,
+      lifecycleStatus: 'ENQUEUED',
+    });
+    assert.deepStrictEqual(persistedPayloads, [rawPayload]);
+    assert.equal(serializedResult.includes('provider-secret-key'), false);
+    assert.equal(serializedResult.includes('payer@example.com'), false);
+    assert.equal(serializedResult.includes('rawPayload'), false);
+  });
+
   it('bounds stalled reconciliation enqueue waits without surfacing raw queue details', async () => {
     let enqueueStarted = false;
 

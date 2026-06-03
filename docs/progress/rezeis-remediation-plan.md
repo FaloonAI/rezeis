@@ -447,7 +447,7 @@ Latest S6 verification:
 
 ### S7 Payment Diagnostics Sanitization
 
-Status: In progress 2026-06-03. Shared diagnostic redaction now masks auth/proxy-auth headers, cookies/set-cookie values, URL assignments (`profileUrl`, `config_url`, checkout/redirect/callback variants), provider/gateway identifier assignments, existing URL/email/UUID/provider-ID patterns, token words, and long hex secrets. Provider checkout persistence now stores only a redacted `gatewayData.providerResponse` while keeping operational fields such as `gatewayId`, top-level `checkoutUrl`, and provider status available for the checkout flow. Webhook ops routes are now guarded with `RbacGuard` and explicit `payment_webhooks:view/resolve/run` permissions. Webhook event detail `includeRaw=true` now still records an audit event but returns the redacted payload instead of the stored unredacted payload. Remaining S7 work: audit any remaining admin/UI payment payload surfaces, especially transaction/gateway diagnostic displays and user-facing/internal payment payloads, before changing behavior.
+Status: In progress 2026-06-03. Shared diagnostic redaction now masks auth/proxy-auth headers, cookies/set-cookie values, URL assignments (`profileUrl`, `config_url`, checkout/redirect/callback variants), provider/gateway identifier assignments, existing URL/email/UUID/provider-ID patterns, token words, and long hex secrets. Provider checkout persistence now stores only a redacted `gatewayData.providerResponse` while keeping operational fields such as `gatewayId`, top-level `checkoutUrl`, and provider status available for the checkout flow. Webhook ops routes are now guarded with `RbacGuard` and explicit `payment_webhooks:view/resolve/run` permissions. Webhook event detail `includeRaw=true` now still records an audit event but returns the redacted payload instead of the stored unredacted payload. Public/internal webhook ingress responses no longer echo the normalized envelope or raw webhook payload while preserving inbox persistence and reconciliation queue payloads. Remaining S7 work: audit any remaining admin/UI payment payload surfaces, especially transaction/gateway diagnostic displays and user-facing/internal payment status payloads, before changing behavior.
 
 Files:
 
@@ -455,7 +455,9 @@ Files:
 - `src/modules/payments/services/payment-webhook-inbox.service.ts`
 - `src/modules/payments/services/payment-ops-alert.service.ts`
 - `src/modules/payments/services/payment-provider-execution.service.ts`
+- `src/modules/payments/services/payment-webhook-ingress.service.ts`
 - `src/modules/payments/services/payment-webhook-ops.service.ts`
+- `src/modules/payments/interfaces/payment-webhook-envelope.interface.ts`
 - `src/modules/payments/services/payment-webhook-payload-redaction.service.ts`
 - `src/modules/payments/controllers/admin-payment-webhooks.controller.ts`
 - `src/modules/payments/utils/payment-provider-error.util.ts`
@@ -468,6 +470,7 @@ Work:
 - Sanitize `gatewayData.providerResponse` before transaction persistence while preserving explicit checkout-flow fields. Completed for the provider checkout path.
 - Gate admin webhook ops routes with route-level RBAC metadata. Completed for list/detail/replay.
 - Stop returning unredacted stored webhook payloads from admin detail reveal requests while preserving audit logging. Completed for the current `includeRaw=true` detail path.
+- Stop echoing normalized webhook envelopes/raw payloads from public/internal ingress responses. Completed for the current ingress response contract.
 - Continue auditing remaining admin/UI payment payload surfaces with focused specs before changing behavior.
 
 Acceptance:
@@ -477,9 +480,13 @@ Acceptance:
 - Transaction `gatewayData.providerResponse` no longer persists raw provider response IDs, auth fragments, emails, signatures, or provider URLs.
 - Admin webhook ops routes require explicit `payment_webhooks` permissions in addition to admin JWT authentication.
 - Admin webhook detail reveal requests no longer return unredacted stored webhook payloads.
+- Public/internal webhook ingress responses no longer expose raw webhook bodies.
 
 Latest S7 verification:
 
+- `cd rezeis-admin && node --require ts-node/register --test test/payment-webhook-ingress.service.spec.ts test/public-payment-webhooks.controller.spec.ts test/internal-payment-webhooks.controller.spec.ts` passed: 12 tests.
+- `cd rezeis-admin && npm run typecheck` passed.
+- `cd rezeis-admin && npx eslint src/modules/payments/services/payment-webhook-ingress.service.ts src/modules/payments/interfaces/payment-webhook-envelope.interface.ts test/payment-webhook-ingress.service.spec.ts` passed.
 - `cd rezeis-admin && node --require ts-node/register --test test/payment-webhook-ops.service.spec.ts test/payment-webhook-payload-redaction.service.spec.ts test/admin-payment-webhooks.controller.spec.ts` passed: 21 tests.
 - `cd rezeis-admin && npm run typecheck` passed.
 - `cd rezeis-admin && npx eslint src/modules/payments/services/payment-webhook-ops.service.ts test/payment-webhook-ops.service.spec.ts` passed.
