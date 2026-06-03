@@ -9,6 +9,8 @@ import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/
 import { AdminJwtAuthGuard } from '../src/modules/auth/guards/admin-jwt-auth.guard';
 import { AdminPaymentGatewaysController } from '../src/modules/payments/controllers/admin-payment-gateways.controller';
 import { PaymentGatewayRegistryService } from '../src/modules/payments/services/payment-gateway-registry.service';
+import { REQUIRE_PERMISSION_KEY } from '../src/modules/rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../src/modules/rbac/guards/rbac.guard';
 
 describe('AdminPaymentGatewaysController', () => {
   it('exposes gateway registry admin routes', () => {
@@ -39,8 +41,14 @@ describe('AdminPaymentGatewaysController', () => {
     );
     assert.deepStrictEqual(
       Reflect.getMetadata(GUARDS_METADATA, AdminPaymentGatewaysController),
-      [AdminJwtAuthGuard],
+      [AdminJwtAuthGuard, RbacGuard],
     );
+    assertRoute(AdminPaymentGatewaysController.prototype.listGateways, '/', RequestMethod.GET, 'view');
+    assertRoute(AdminPaymentGatewaysController.prototype.getSupportedCurrencies, 'supported-currencies', RequestMethod.GET, 'view');
+    assertRoute(AdminPaymentGatewaysController.prototype.getGateway, ':gatewayId', RequestMethod.GET, 'view');
+    assertRoute(AdminPaymentGatewaysController.prototype.updateGateway, ':gatewayId', RequestMethod.PATCH, 'edit');
+    assertRoute(AdminPaymentGatewaysController.prototype.moveGateway, ':gatewayId/move', RequestMethod.PATCH, 'edit');
+    assertRoute(AdminPaymentGatewaysController.prototype.createDefaults, 'defaults', RequestMethod.POST, 'edit');
   });
 
   it('delegates gateway calls unchanged', async () => {
@@ -88,3 +96,11 @@ describe('AdminPaymentGatewaysController', () => {
     ]);
   });
 });
+
+function assertRoute(method: unknown, path: string | undefined, requestMethod: RequestMethod, action: string): void {
+  assert.equal(Reflect.getMetadata(PATH_METADATA, method), path);
+  assert.equal(Reflect.getMetadata(METHOD_METADATA, method), requestMethod);
+  assert.deepStrictEqual(Reflect.getMetadata(REQUIRE_PERMISSION_KEY, method), [
+    { resource: 'payment_gateways', action },
+  ]);
+}

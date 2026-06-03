@@ -66,6 +66,7 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { FadeIn, StaggerItem, StaggerList } from '@/lib/motion'
+import { useHasPermission } from '@/features/rbac'
 
 import { CURRENCY_DISPLAY_NAMES, getCurrencyIcon } from './currency-icons'
 import { getPaymentGatewayIcon } from './payment-gateway-icons'
@@ -445,6 +446,8 @@ interface AdminGateway {
 export default function GatewaySettingsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const canViewGateways = useHasPermission('payment_gateways', 'view')
+  const canEditGateways = useHasPermission('payment_gateways', 'edit')
 
   const { data: gateways, isLoading } = useQuery({
     queryKey: ['admin', 'payments', 'gateways'],
@@ -454,11 +457,14 @@ export default function GatewaySettingsPage() {
         | { items?: AdminGateway[] }
       return Array.isArray(raw) ? raw : (raw?.items ?? [])
     },
+    enabled: canViewGateways,
   })
 
   const seedDefaultsMutation = useMutation({
-    mutationFn: async () =>
-      (await api.post('/admin/payments/gateways/defaults')).data,
+    mutationFn: async () => {
+      if (!canEditGateways) throw new Error('Missing payment_gateways:edit')
+      return (await api.post('/admin/payments/gateways/defaults')).data
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'payments', 'gateways'] })
       toast.success(t('paymentGateways.defaultsCreated'))
@@ -470,6 +476,7 @@ export default function GatewaySettingsPage() {
   const [testingId, setTestingId] = useState<string | null>(null)
 
   const handleTest = async (gateway: AdminGateway): Promise<void> => {
+    if (!canEditGateways) return
     setTestingId(gateway.id)
     try {
       // The backend currently does not expose a generic "test gateway"
@@ -500,6 +507,17 @@ export default function GatewaySettingsPage() {
     )
   }
 
+  if (!canViewGateways) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('paymentGateways.accessDeniedTitle')}</CardTitle>
+          <CardDescription>{t('paymentGateways.accessDeniedDescription')}</CardDescription>
+        </CardHeader>
+      </Card>
+    )
+  }
+
   const isEmpty = !gateways || gateways.length === 0
   // Stable order (orderIndex asc; ties broken by id).
   const sortedGateways = (gateways ?? [])
@@ -516,7 +534,7 @@ export default function GatewaySettingsPage() {
             </h1>
             <p className="text-muted-foreground">{t('paymentGateways.subtitle')}</p>
           </div>
-          {!isEmpty && (
+          {!isEmpty && canEditGateways && (
             <Button
               variant="outline"
               size="sm"
@@ -541,17 +559,21 @@ export default function GatewaySettingsPage() {
             <CardDescription>{t('paymentGateways.empty.description')}</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button
-              onClick={() => seedDefaultsMutation.mutate()}
-              disabled={seedDefaultsMutation.isPending}
-            >
-              {seedDefaultsMutation.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Plus className="mr-2 h-4 w-4" />
-              )}
-              {t('paymentGateways.empty.action')}
-            </Button>
+            {canEditGateways ? (
+              <Button
+                onClick={() => seedDefaultsMutation.mutate()}
+                disabled={seedDefaultsMutation.isPending}
+              >
+                {seedDefaultsMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="mr-2 h-4 w-4" />
+                )}
+                {t('paymentGateways.empty.action')}
+              </Button>
+            ) : (
+              <p className="text-sm text-muted-foreground">{t('paymentGateways.readOnlyEmpty')}</p>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -565,6 +587,7 @@ export default function GatewaySettingsPage() {
                     isFirst={index === 0}
                     isLast={index === sortedGateways.length - 1}
                     isTesting={testingId === gateway.id}
+                    canEdit={canEditGateways}
                     onOpenSettings={() => setSettingsTarget(gateway)}
                     onTest={() => handleTest(gateway)}
                   />
@@ -598,6 +621,7 @@ interface GatewayRowProps {
   readonly isFirst: boolean
   readonly isLast: boolean
   readonly isTesting: boolean
+  readonly canEdit: boolean
   readonly onOpenSettings: () => void
   readonly onTest: () => void
 }
@@ -607,6 +631,7 @@ function GatewayRow({
   isFirst,
   isLast,
   isTesting,
+  canEdit,
   onOpenSettings,
   onTest,
 }: GatewayRowProps) {
@@ -624,16 +649,20 @@ function GatewayRow({
     )
 
   const toggleActiveMutation = useMutation({
-    mutationFn: (next: boolean) =>
-      api.patch(`/admin/payments/gateways/${gateway.id}`, { isActive: next }),
+    mutationFn: (next: boolean) => {
+      if (!canEdit) throw new Error('Missing payment_gateways:edit')
+      return api.patch(`/admin/payments/gateways/${gateway.id}`, { isActive: next })
+    },
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ['admin', 'payments', 'gateways'] }),
     onError: () => toast.error(t('paymentGateways.toggleFailed')),
   })
 
   const moveMutation = useMutation({
-    mutationFn: (direction: 'up' | 'down') =>
-      api.patch(`/admin/payments/gateways/${gateway.id}/move`, { direction }),
+    mutationFn: (direction: 'up' | 'down') => {
+      if (!canEdit) throw new Error('Missing payment_gateways:edit')
+      return api.patch(`/admin/payments/gateways/${gateway.id}/move`, { direction })
+    },
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ['admin', 'payments', 'gateways'] }),
     onError: () => toast.error(t('paymentGateways.moveFailed')),
@@ -700,61 +729,69 @@ function GatewayRow({
       </div>
 
       <div className="flex items-center gap-1.5">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => moveMutation.mutate('up')}
-          disabled={isFirst || moveMutation.isPending}
-          aria-label={t('paymentGateways.moveUp')}
-        >
-          <ArrowUp className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => moveMutation.mutate('down')}
-          disabled={isLast || moveMutation.isPending}
-          aria-label={t('paymentGateways.moveDown')}
-        >
-          <ArrowDown className="h-4 w-4" />
-        </Button>
+        {canEdit ? (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => moveMutation.mutate('up')}
+              disabled={isFirst || moveMutation.isPending}
+              aria-label={t('paymentGateways.moveUp')}
+            >
+              <ArrowUp className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => moveMutation.mutate('down')}
+              disabled={isLast || moveMutation.isPending}
+              aria-label={t('paymentGateways.moveDown')}
+            >
+              <ArrowDown className="h-4 w-4" />
+            </Button>
 
-        <span className="mx-1 h-6 w-px bg-border" aria-hidden />
+            <span className="mx-1 h-6 w-px bg-border" aria-hidden />
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={onOpenSettings}
-          aria-label={t('paymentGateways.openSettings')}
-        >
-          <SettingsIcon className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={onTest}
-          disabled={!isConfigured || !gateway.isActive || isTesting}
-          aria-label={t('paymentGateways.runTest')}
-        >
-          {isTesting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <TestTube className="h-4 w-4" />
-          )}
-        </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={onOpenSettings}
+              aria-label={t('paymentGateways.openSettings')}
+            >
+              <SettingsIcon className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={onTest}
+              disabled={!isConfigured || !gateway.isActive || isTesting}
+              aria-label={t('paymentGateways.runTest')}
+            >
+              {isTesting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <TestTube className="h-4 w-4" />
+              )}
+            </Button>
 
-        <span className="mx-1 h-6 w-px bg-border" aria-hidden />
+            <span className="mx-1 h-6 w-px bg-border" aria-hidden />
 
-        <Switch
-          checked={gateway.isActive}
-          onCheckedChange={(next) => toggleActiveMutation.mutate(next)}
-          disabled={toggleActiveMutation.isPending}
-          aria-label={t('paymentGateways.toggleActive')}
-        />
+            <Switch
+              checked={gateway.isActive}
+              onCheckedChange={(next) => toggleActiveMutation.mutate(next)}
+              disabled={toggleActiveMutation.isPending}
+              aria-label={t('paymentGateways.toggleActive')}
+            />
+          </>
+        ) : (
+          <Badge variant={gateway.isActive ? 'success' : 'secondary'}>
+            {gateway.isActive ? t('paymentGateways.active') : t('paymentGateways.disabled')}
+          </Badge>
+        )}
       </div>
     </div>
   )

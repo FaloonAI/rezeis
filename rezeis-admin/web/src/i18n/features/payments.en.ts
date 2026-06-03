@@ -10,6 +10,12 @@ export const en = {
     title: 'Payment gateways',
     subtitle:
       'Credentials and display order of gateways shown to users. The first row is offered by default.',
+    accessDeniedTitle: 'Payment gateway access is restricted',
+    accessDeniedDescription:
+      'Your admin role does not include payment_gateways:view. Ask a superadmin to grant access before inspecting gateway credentials.',
+    readOnlyEmpty: 'Gateway defaults are not configured yet, and your role cannot create them.',
+    active: 'Active',
+    disabled: 'Disabled',
     webhookHint: 'Webhook URL:',
     addDefaults: 'Add missing',
     defaultsCreated: 'Default gateways added',
