@@ -454,6 +454,7 @@ export const en = {
       description: 'Effect applied to cards and interactive elements on hover.',
       select: 'Hover effect',
       previewHint: 'Applied to KPI cards and panels',
+      previewAction: 'Preview hover effect',
     },
     contentAnimation: {
       title: 'Content Animation',

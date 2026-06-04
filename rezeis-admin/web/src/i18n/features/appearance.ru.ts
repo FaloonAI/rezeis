@@ -454,6 +454,7 @@ export const ru = {
       description: 'Эффект при наведении на карточки и интерактивные элементы.',
       select: 'Hover-эффект',
       previewHint: 'Применяется к KPI-карточкам и панелям',
+      previewAction: 'Предпросмотр hover-эффекта',
     },
     contentAnimation: {
       title: 'Анимация контента',

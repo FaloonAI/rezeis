@@ -26,4 +26,16 @@ describe('EffectsSettingsCard accessibility', () => {
     expect(preview).toHaveFocus()
     await user.keyboard('{Enter}')
   })
+
+  it('makes the hover-effect preview focusable and named', async () => {
+    await loadFeatureBundle('appearance')
+
+    renderWithProviders(<EffectsSettingsCard />)
+
+    const preview = screen.getByRole('button', { name: 'Preview hover effect' })
+    expect(preview).toBeInTheDocument()
+
+    preview.focus()
+    expect(preview).toHaveFocus()
+  })
 })

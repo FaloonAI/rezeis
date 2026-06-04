@@ -297,14 +297,11 @@ function HoverEffectCard() {
 
 function HoverPreview({ effect }: { effect: HoverEffectId }) {
   const { t } = useTranslation()
-  const containerRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLButtonElement>(null)
   const glowRef = useRef<HTMLDivElement>(null)
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!containerRef.current || !glowRef.current) return
-    const rect = containerRef.current.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
+  const showGlow = (x: number, y: number) => {
+    if (!glowRef.current) return
     if (effect === 'spotlight') {
       glowRef.current.style.background = `radial-gradient(120px circle at ${x}px ${y}px, oklch(0.6 0.2 320 / 20%), transparent 70%)`
     } else {
@@ -313,16 +310,31 @@ function HoverPreview({ effect }: { effect: HoverEffectId }) {
     glowRef.current.style.opacity = '1'
   }
 
+  const handleMouseMove = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (!containerRef.current) return
+    const rect = containerRef.current.getBoundingClientRect()
+    showGlow(e.clientX - rect.left, e.clientY - rect.top)
+  }
+
+  const handleFocus = () => {
+    const rect = containerRef.current?.getBoundingClientRect()
+    showGlow((rect?.width ?? 240) / 2, (rect?.height ?? 80) / 2)
+  }
+
   const handleMouseLeave = () => {
     if (glowRef.current) glowRef.current.style.opacity = '0'
   }
 
   return (
-    <div
+    <button
+      type="button"
       ref={containerRef}
-      className="relative cursor-pointer rounded-md border bg-card/50 p-3 overflow-hidden transition-shadow hover:shadow-md"
+      className="relative w-full cursor-pointer overflow-hidden rounded-md border bg-card/50 p-3 text-left transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
+      onFocus={handleFocus}
+      onBlur={handleMouseLeave}
+      aria-label={t('effectsSettings.hoverEffect.previewAction')}
     >
       <div
         ref={glowRef}
@@ -340,7 +352,7 @@ function HoverPreview({ effect }: { effect: HoverEffectId }) {
           {effect}
         </Badge>
       </div>
-    </div>
+    </button>
   )
 }
 
