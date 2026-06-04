@@ -58,6 +58,8 @@ export const en = {
       uploading: 'Uploading…',
       dropHere: 'Drop file here',
       orClick: 'or click to choose',
+      chooseFile: 'Choose media file',
+      clear: 'Clear uploaded media',
       photoLimits: 'JPEG, PNG, WEBP, GIF up to 10 MB',
       videoLimits: 'MP4, MOV, WEBM, AVI up to 50 MB',
       tooLarge: 'File too large. Max 50 MB.',

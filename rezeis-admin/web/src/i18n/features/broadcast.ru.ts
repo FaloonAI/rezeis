@@ -60,6 +60,8 @@ export const ru = {
       uploading: 'Загрузка…',
       dropHere: 'Перетащите файл сюда',
       orClick: 'или нажмите для выбора',
+      chooseFile: 'Выбрать медиафайл',
+      clear: 'Очистить загруженное медиа',
       photoLimits: 'JPEG, PNG, WEBP, GIF до 10 МБ',
       videoLimits: 'MP4, MOV, WEBM, AVI до 50 МБ',
       tooLarge: 'Файл слишком большой. Максимум 50 МБ.',

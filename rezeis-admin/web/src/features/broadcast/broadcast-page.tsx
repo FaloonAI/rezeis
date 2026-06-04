@@ -331,19 +331,19 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
     uploadMutation.mutate(file)
   }
 
-  function handleDrop(e: React.DragEvent<HTMLDivElement>): void {
+  function handleDrop(e: React.DragEvent<HTMLButtonElement>): void {
     e.preventDefault()
     setIsDragging(false)
     const file = e.dataTransfer.files[0]
     if (file) handleFile(file)
   }
 
-  function handleDragOver(e: React.DragEvent<HTMLDivElement>): void {
+  function handleDragOver(e: React.DragEvent<HTMLButtonElement>): void {
     e.preventDefault()
     setIsDragging(true)
   }
 
-  function handleDragLeave(e: React.DragEvent<HTMLDivElement>): void {
+  function handleDragLeave(e: React.DragEvent<HTMLButtonElement>): void {
     e.preventDefault()
     setIsDragging(false)
   }
@@ -498,56 +498,63 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
                     variant="ghost"
                     className="h-7 w-7 text-destructive shrink-0"
                     onClick={clearUpload}
+                    aria-label={t('broadcastPage.upload.clear')}
                   >
                     <X className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               ) : (
-                <div
-                  onDrop={handleDrop}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed p-6 text-center transition-colors ${
-                    isDragging
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border hover:border-primary/50 hover:bg-muted/40'
-                  } ${uploadMutation.isPending ? 'opacity-50 pointer-events-none' : ''}`}
-                >
-                  {uploadMutation.isPending ? (
-                    <>
-                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                      <p className="text-sm text-muted-foreground">
-                        {t('broadcastPage.upload.uploading')}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="h-8 w-8 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium">
-                          {t('broadcastPage.upload.dropHere')}
+                <>
+                  <button
+                    type="button"
+                    onDrop={handleDrop}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadMutation.isPending}
+                    aria-label={t('broadcastPage.upload.chooseFile')}
+                    className={`flex w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed p-6 text-center transition-colors ${
+                      isDragging
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:border-primary/50 hover:bg-muted/40'
+                    } ${uploadMutation.isPending ? 'opacity-50' : ''}`}
+                  >
+                    {uploadMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        <p className="text-sm text-muted-foreground">
+                          {t('broadcastPage.upload.uploading')}
                         </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {t('broadcastPage.upload.orClick')} ·{' '}
-                          {mediaType === 'photo'
-                            ? t('broadcastPage.upload.photoLimits')
-                            : t('broadcastPage.upload.videoLimits')}
-                        </p>
-                      </div>
-                    </>
-                  )}
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-8 w-8 text-muted-foreground" />
+                        <div>
+                          <p className="text-sm font-medium">
+                            {t('broadcastPage.upload.dropHere')}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {t('broadcastPage.upload.orClick')} ·{' '}
+                            {mediaType === 'photo'
+                              ? t('broadcastPage.upload.photoLimits')
+                              : t('broadcastPage.upload.videoLimits')}
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </button>
                   <input
                     ref={fileInputRef}
                     type="file"
                     accept={mediaType === 'photo' ? 'image/*' : 'video/*'}
                     className="hidden"
+                    aria-label={t('broadcastPage.upload.chooseFile')}
                     onChange={(e) => {
                       const file = e.target.files?.[0]
                       if (file) handleFile(file)
                     }}
                   />
-                </div>
+                </>
               )
             ) : (
               <>

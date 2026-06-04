@@ -62,6 +62,22 @@ describe('BroadcastPage create form validation', () => {
     expect(screen.getByRole('textbox', { name: 'Message text' })).toBeInTheDocument()
   })
 
+  it('makes the upload dropzone keyboard-operable and named', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
+      if (path === '/admin/broadcast/drafts') return { data: [] }
+      return { data: {} }
+    })
+    await loadFeatureBundle('broadcast')
+
+    renderWithProviders(<BroadcastPage />)
+
+    await user.click(screen.getByRole('button', { name: 'New broadcast' }))
+    await user.click(screen.getByRole('button', { name: /Photo/ }))
+
+    expect(screen.getByRole('button', { name: 'Choose media file' })).toBeInTheDocument()
+  })
+
   it('submits normalized payload through the current draft and send endpoints', async () => {
     const user = userEvent.setup()
     vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
