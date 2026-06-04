@@ -228,8 +228,9 @@ export default function ConfigPortabilityPage({ embedded = false }: { readonly e
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>{t('configPortabilityPage.import.file')}</Label>
+                <Label htmlFor="config-import-file">{t('configPortabilityPage.import.file')}</Label>
                 <input
+                  id="config-import-file"
                   ref={fileInputRef}
                   type="file"
                   accept="application/json,.json"

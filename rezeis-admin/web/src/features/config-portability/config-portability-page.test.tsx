@@ -34,6 +34,18 @@ describe('ConfigPortabilityPage RBAC gating', () => {
     expect(screen.queryByRole('button', { name: 'Download JSON' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('JSON file')).not.toBeInTheDocument()
   })
+
+  it('gives the import file control a programmatic name', async () => {
+    vi.spyOn(api, 'get').mockResolvedValue({ data: { sections: ['settings'] } })
+    grantPermissions([
+      { resource: 'config_portability', action: 'view' },
+      { resource: 'config_portability', action: 'import' },
+    ])
+
+    renderWithProviders(<ConfigPortabilityPage />)
+
+    expect(await screen.findByLabelText('JSON file')).toHaveAttribute('type', 'file')
+  })
 })
 
 function grantPermissions(permissions: ReadonlyArray<{ resource: string; action: RbacAction }>): void {
