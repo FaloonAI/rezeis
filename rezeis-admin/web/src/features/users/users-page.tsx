@@ -244,12 +244,19 @@ function UsersListTab() {
           <form onSubmit={handleSearch} className="flex gap-2">
             <Input
               placeholder={t('usersPage.searchPlaceholder')}
+              aria-label={t('usersPage.searchHint')}
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               className="h-9 text-sm"
             />
-            <Button type="submit" variant="outline" size="icon" className="h-9 w-9 shrink-0">
-              <Search className="h-4 w-4" />
+            <Button
+              type="submit"
+              variant="outline"
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              aria-label={`${t('usersPage.title')}: ${t('adminShell.search')}`}
+            >
+              <Search className="h-4 w-4" aria-hidden="true" />
             </Button>
           </form>
           <Button
