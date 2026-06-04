@@ -2515,7 +2515,9 @@ function DeleteButton({ telegramId }: { telegramId: string }) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button size="sm" variant="ghost" className="text-destructive"><Trash2 className="h-3.5 w-3.5" /></Button>
+        <Button size="sm" variant="ghost" className="text-destructive" aria-label={t('userDetailPanel.actions.deleteTitle')}>
+          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+        </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader><AlertDialogTitle>{t('userDetailPanel.actions.deleteTitle')}</AlertDialogTitle><AlertDialogDescription>{t('userDetailPanel.actions.deleteDescription')}</AlertDialogDescription></AlertDialogHeader>
