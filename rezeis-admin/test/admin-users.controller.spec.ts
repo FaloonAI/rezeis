@@ -8,6 +8,8 @@ import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/
 import { Locale, UserRole } from '@prisma/client';
 
 import { AdminJwtAuthGuard } from '../src/modules/auth/guards/admin-jwt-auth.guard';
+import { REQUIRE_PERMISSION_KEY } from '../src/modules/rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../src/modules/rbac/guards/rbac.guard';
 import { AdminUserListQueryDto } from '../src/modules/users/dto/admin-user-list-query.dto';
 import { AdminUserSearchQueryDto } from '../src/modules/users/dto/admin-user-search-query.dto';
 import { AdminUsersController } from '../src/modules/users/controllers/admin-users.controller';
@@ -15,10 +17,14 @@ import { AdminUsersController } from '../src/modules/users/controllers/admin-use
 describe('AdminUsersController', () => {
   it('exposes the current read-only admin users route contract', () => {
     assert.equal(Reflect.getMetadata(PATH_METADATA, AdminUsersController), 'admin/users');
-    assert.deepStrictEqual(Reflect.getMetadata(GUARDS_METADATA, AdminUsersController), [AdminJwtAuthGuard]);
+    assert.deepStrictEqual(Reflect.getMetadata(GUARDS_METADATA, AdminUsersController), [
+      AdminJwtAuthGuard,
+      RbacGuard,
+    ]);
 
     assert.equal(Reflect.getMetadata(PATH_METADATA, AdminUsersController.prototype.listUsers), '/');
     assert.equal(Reflect.getMetadata(METHOD_METADATA, AdminUsersController.prototype.listUsers), RequestMethod.GET);
+    assertUsersViewRoute(AdminUsersController.prototype.listUsers);
     assert.deepStrictEqual(
       Reflect.getMetadata('design:paramtypes', AdminUsersController.prototype, 'listUsers'),
       [AdminUserListQueryDto],
@@ -26,6 +32,7 @@ describe('AdminUsersController', () => {
 
     assert.equal(Reflect.getMetadata(PATH_METADATA, AdminUsersController.prototype.searchUser), 'search');
     assert.equal(Reflect.getMetadata(METHOD_METADATA, AdminUsersController.prototype.searchUser), RequestMethod.GET);
+    assertUsersViewRoute(AdminUsersController.prototype.searchUser);
     assert.deepStrictEqual(
       Reflect.getMetadata('design:paramtypes', AdminUsersController.prototype, 'searchUser'),
       [AdminUserSearchQueryDto],
@@ -95,3 +102,9 @@ describe('AdminUsersController', () => {
     ]);
   });
 });
+
+function assertUsersViewRoute(method: unknown): void {
+  assert.deepStrictEqual(Reflect.getMetadata(REQUIRE_PERMISSION_KEY, method), [
+    { resource: 'users', action: 'view' },
+  ]);
+}

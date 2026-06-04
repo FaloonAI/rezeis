@@ -9,6 +9,7 @@ import { Locale, UserRole } from '@prisma/client';
 import request from 'supertest';
 
 import { AdminJwtAuthGuard } from '../src/modules/auth/guards/admin-jwt-auth.guard';
+import { RbacGuard } from '../src/modules/rbac/guards/rbac.guard';
 import { AdminUserListQueryDto } from '../src/modules/users/dto/admin-user-list-query.dto';
 import { AdminUserSearchQueryDto } from '../src/modules/users/dto/admin-user-search-query.dto';
 import { AdminUsersController } from '../src/modules/users/controllers/admin-users.controller';
@@ -39,6 +40,8 @@ describe('AdminUsersController HTTP contract', () => {
       ],
     })
       .overrideGuard(AdminJwtAuthGuard)
+      .useValue({ canActivate: (): boolean => true })
+      .overrideGuard(RbacGuard)
       .useValue({ canActivate: (): boolean => true })
       .compile();
 
