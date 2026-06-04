@@ -23,7 +23,39 @@ describe('ScreenEditorPanel accessibility', () => {
 
     expect(screen.getByRole('button', { name: 'Remove screen media' })).toBeInTheDocument()
   })
+
+  it('names compact button editor controls', () => {
+    renderWithProviders(
+      <ScreenEditorPanel
+        screen={screenFixture({ buttons: [buttonFixture()] })}
+        flowName="default"
+      />,
+    )
+
+    expect(screen.getByRole('spinbutton', { name: 'Row' })).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: 'Pos' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Action' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Style' })).toBeInTheDocument()
+  })
 })
+
+function buttonFixture(): BotFlowScreen['buttons'][number] {
+  return {
+    id: 'button-1',
+    screenId: 'screen-1',
+    labelRu: 'Кнопка',
+    labelEn: 'Button',
+    row: 0,
+    col: 0,
+    actionType: 'NAVIGATE',
+    targetScreenId: null,
+    url: null,
+    webAppUrl: null,
+    callbackAction: null,
+    style: 'DEFAULT',
+    iconCustomEmojiId: null,
+  }
+}
 
 function screenFixture(overrides: Partial<BotFlowScreen> = {}): BotFlowScreen {
   return {

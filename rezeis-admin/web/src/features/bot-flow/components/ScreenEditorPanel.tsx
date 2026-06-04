@@ -415,6 +415,7 @@ function ButtonEditor({ button, onUpdate, onDelete }: ButtonEditorProps) {
             value={button.row}
             onChange={(e) => onUpdate({ row: parseInt(e.target.value) || 0 })}
             className="h-7 text-[11px] w-14"
+            aria-label={t('botFlow.button.row')}
           />
         </div>
         <div className="flex items-center gap-1">
@@ -425,6 +426,7 @@ function ButtonEditor({ button, onUpdate, onDelete }: ButtonEditorProps) {
             value={button.col}
             onChange={(e) => onUpdate({ col: parseInt(e.target.value) || 0 })}
             className="h-7 text-[11px] w-14"
+            aria-label={t('botFlow.button.col')}
           />
         </div>
       </div>
@@ -435,7 +437,7 @@ function ButtonEditor({ button, onUpdate, onDelete }: ButtonEditorProps) {
           value={button.actionType}
           onValueChange={(v) => onUpdate({ actionType: v })}
         >
-          <SelectTrigger className="h-7 text-[11px]">
+          <SelectTrigger className="h-7 text-[11px]" aria-label={t('botFlow.button.action')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -452,7 +454,7 @@ function ButtonEditor({ button, onUpdate, onDelete }: ButtonEditorProps) {
           value={button.style}
           onValueChange={(v) => onUpdate({ style: v })}
         >
-          <SelectTrigger className="h-7 text-[11px]">
+          <SelectTrigger className="h-7 text-[11px]" aria-label={t('botFlow.button.style')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
