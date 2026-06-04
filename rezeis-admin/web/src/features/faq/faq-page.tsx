@@ -6,6 +6,17 @@ import { HelpCircle, Plus, Pencil, Trash2, Loader2, Save, ImageIcon, Video } fro
 import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -186,12 +197,7 @@ export default function FaqPage(): JSX.Element {
   }
 
   function handleDelete(item: FaqItem) {
-    const confirmation = window.confirm(
-      t('faqPage.deleteConfirm', { question: item.question }),
-    )
-    if (confirmation) {
-      deleteMutation.mutate(item.id)
-    }
+    deleteMutation.mutate(item.id)
   }
 
   return (
@@ -395,15 +401,37 @@ function FaqRow({ item, onEdit, onDelete, onToggle }: FaqRowProps): JSX.Element 
         >
           <Pencil className="h-4 w-4" />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-destructive"
-          onClick={onDelete}
-          aria-label={t('faqPage.row.deleteAriaLabel')}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-destructive"
+              aria-label={t('faqPage.row.deleteAriaLabel')}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {t('faqPage.deleteDialogTitle', { defaultValue: 'Delete FAQ entry?' })}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {t('faqPage.deleteConfirm', { question: item.question })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t('faqPage.cancel')}</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={onDelete}
+              >
+                {t('faqPage.deleteDialogAction', { defaultValue: 'Delete' })}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   )
