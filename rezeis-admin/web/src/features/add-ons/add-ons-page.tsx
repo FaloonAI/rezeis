@@ -8,7 +8,7 @@ import { api } from '@/lib/api'
 import { getErrorMessage } from '@/lib/http-errors'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Badge, badgeVariants } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
@@ -533,18 +533,24 @@ function AddOnDialog({
               {t('addOnsPage.form.plansHint')}
             </p>
             <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-              {plans?.map((plan) => (
-                <Badge
-                  key={plan.id}
-                  variant={
-                    selectedPlanIds.includes(String(plan.id)) ? 'default' : 'outline'
-                  }
-                  className="cursor-pointer"
-                  onClick={() => togglePlan(String(plan.id))}
-                >
-                  {plan.name}
-                </Badge>
-              ))}
+              {plans?.map((plan) => {
+                const planId = String(plan.id)
+                const isSelected = selectedPlanIds.includes(planId)
+                return (
+                  <button
+                    key={plan.id}
+                    type="button"
+                    className={badgeVariants({
+                      variant: isSelected ? 'default' : 'outline',
+                      className: 'cursor-pointer',
+                    })}
+                    aria-pressed={isSelected}
+                    onClick={() => togglePlan(planId)}
+                  >
+                    {plan.name}
+                  </button>
+                )
+              })}
               {!plans?.length && (
                 <p className="text-xs text-muted-foreground">
                   {t('addOnsPage.form.noPlans')}

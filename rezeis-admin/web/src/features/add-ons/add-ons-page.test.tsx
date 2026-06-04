@@ -31,4 +31,27 @@ describe('AddOnsPage accessibility', () => {
 
     expect(screen.getByRole('button', { name: 'Remove price 2' })).toBeInTheDocument()
   })
+
+  it('makes applicable plan chips keyboard-operable toggle buttons', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
+      if (path === '/admin/add-ons') return { data: [] }
+      if (path === '/admin/plans') return { data: [{ id: 'plan-1', name: 'Premium' }] }
+      if (path === '/admin/settings/icons') return { data: [] }
+      return { data: {} }
+    })
+
+    renderWithProviders(<AddOnsPage />)
+
+    await user.click(await screen.findByRole('button', { name: 'Create add-on' }))
+
+    const planButton = await screen.findByRole('button', { name: 'Premium' })
+    expect(planButton).toHaveAttribute('aria-pressed', 'false')
+
+    planButton.focus()
+    expect(planButton).toHaveFocus()
+    await user.keyboard('[Space]')
+
+    expect(planButton).toHaveAttribute('aria-pressed', 'true')
+  })
 })
