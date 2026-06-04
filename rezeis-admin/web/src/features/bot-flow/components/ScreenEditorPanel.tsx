@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Lock, Plus, Trash2 } from 'lucide-react'
@@ -25,6 +25,7 @@ const BUTTON_STYLES: BotFlowButtonStyle[] = ['DEFAULT', 'PRIMARY', 'SUCCESS', 'D
 export function ScreenEditorPanel({ screen, flowName }: ScreenEditorPanelProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const mediaInputRef = useRef<HTMLInputElement | null>(null)
 
   // Destructure to avoid react-doctor false positive on "screen.*" in deps
   const { id: screenId, name: screenName, textRu: screenTextRu, textEn: screenTextEn, isRoot: screenIsRoot } = screen
@@ -245,16 +246,27 @@ export function ScreenEditorPanel({ screen, flowName }: ScreenEditorPanelProps) 
               size="sm"
               className="absolute top-1 right-1 h-6 w-6 p-0"
               onClick={() => updateScreenMutation.mutate({ mediaType: null, mediaUrl: null, mediaFileId: null })}
+              aria-label={t('botFlow.fields.removeMedia')}
             >
               <Trash2 className="h-3 w-3" />
             </Button>
           </div>
         ) : (
-          <label className="flex items-center justify-center h-16 rounded-md border border-dashed cursor-pointer hover:border-primary hover:bg-primary/5 transition-colors">
+          <>
+            <button
+              type="button"
+              className="flex h-16 w-full items-center justify-center rounded-md border border-dashed transition-colors hover:border-primary hover:bg-primary/5"
+              onClick={() => mediaInputRef.current?.click()}
+              aria-label={t('botFlow.fields.chooseMedia')}
+            >
+              <span className="text-xs text-muted-foreground">{t('botFlow.fields.mediaHint')}</span>
+            </button>
             <input
+              ref={mediaInputRef}
               type="file"
               accept="image/*,video/*"
               className="hidden"
+              aria-label={t('botFlow.fields.chooseMedia')}
               onChange={async (e) => {
                 const file = e.target.files?.[0]
                 if (!file) return
@@ -270,8 +282,7 @@ export function ScreenEditorPanel({ screen, flowName }: ScreenEditorPanelProps) 
                 }
               }}
             />
-            <span className="text-xs text-muted-foreground">{t('botFlow.fields.mediaHint')}</span>
-          </label>
+          </>
         )}
       </div>
 

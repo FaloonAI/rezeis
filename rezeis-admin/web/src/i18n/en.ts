@@ -2787,6 +2787,8 @@ export const en = {
       parseMode: 'Format',
       isRoot: 'Start screen',
       media: 'Media',
+      chooseMedia: 'Choose screen media file',
+      removeMedia: 'Remove screen media',
       textRuPlaceholder: 'Message text in Russian…',
       textEnPlaceholder: 'Message text in English…',
       mediaHint: 'Click to upload image or video',

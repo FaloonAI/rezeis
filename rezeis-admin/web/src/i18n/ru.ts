@@ -2818,6 +2818,8 @@
       parseMode: 'Формат',
       isRoot: 'Стартовый экран',
       media: 'Медиа',
+      chooseMedia: 'Выбрать медиафайл экрана',
+      removeMedia: 'Удалить медиа экрана',
       textRuPlaceholder: 'Текст сообщения на русском…',
       textEnPlaceholder: 'Message text in English…',
       mediaHint: 'Нажмите для загрузки изображения или видео',
