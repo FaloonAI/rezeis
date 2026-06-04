@@ -427,7 +427,7 @@ function BrandingTab({ settings }: { settings: AdminSettings | undefined }) {
 
 // ── Multi-Subscription Tab ────────────────────────────────────────────────────
 
-function MultiSubTab({ settings }: { settings: AdminSettings | undefined }) {
+export function MultiSubTab({ settings }: { settings: AdminSettings | undefined }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const multiSub = settings?.multiSubscriptionSettings ?? {}
@@ -453,13 +453,18 @@ function MultiSubTab({ settings }: { settings: AdminSettings | undefined }) {
             <Label>{t('settingsPage.multiSub.enable')}</Label>
             <p className="text-xs text-muted-foreground">{t('settingsPage.multiSub.enableHint')}</p>
           </div>
-          <Switch checked={enabled} onCheckedChange={setEnabled} />
+          <Switch
+            checked={enabled}
+            onCheckedChange={setEnabled}
+            aria-label={t('settingsPage.multiSub.enable')}
+          />
         </div>
 
         {enabled && (
           <div className="space-y-2 pl-4 border-l-2">
-            <Label>{t('settingsPage.multiSub.defaultMax')}</Label>
+            <Label htmlFor="multi-sub-default-max">{t('settingsPage.multiSub.defaultMax')}</Label>
             <Input
+              id="multi-sub-default-max"
               type="number" min="1" max="100"
               value={defaultMax}
               onChange={(e) => setDefaultMax(e.target.value)}

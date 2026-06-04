@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { screen } from '@testing-library/react'
 
 import { renderWithProviders } from '@/test/test-utils'
-import { PlatformTab } from './settings-page'
+import { MultiSubTab, PlatformTab } from './settings-page'
 
 describe('PlatformTab accessibility', () => {
   it('names compact platform settings controls', () => {
@@ -27,5 +27,23 @@ describe('PlatformTab accessibility', () => {
     expect(screen.getByRole('switch', { name: 'Channel Required' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Channel Link' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Channel ID' })).toBeInTheDocument()
+  })
+})
+
+describe('MultiSubTab accessibility', () => {
+  it('names multi-subscription controls', () => {
+    renderWithProviders(
+      <MultiSubTab
+        settings={{
+          multiSubscriptionSettings: {
+            enabled: true,
+            defaultMaxSubscriptions: 3,
+          },
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('switch', { name: 'Enable Multi-Subscription' })).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: 'Default Max Subscriptions per User' })).toBeInTheDocument()
   })
 })
