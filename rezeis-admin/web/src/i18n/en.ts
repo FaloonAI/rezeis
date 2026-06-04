@@ -2789,6 +2789,8 @@ export const en = {
     published: 'Flow published — bot updated',
     publishError: 'Failed to publish (at least one start screen required)',
     screenCreated: 'Screen created',
+    newScreenAria: 'Create bot screen',
+    newScreenHint: 'Press to create a screen, or drag onto the canvas to choose its position.',
     screenEditor: 'Screen Editor',
     screenEditorHint: 'Select a screen on the canvas to edit its text and buttons',
     fields: {

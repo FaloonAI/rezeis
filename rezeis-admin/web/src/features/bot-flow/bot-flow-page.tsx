@@ -65,7 +65,6 @@ import BotBannerTab from '@/features/bot-config/bot-banner-tab'
 import { ReplyKeyboardEditorPanel } from '@/features/bot-config/reply-keyboard-editor-panel'
 import {
   BOT_CONFIG_KEYS,
-  type BotButton,
   botConfigApi,
 } from '@/features/bot-config/bot-config-api'
 
@@ -372,6 +371,12 @@ export default function BotFlowPage() {
     [flow, createScreenMutation],
   )
 
+  const handleCreateScreenFromPalette = useCallback(() => {
+    if (!flow) return
+    const nextIndex = flow.screens.length
+    createScreenMutation.mutate({ x: 120 + nextIndex * 32, y: 120 + nextIndex * 32 })
+  }, [flow, createScreenMutation])
+
   const handleSave = useCallback(() => {
     if (!flow) return
     const positions = nodesToPositions(nodes)
@@ -484,17 +489,22 @@ export default function BotFlowPage() {
         {/* Left palette + screen list */}
         <div className="flex w-52 shrink-0 flex-col overflow-hidden border-r">
           <div className="shrink-0 border-b px-2 pb-1.5 pt-2">
-            <div
+            <button
+              type="button"
               draggable
               onDragStart={(e) => {
                 e.dataTransfer.setData('application/bot-flow-node', 'botScreen')
                 e.dataTransfer.effectAllowed = 'move'
               }}
-              className="flex cursor-grab items-center gap-1.5 rounded-md border border-dashed px-2 py-1.5 transition-colors hover:border-primary hover:bg-primary/5"
+              onClick={handleCreateScreenFromPalette}
+              disabled={!flow || createScreenMutation.isPending}
+              aria-label={t('botFlow.newScreenAria')}
+              title={t('botFlow.newScreenHint')}
+              className="flex w-full cursor-grab items-center gap-1.5 rounded-md border border-dashed px-2 py-1.5 text-left transition-colors hover:border-primary hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus className="h-3 w-3 text-muted-foreground" aria-hidden />
               <span className="text-[11px] font-medium">{t('botFlow.newScreen')}</span>
-            </div>
+            </button>
           </div>
           <div className="flex-1 space-y-0.5 overflow-y-auto px-1.5 py-1.5">
             <p className="mb-1 px-1 text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
