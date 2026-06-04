@@ -3,6 +3,17 @@ import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, Trash2, RefreshCw, Pause, Play } from 'lucide-react'
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -204,19 +215,36 @@ export default function SystemLogsPage({ embedded = false }: { readonly embedded
               )}
               {t('systemLogsPage.controls.refresh')}
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                if (confirm(t('systemLogsPage.controls.clearConfirm'))) {
-                  clearMutation.mutate()
-                }
-              }}
-              disabled={clearMutation.isPending}
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              {t('systemLogsPage.controls.clear')}
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="outline" disabled={clearMutation.isPending}>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  {t('systemLogsPage.controls.clear')}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {t('systemLogsPage.controls.clearDialogTitle', { defaultValue: 'Clear system logs?' })}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t('systemLogsPage.controls.clearConfirm')}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={clearMutation.isPending}>
+                    {t('common.cancel')}
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    disabled={clearMutation.isPending}
+                    onClick={() => clearMutation.mutate()}
+                  >
+                    {t('systemLogsPage.controls.clear')}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </CardContent>
       </Card>
