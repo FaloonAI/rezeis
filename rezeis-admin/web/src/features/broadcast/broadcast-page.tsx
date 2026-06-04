@@ -1,7 +1,9 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Plus, Megaphone, Users, Send, XCircle, Trash2, Loader2, RefreshCw, Upload, FileImage, FileVideo, X } from 'lucide-react'
+import { Plus, Megaphone, Send, XCircle, Trash2, Loader2, RefreshCw, Upload, FileImage, FileVideo, X } from 'lucide-react'
+import { useForm, type FieldErrors, type Resolver } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
@@ -13,30 +15,36 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { FadeIn } from '@/lib/motion'
+import {
+  createBroadcastFormSchema,
+  type BroadcastCreateRequest,
+  type BroadcastFormDraft,
+  type BroadcastFormValidationMessages,
+} from './broadcast-form-schema'
 
 const AUDIENCES = [
   { value: 'ALL', labelKey: 'broadcastPage.audiences.ALL' },
-  { value: 'SUBSCRIBED', labelKey: 'broadcastPage.audiences.SUBSCRIBED' },
+  { value: 'ACTIVE_SUBSCRIBERS', labelKey: 'broadcastPage.audiences.ACTIVE_SUBSCRIBERS' },
   { value: 'UNSUBSCRIBED', labelKey: 'broadcastPage.audiences.UNSUBSCRIBED' },
   { value: 'EXPIRED', labelKey: 'broadcastPage.audiences.EXPIRED' },
   { value: 'TRIAL', labelKey: 'broadcastPage.audiences.TRIAL' },
-]
+] as const
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   COMPLETED: 'default',
   PROCESSING: 'secondary',
-  ERROR: 'destructive',
+  FAILED: 'destructive',
   CANCELED: 'outline',
   DELETED: 'outline',
 }
 
 interface BroadcastRow {
-  readonly id: number
+  readonly id: string
   readonly audience: string
   readonly status: string
   readonly successCount: number
@@ -45,25 +53,21 @@ interface BroadcastRow {
   readonly createdAt: string
 }
 
-interface BroadcastListResponse {
-  readonly items: ReadonlyArray<BroadcastRow>
-}
-
 export default function BroadcastPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
 
-  const { data, isLoading, refetch } = useQuery<BroadcastListResponse>({
+  const { data, isLoading, refetch } = useQuery<ReadonlyArray<BroadcastRow>>({
     queryKey: adminQueryKeys.broadcast.all,
     queryFn: async ({ signal }) =>
-      (await api.get<BroadcastListResponse>('/admin/broadcast?limit=50', { signal })).data,
+      (await api.get<ReadonlyArray<BroadcastRow>>('/admin/broadcast/drafts', { signal })).data,
     refetchInterval: 10_000,
     refetchIntervalInBackground: false,
   })
 
   const cancelMutation = useMutation({
-    mutationFn: (id: number) => api.post(`/admin/broadcast/${id}/cancel`),
+    mutationFn: (id: string) => api.post(`/admin/broadcast/${id}/cancel`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminQueryKeys.broadcast.all })
       toast.success(t('broadcastPage.toast.canceled'))
@@ -73,14 +77,14 @@ export default function BroadcastPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id: number) => api.delete(`/admin/broadcast/${id}`),
+    mutationFn: (id: string) => api.delete(`/admin/broadcast/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminQueryKeys.broadcast.all })
       toast.success(t('broadcastPage.toast.deleted'))
     },
   })
 
-  const stats = data?.items?.reduce(
+  const stats = data?.reduce(
     (acc: { total: number; completed: number; processing: number }, b) => {
       acc.total++
       if (b.status === 'COMPLETED') acc.completed++
@@ -133,7 +137,7 @@ export default function BroadcastPage() {
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-6 space-y-3">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
-          ) : !data?.items?.length ? (
+          ) : !data?.length ? (
             <div className="py-16 text-center text-muted-foreground">
               <Megaphone className="h-10 w-10 mx-auto mb-3 opacity-30" />
               <p>{t('broadcastPage.empty')}</p>
@@ -151,7 +155,7 @@ export default function BroadcastPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.items.map((b) => (
+                {data.map((b) => (
                   <TableRow key={b.id}>
                     <TableCell className="font-mono text-xs">{b.id}</TableCell>
                     <TableCell><Badge variant="outline">{String(t(`broadcastPage.audiences.${b.audience}`, b.audience))}</Badge></TableCell>
@@ -174,7 +178,7 @@ export default function BroadcastPage() {
                             <XCircle className="h-3.5 w-3.5" />
                           </Button>
                         )}
-                        {['COMPLETED', 'CANCELED', 'ERROR'].includes(b.status) && (
+                        {['COMPLETED', 'CANCELED', 'FAILED'].includes(b.status) && (
                           <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive"
                             onClick={() => { if (confirm(t('broadcastPage.deleteConfirm'))) deleteMutation.mutate(b.id) }}>
                             <Trash2 className="h-3.5 w-3.5" />
@@ -193,7 +197,10 @@ export default function BroadcastPage() {
       {/* Create Dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>{t('broadcastPage.newButton')}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{t('broadcastPage.newButton')}</DialogTitle>
+            <DialogDescription>{t('broadcastPage.form.description')}</DialogDescription>
+          </DialogHeader>
           <CreateBroadcastForm onClose={() => setShowCreate(false)} />
         </DialogContent>
       </Dialog>
@@ -214,6 +221,30 @@ interface UploadedMedia {
 function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const validationMessages = useMemo<BroadcastFormValidationMessages>(() => ({
+    audienceInvalid: t('broadcastPage.form.validation.audienceInvalid'),
+    textRequired: t('broadcastPage.form.validation.textRequired'),
+    textTooLong: t('broadcastPage.form.validation.textTooLong'),
+    mediaTypeInvalid: t('broadcastPage.form.validation.mediaTypeInvalid'),
+    mediaRequired: t('broadcastPage.form.validation.mediaRequired'),
+    mediaTooLong: t('broadcastPage.form.validation.mediaTooLong'),
+    mediaUrlInvalid: t('broadcastPage.form.validation.mediaUrlInvalid'),
+    mediaFileIdInvalid: t('broadcastPage.form.validation.mediaFileIdInvalid'),
+  }), [t])
+  const formSchema = useMemo(() => createBroadcastFormSchema(validationMessages), [validationMessages])
+  const form = useForm<BroadcastFormDraft, unknown, BroadcastCreateRequest>({
+    defaultValues: {
+      audience: 'ALL',
+      text: '',
+      mediaType: 'none',
+      mediaSourceMode: 'upload',
+      mediaValue: '',
+    },
+    mode: 'onSubmit',
+    reValidateMode: 'onBlur',
+    resolver: zodResolver(formSchema) as Resolver<BroadcastFormDraft, unknown, BroadcastCreateRequest>,
+  })
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [audience, setAudience] = useState('ALL')
   const [text, setText] = useState('')
   const [mediaType, setMediaType] = useState<'none' | 'photo' | 'video'>('none')
@@ -222,13 +253,6 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
   const [uploaded, setUploaded] = useState<UploadedMedia | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  const { data: audienceCount, refetch: refetchCount } = useQuery({
-    queryKey: adminQueryKeys.broadcast.audienceCount(audience),
-    queryFn: async () =>
-      (await api.get(`/admin/broadcast/audience-count?audience=${audience}`)).data as { count: number },
-    enabled: !!audience,
-  })
 
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -282,18 +306,10 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
   }
 
   const createMutation = useMutation({
-    mutationFn: () =>
-      api.post('/admin/broadcast', {
-        audience,
-        payload: {
-          text,
-          ...(mediaType !== 'none' && mediaValue
-            ? mediaSourceMode === 'url'
-              ? { mediaType, mediaUrl: mediaValue }
-              : { mediaType, mediaFileId: mediaValue }
-            : {}),
-        },
-    }),
+    mutationFn: async (payload: BroadcastCreateRequest) => {
+      const response = await api.post<{ id: string }>('/admin/broadcast/drafts', payload)
+      return api.post(`/admin/broadcast/${encodeURIComponent(response.data.id)}/send`, {})
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: adminQueryKeys.broadcast.all })
       toast.success(t('broadcastPage.toast.created'))
@@ -303,6 +319,25 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
       toast.error(err.response?.data?.message ?? t('broadcastPage.toast.createFailed')),
   })
 
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>): void {
+    const draft: BroadcastFormDraft = {
+      audience,
+      text,
+      mediaType,
+      mediaSourceMode,
+      mediaValue,
+    }
+
+    form.reset(draft)
+    void form.handleSubmit(
+      (payload) => {
+        setFormErrors({})
+        createMutation.mutate(payload)
+      },
+      (errors) => setFormErrors(flattenHookFormErrors(errors)),
+    )(e)
+  }
+
   function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -310,21 +345,16 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
         <Label>{t('broadcastPage.form.audience')}</Label>
-        <Select value={audience} onValueChange={(v) => { setAudience(v); refetchCount() }}>
+        <Select value={audience} onValueChange={setAudience}>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>
             {AUDIENCES.map((a) => <SelectItem key={a.value} value={a.value}>{t(a.labelKey)}</SelectItem>)}
           </SelectContent>
         </Select>
-        {audienceCount !== undefined && (
-          <p className="text-sm text-muted-foreground flex items-center gap-1">
-            <Users className="h-3.5 w-3.5" />
-            {t('broadcastPage.form.recipients', { count: audienceCount.count })}
-          </p>
-        )}
+        <FieldError message={formErrors.audience} />
       </div>
 
       <div className="space-y-2">
@@ -335,10 +365,12 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
           onChange={(e) => setText(e.target.value)}
           rows={5}
           className="resize-none"
+          aria-invalid={!!formErrors.text}
         />
         <p className="text-xs text-muted-foreground">
           {t('broadcastPage.form.charCount', { count: text.length })}
         </p>
+        <FieldError message={formErrors.text} />
       </div>
 
       <div className="space-y-2">
@@ -478,6 +510,7 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
                   value={mediaValue}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMediaValue(e.target.value)}
                   className={mediaSourceMode === 'fileId' ? 'font-mono text-xs' : 'text-xs'}
+                  aria-invalid={!!formErrors.mediaValue}
                 />
                 <p className="text-xs text-muted-foreground">
                   {mediaSourceMode === 'url'
@@ -486,20 +519,47 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
                 </p>
               </>
             )}
+            <FieldError message={formErrors.mediaValue} />
           </div>
         ) : null}
       </div>
 
       <div className="flex gap-3 justify-end">
-        <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
+        <Button type="button" variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
         <Button
-          onClick={() => createMutation.mutate()}
-          disabled={!text.trim() || createMutation.isPending}
+          type="submit"
+          disabled={createMutation.isPending || uploadMutation.isPending}
         >
           {createMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
-          {t('broadcastPage.form.send', { count: audienceCount?.count ?? 0 })}
+          {t('broadcastPage.form.sendNow')}
         </Button>
       </div>
-    </div>
+    </form>
   )
+}
+
+function FieldError({ message }: { readonly message?: string }) {
+  if (!message) return null
+  return <p className="text-xs font-medium text-destructive" role="alert">{message}</p>
+}
+
+function flattenHookFormErrors(errors: FieldErrors<BroadcastFormDraft>): Record<string, string> {
+  const flattenedErrors: Record<string, string> = {}
+  collectHookFormErrors(errors, [], flattenedErrors)
+  return flattenedErrors
+}
+
+function collectHookFormErrors(value: unknown, path: string[], output: Record<string, string>): void {
+  if (value === null || typeof value !== 'object') return
+
+  const maybeError = value as { readonly message?: unknown }
+  if (typeof maybeError.message === 'string') {
+    const key = path.length > 0 ? path.join('.') : 'form'
+    output[key] ??= maybeError.message
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    if (key === 'message' || key === 'type' || key === 'types' || key === 'ref') continue
+    collectHookFormErrors(child, [...path, key], output)
+  }
 }

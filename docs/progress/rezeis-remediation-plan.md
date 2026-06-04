@@ -569,11 +569,11 @@ Verification:
 
 ### F4 Critical Form Schemas
 
-Status: In progress 2026-06-04. OAuth provider settings now use a Zod/react-hook-form validation boundary before submit. The UI blocks malformed backend/frontend domains, Generic OAuth2 authorization/token URLs, allowlist emails, and Telegram ID allowlists before calling `/admin/oauth/config/:type`, then submits normalized comma-separated allowlists for valid input. Plan create/edit payloads now pass through a Zod/react-hook-form submit boundary before mutation, block malformed limits, duplicate durations/currencies, unsupported currencies, invalid trial/archive/allowed-user combinations, and normalize unlimited traffic (`0`) to backend `null`. Remaining F4 surfaces include broadcast payload composition, notification JSON, and branding URLs.
+Status: In progress 2026-06-04. OAuth provider settings now use a Zod/react-hook-form validation boundary before submit. The UI blocks malformed backend/frontend domains, Generic OAuth2 authorization/token URLs, allowlist emails, and Telegram ID allowlists before calling `/admin/oauth/config/:type`, then submits normalized comma-separated allowlists for valid input. Plan create/edit payloads now pass through a Zod/react-hook-form submit boundary before mutation, block malformed limits, duplicate durations/currencies, unsupported currencies, invalid trial/archive/allowed-user combinations, and normalize unlimited traffic (`0`) to backend `null`. Broadcast create-and-send payloads now pass through a Zod/react-hook-form submit boundary before mutation, block unsupported audiences, empty text-only payloads, malformed HTTP(S) media URLs, whitespace-bearing Telegram file IDs, missing media references, and overlong text/media references, then submit through the current `/admin/broadcast/drafts` and `/admin/broadcast/:id/send` backend contract. Remaining F4 surfaces include notification JSON and branding URLs.
 
 Work:
 
-- Add Zod/react-hook-form schemas for plans, broadcast, notification JSON, branding URLs. OAuth provider settings and plans are complete for this slice.
+- Add Zod/react-hook-form schemas for plans, broadcast, notification JSON, branding URLs. OAuth provider settings, plans, and broadcast payload composition are complete for this slice.
 
 Acceptance:
 
@@ -583,8 +583,9 @@ Verification:
 
 - `cd rezeis-admin/web && npx vitest run src/features/settings/auth-providers-tab.test.tsx` passed: 1 file, 5 tests. React Router future-flag warnings remain pre-existing test noise.
 - `cd rezeis-admin/web && npx vitest run src/features/plans/plan-form-schema.test.ts src/features/plans/plan-form.test.tsx` passed: 2 files, 6 tests. React Router future-flag warnings remain pre-existing test noise.
+- `cd rezeis-admin/web && npx vitest run src/features/broadcast/broadcast-form-schema.test.ts src/features/broadcast/broadcast-page.test.tsx` passed: 2 files, 7 tests. React Router future-flag warnings remain pre-existing test noise.
 - `cd rezeis-admin/web && npx tsc -p tsconfig.app.json --noEmit --incremental false` passed.
-- Focused web ESLint on changed OAuth provider/plan form/i18n files passed.
+- Focused web ESLint on changed OAuth provider/plan form/broadcast/i18n files passed.
 
 ### F5 Accessibility Baseline
 
