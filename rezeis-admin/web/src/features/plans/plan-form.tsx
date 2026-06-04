@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useForm, type FieldErrors, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 
-import { Badge } from '@/components/ui/badge'
+import { Badge, badgeVariants } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -602,20 +602,27 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
               <div className="space-y-2">
                 <Label className="text-sm">{t('planForm.archive.replacementPlans')}</Label>
                 <div className="flex flex-wrap gap-2">
-                  {otherPlans.map((p) => (
-                    <Badge
-                      key={p.id}
-                      variant={replacementPlanIds.includes(p.id) ? 'default' : 'outline'}
-                      className="cursor-pointer"
-                      onClick={() =>
-                        setReplacementPlanIds((prev) =>
-                          prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id],
-                        )
-                      }
-                    >
-                      {p.name}
-                    </Badge>
-                  ))}
+                  {otherPlans.map((p) => {
+                    const isSelected = replacementPlanIds.includes(p.id)
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className={badgeVariants({
+                          variant: isSelected ? 'default' : 'outline',
+                          className: 'cursor-pointer',
+                        })}
+                        aria-pressed={isSelected}
+                        onClick={() =>
+                          setReplacementPlanIds((prev) =>
+                            prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id],
+                          )
+                        }
+                      >
+                        {p.name}
+                      </button>
+                    )
+                  })}
                   {otherPlans.length === 0 && (
                     <p className="text-xs text-muted-foreground">{t('planForm.archive.noPlans')}</p>
                   )}
@@ -638,20 +645,27 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
         </div>
         <p className="text-xs text-muted-foreground">{t('planForm.upgrade.hint')}</p>
         <div className="flex flex-wrap gap-2">
-          {otherPlans.map((p) => (
-            <Badge
-              key={p.id}
-              variant={upgradeToPlanIds.includes(p.id) ? 'default' : 'outline'}
-              className="cursor-pointer"
-              onClick={() =>
-                setUpgradeToPlanIds((prev) =>
-                  prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id],
-                )
-              }
-            >
-              {p.name}
-            </Badge>
-          ))}
+          {otherPlans.map((p) => {
+            const isSelected = upgradeToPlanIds.includes(p.id)
+            return (
+              <button
+                key={p.id}
+                type="button"
+                className={badgeVariants({
+                  variant: isSelected ? 'default' : 'outline',
+                  className: 'cursor-pointer',
+                })}
+                aria-pressed={isSelected}
+                onClick={() =>
+                  setUpgradeToPlanIds((prev) =>
+                    prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id],
+                  )
+                }
+              >
+                {p.name}
+              </button>
+            )
+          })}
           {otherPlans.length === 0 && (
             <p className="text-xs text-muted-foreground">{t('planForm.upgrade.noPlans')}</p>
           )}

@@ -1,9 +1,15 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { api } from '@/lib/api'
 import { renderWithProviders } from '@/test/test-utils'
 import { PlanForm } from './plan-form'
+import type { Plan } from './plans-api'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('PlanForm validation', () => {
   it('blocks invalid plan payloads before submit', async () => {
@@ -37,4 +43,49 @@ describe('PlanForm accessibility', () => {
     await user.click(screen.getByRole('button', { name: 'Add duration' }))
     expect(screen.getByRole('button', { name: 'Remove duration 2' })).toBeInTheDocument()
   })
+
+  it('makes upgrade plan chips keyboard-operable toggle buttons', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
+      if (path === '/admin/plans') return { data: [planOption()] }
+      if (path === '/admin/remnawave/internal-squads') return { data: [] }
+      if (path === '/admin/remnawave/external-squads') return { data: [] }
+      if (path === '/admin/settings/icons') return { data: [] }
+      return { data: [] }
+    })
+
+    renderWithProviders(<PlanForm onSubmit={vi.fn()} isLoading={false} />)
+
+    const upgradeButton = await screen.findByRole('button', { name: 'Premium' })
+    expect(upgradeButton).toHaveAttribute('aria-pressed', 'false')
+
+    upgradeButton.focus()
+    expect(upgradeButton).toHaveFocus()
+    await user.keyboard('[Space]')
+
+    expect(upgradeButton).toHaveAttribute('aria-pressed', 'true')
+  })
 })
+
+function planOption(): Plan {
+  return {
+    id: 'plan-1',
+    name: 'Premium',
+    description: null,
+    tag: null,
+    icon: null,
+    type: 'TRAFFIC',
+    availability: 'ALL',
+    trafficLimit: 50,
+    deviceLimit: 1,
+    trafficLimitStrategy: 'MONTH',
+    isActive: true,
+    isArchived: false,
+    orderIndex: 1,
+    internalSquads: [],
+    externalSquad: null,
+    durations: [],
+    replacementPlanIds: [],
+    upgradeToPlanIds: [],
+  }
+}
