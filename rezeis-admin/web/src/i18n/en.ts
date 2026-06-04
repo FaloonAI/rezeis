@@ -2391,6 +2391,7 @@ export const en = {
     saved: 'Branding saved successfully',
     saveFailed: 'Failed to save branding',
     invalidHex: 'Must be a valid hex color',
+    invalidImageUrl: 'Enter an HTTP(S) URL or a data:image URL.',
     sections: {
       presets: {
         title: 'Theme Presets',

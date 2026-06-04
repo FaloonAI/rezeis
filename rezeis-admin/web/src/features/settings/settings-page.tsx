@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { useForm, type Resolver } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { Save, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -14,6 +16,12 @@ import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
+import {
+  createInitialNotificationJsonSettingsDraft,
+  createNotificationJsonSettingsSchema,
+  type NotificationJsonSettingsData,
+  type NotificationJsonSettingsDraft,
+} from './notification-json-settings-schema'
 
 const ACCESS_MODES = ['PUBLIC', 'INVITED', 'PURCHASE_BLOCKED', 'REG_BLOCKED', 'RESTRICTED'] as const
 const CURRENCIES = ['RUB', 'USD', 'EUR', 'XTR', 'USDT', 'TON'] as const
@@ -211,27 +219,30 @@ function PlatformTab({ settings }: { settings: AdminSettings | undefined }) {
   )
 }
 
-function NotificationsTab({ settings }: { settings: AdminSettings | undefined }) {
+export function NotificationsTab({ settings }: { settings: AdminSettings | undefined }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [userNotifications, setUserNotifications] = useState(JSON.stringify(settings?.userNotifications ?? {}, null, 2))
-  const [systemNotifications, setSystemNotifications] = useState(JSON.stringify(settings?.systemNotifications ?? {}, null, 2))
+  const notificationJsonSchema = useMemo(
+    () => createNotificationJsonSettingsSchema({ invalidJson: t('settingsPage.notifications.invalidJson') }),
+    [t],
+  )
+  const form = useForm<NotificationJsonSettingsDraft, unknown, NotificationJsonSettingsData>({
+    resolver: zodResolver(notificationJsonSchema) as Resolver<
+      NotificationJsonSettingsDraft,
+      unknown,
+      NotificationJsonSettingsData
+    >,
+    defaultValues: createInitialNotificationJsonSettingsDraft(settings),
+    mode: 'onSubmit',
+    reValidateMode: 'onBlur',
+  })
 
   const mutation = useMutation({
-    mutationFn: (data: { userNotifications: unknown; systemNotifications: unknown }) =>
+    mutationFn: (data: NotificationJsonSettingsData) =>
       api.patch('/admin/settings/notifications', data),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] }); toast.success(t('settingsPage.notifications.saved')) },
     onError: () => toast.error(t('settingsPage.notifications.saveFailed')),
   })
-
-  const handleSave = () => {
-    try {
-      mutation.mutate({
-        userNotifications: JSON.parse(userNotifications),
-        systemNotifications: JSON.parse(systemNotifications),
-      })
-    } catch { toast.error(t('settingsPage.notifications.invalidJson')) }
-  }
 
   return (
     <Card className="mt-4">
@@ -239,22 +250,40 @@ function NotificationsTab({ settings }: { settings: AdminSettings | undefined })
         <CardTitle>{t('settingsPage.notifications.title')}</CardTitle>
         <CardDescription>{t('settingsPage.notifications.description')}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label>{t('settingsPage.notifications.userNotifications')}</Label>
-          <textarea className="w-full h-32 font-mono text-xs border rounded-md p-3 bg-muted/30" value={userNotifications} onChange={(e) => setUserNotifications(e.target.value)} />
-        </div>
-        <div className="space-y-2">
-          <Label>{t('settingsPage.notifications.systemNotifications')}</Label>
-          <textarea className="w-full h-32 font-mono text-xs border rounded-md p-3 bg-muted/30" value={systemNotifications} onChange={(e) => setSystemNotifications(e.target.value)} />
-        </div>
-        <Button onClick={handleSave} disabled={mutation.isPending}>
-          {mutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-          {t('settingsPage.notifications.saveButton')}
-        </Button>
+      <CardContent>
+        <form className="space-y-4" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
+          <div className="space-y-2">
+            <Label htmlFor="userNotificationsJson">{t('settingsPage.notifications.userNotifications')}</Label>
+            <textarea
+              id="userNotificationsJson"
+              className="w-full h-32 font-mono text-xs border rounded-md p-3 bg-muted/30"
+              aria-invalid={!!form.formState.errors.userNotificationsJson}
+              {...form.register('userNotificationsJson')}
+            />
+            <FieldError message={form.formState.errors.userNotificationsJson?.message} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="systemNotificationsJson">{t('settingsPage.notifications.systemNotifications')}</Label>
+            <textarea
+              id="systemNotificationsJson"
+              className="w-full h-32 font-mono text-xs border rounded-md p-3 bg-muted/30"
+              aria-invalid={!!form.formState.errors.systemNotificationsJson}
+              {...form.register('systemNotificationsJson')}
+            />
+            <FieldError message={form.formState.errors.systemNotificationsJson?.message} />
+          </div>
+          <Button type="submit" disabled={mutation.isPending}>
+            {mutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+            {t('settingsPage.notifications.saveButton')}
+          </Button>
+        </form>
       </CardContent>
     </Card>
   )
+}
+
+function FieldError({ message }: { readonly message?: string }) {
+  return message ? <p className="text-sm text-destructive">{message}</p> : null
 }
 
 

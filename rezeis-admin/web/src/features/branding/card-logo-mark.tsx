@@ -27,26 +27,10 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
+import type { CardLogoPreset } from './branding-options'
 import { ReiwaMark } from './reiwa-mark'
 
-export const CARD_LOGO_PRESETS = [
-  'DEFAULT',
-  'NONE',
-  'SHIELD',
-  'BOLT',
-  'GLOBE',
-  'ROCKET',
-  'GHOST',
-  'CROWN',
-  'GEM',
-  'FLAME',
-  'WAVES',
-  'MOUNTAIN',
-  'ORBIT',
-  'HEXAGON',
-] as const
-
-export type CardLogoPreset = (typeof CARD_LOGO_PRESETS)[number]
+export { CARD_LOGO_PRESETS, type CardLogoPreset } from './branding-options'
 
 const PRESET_ICON: Partial<Record<CardLogoPreset, LucideIcon>> = {
   SHIELD: Shield,

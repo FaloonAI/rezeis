@@ -2422,6 +2422,7 @@
     saved: 'Брендинг сохранён',
     saveFailed: 'Не удалось сохранить брендинг',
     invalidHex: 'Должен быть валидный hex-цвет',
+    invalidImageUrl: 'Введите HTTP(S) URL или data:image URL.',
     sections: {
       presets: {
         title: 'Готовые темы',

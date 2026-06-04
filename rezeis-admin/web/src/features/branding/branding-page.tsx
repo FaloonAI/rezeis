@@ -11,11 +11,10 @@
  * SPA via the internal `public-config` endpoint.
  */
 
-import { useEffect } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { useEffect, useMemo } from "react";
+import { useForm, Controller, type Resolver, type UseFormReturn } from "react-hook-form";
 import { useTranslation } from 'react-i18next';
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Paintbrush, RotateCcw, Save, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
@@ -29,6 +28,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 import { BrandingPreview } from "./branding-preview";
 import { CARD_LOGO_PRESETS, CardLogoMark, type CardLogoPreset } from "./card-logo-mark";
+import {
+  createBrandingFormSchema,
+  createInitialBrandingDraft,
+  type BrandingFormData,
+  type BrandingFormDraft,
+  type BrandingFormValidationMessages,
+} from "./branding-form-schema";
 import { CardEffectSection } from "./card-effect-section";
 import { CardEffectSlotsSection, type CardEffectSlot } from "./card-effect-slots-section";
 import { GradientBuilder } from "./gradient-builder";
@@ -36,44 +42,6 @@ import { IconColorsSection } from "./icon-colors-section";
 import { FONT_OPTIONS, THEME_PRESETS, CARD_GRADIENT_PRESETS, gradientFromPrimary, type ThemePreset } from "./theme-presets";
 
 // ── Schema ──────────────────────────────────────────────────────────────────
-
-const hexPattern = /^#([0-9a-fA-F]{3,8})$/;
-
-function useBrandingSchema() {
-  const { t } = useTranslation();
-  const hexMessage = t('brandingPage.invalidHex');
-  return z.object({
-    brandName: z.string().min(1).max(64),
-    logoUrl: z.string().max(8192).optional().nullable(),
-    primary: z.string().regex(hexPattern, hexMessage),
-    primaryFg: z.string().regex(hexPattern, hexMessage),
-    bgPrimary: z.string().regex(hexPattern, hexMessage),
-    bgSecondary: z.string().regex(hexPattern, hexMessage),
-    cardGradient: z.string().min(1).max(512),
-    cardPattern: z.string().max(8192).optional().nullable(),
-    cardLogo: z.enum(CARD_LOGO_PRESETS),
-    cardLogoUrl: z.string().max(8192).optional().nullable(),
-    cardEffect: z.string().max(32),
-    cardEffectProps: z.record(z.string(), z.unknown()).optional(),
-    cardEffectOpacity: z.number().min(0.05).max(1),
-    cardEffectsByIndex: z
-      .array(
-        z.object({
-          cardEffect: z.string().max(32),
-          cardEffectProps: z.record(z.string(), z.unknown()),
-          cardEffectOpacity: z.number().min(0.05).max(1),
-        }),
-      )
-      .optional(),
-    bgEffect: z.enum(["NONE", "MESH", "PARTICLES", "NOISE", "AURORA"]),
-    iconColorMode: z.enum(["default", "theme", "custom"]),
-    iconColors: z.record(z.string(), z.string()).optional(),
-    borderRadius: z.string().min(1).max(64),
-    fontFamily: z.string().min(1).max(256),
-  });
-}
-
-type BrandingFormValues = z.infer<ReturnType<typeof useBrandingSchema>>;
 
 const BORDER_RADIUS_VALUES = [
   { value: "rounded-none", labelKey: "brandingPage.radiusOptions.none" },
@@ -86,14 +54,14 @@ const BORDER_RADIUS_VALUES = [
 
 // ── API ─────────────────────────────────────────────────────────────────────
 
-async function fetchBranding(): Promise<BrandingFormValues> {
-  const { data } = await api.get("/admin/settings/branding");
-  return data;
+async function fetchBranding(): Promise<BrandingFormDraft> {
+  const { data } = await api.get<Partial<BrandingFormDraft>>("/admin/settings/branding");
+  return createInitialBrandingDraft(data);
 }
 
-async function updateBranding(values: Partial<BrandingFormValues>): Promise<BrandingFormValues> {
-  const { data } = await api.patch("/admin/settings/branding", values);
-  return data;
+async function updateBranding(values: BrandingFormData): Promise<BrandingFormDraft> {
+  const { data } = await api.patch<Partial<BrandingFormDraft>>("/admin/settings/branding", values);
+  return createInitialBrandingDraft(data);
 }
 
 // ── Page ────────────────────────────────────────────────────────────────────
@@ -101,7 +69,14 @@ async function updateBranding(values: Partial<BrandingFormValues>): Promise<Bran
 export default function WebReiwaPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const brandingSchema = useBrandingSchema();
+  const validationMessages = useMemo<BrandingFormValidationMessages>(() => ({
+    hexInvalid: t('brandingPage.invalidHex'),
+    imageUrlInvalid: t('brandingPage.invalidImageUrl'),
+  }), [t]);
+  const brandingSchema = useMemo(
+    () => createBrandingFormSchema(validationMessages),
+    [validationMessages],
+  );
 
   const { data: branding, isLoading } = useQuery({
     queryKey: ["admin", "branding"],
@@ -109,29 +84,11 @@ export default function WebReiwaPage() {
     staleTime: 60_000,
   });
 
-  const form = useForm<BrandingFormValues>({
-    resolver: zodResolver(brandingSchema),
-    defaultValues: {
-      brandName: "Reiwa",
-      primary: "#22c55e",
-      primaryFg: "#0a0a0a",
-      bgPrimary: "#0a0a0a",
-      bgSecondary: "#171717",
-      cardGradient: "linear-gradient(135deg, #064e3b 0%, #22c55e 100%)",
-      cardPattern: null,
-      cardLogo: "DEFAULT",
-      cardLogoUrl: null,
-      cardEffect: "aurora",
-      cardEffectProps: {},
-      cardEffectOpacity: 1,
-      cardEffectsByIndex: [],
-      bgEffect: "AURORA",
-      iconColorMode: "default",
-      iconColors: {},
-      borderRadius: "rounded-2xl",
-      fontFamily: "Geist Variable, system-ui, sans-serif",
-      logoUrl: null,
-    },
+  const form = useForm<BrandingFormDraft, unknown, BrandingFormData>({
+    resolver: zodResolver(brandingSchema) as Resolver<BrandingFormDraft, unknown, BrandingFormData>,
+    defaultValues: createInitialBrandingDraft(),
+    mode: 'onSubmit',
+    reValidateMode: 'onBlur',
   });
 
   useEffect(() => {
@@ -279,8 +236,14 @@ export default function WebReiwaPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="logoUrl">{t('brandingPage.sections.identity.logoUrl')}</Label>
-                <Input id="logoUrl" {...form.register("logoUrl")} placeholder={t('brandingPage.sections.identity.logoUrlPlaceholder')} />
+                <Input
+                  id="logoUrl"
+                  {...form.register("logoUrl")}
+                  aria-invalid={!!form.formState.errors.logoUrl}
+                  placeholder={t('brandingPage.sections.identity.logoUrlPlaceholder')}
+                />
                 <p className="text-[11px] text-muted-foreground">{t('brandingPage.sections.identity.logoHint')}</p>
+                <FieldError message={form.formState.errors.logoUrl?.message} />
               </div>
             </CardContent>
           </Card>
@@ -451,6 +414,7 @@ export default function WebReiwaPage() {
                   <Input
                     id="cardLogoUrl"
                     {...form.register("cardLogoUrl")}
+                    aria-invalid={!!form.formState.errors.cardLogoUrl}
                     className="font-mono text-xs"
                     placeholder={t('brandingPage.sections.cardLogo.customUrlPlaceholder')}
                   />
@@ -466,6 +430,7 @@ export default function WebReiwaPage() {
                   )}
                 </div>
                 <p className="text-[11px] text-muted-foreground">{t('brandingPage.sections.cardLogo.customHint')}</p>
+                <FieldError message={form.formState.errors.cardLogoUrl?.message} />
               </div>
             </CardContent>
           </Card>
@@ -585,14 +550,18 @@ export default function WebReiwaPage() {
   );
 }
 
+function FieldError({ message }: { readonly message?: string }) {
+  return message ? <p className="text-sm text-destructive">{message}</p> : null;
+}
+
 function ColorField({
   label,
   name,
   form,
 }: {
   label: string;
-  name: keyof BrandingFormValues;
-  form: ReturnType<typeof useForm<BrandingFormValues>>;
+  name: keyof BrandingFormDraft;
+  form: UseFormReturn<BrandingFormDraft, unknown, BrandingFormData>;
 }) {
   const value = form.watch(name) as string;
   return (

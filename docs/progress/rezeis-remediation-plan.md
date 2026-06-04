@@ -569,11 +569,11 @@ Verification:
 
 ### F4 Critical Form Schemas
 
-Status: In progress 2026-06-04. OAuth provider settings now use a Zod/react-hook-form validation boundary before submit. The UI blocks malformed backend/frontend domains, Generic OAuth2 authorization/token URLs, allowlist emails, and Telegram ID allowlists before calling `/admin/oauth/config/:type`, then submits normalized comma-separated allowlists for valid input. Plan create/edit payloads now pass through a Zod/react-hook-form submit boundary before mutation, block malformed limits, duplicate durations/currencies, unsupported currencies, invalid trial/archive/allowed-user combinations, and normalize unlimited traffic (`0`) to backend `null`. Broadcast create-and-send payloads now pass through a Zod/react-hook-form submit boundary before mutation, block unsupported audiences, empty text-only payloads, malformed HTTP(S) media URLs, whitespace-bearing Telegram file IDs, missing media references, and overlong text/media references, then submit through the current `/admin/broadcast/drafts` and `/admin/broadcast/:id/send` backend contract. Remaining F4 surfaces include notification JSON and branding URLs.
+Status: Completed 2026-06-04 for the current critical form-schema surfaces. OAuth provider settings now use a Zod/react-hook-form validation boundary before submit. The UI blocks malformed backend/frontend domains, Generic OAuth2 authorization/token URLs, allowlist emails, and Telegram ID allowlists before calling `/admin/oauth/config/:type`, then submits normalized comma-separated allowlists for valid input. Plan create/edit payloads now pass through a Zod/react-hook-form submit boundary before mutation, block malformed limits, duplicate durations/currencies, unsupported currencies, invalid trial/archive/allowed-user combinations, and normalize unlimited traffic (`0`) to backend `null`. Broadcast create-and-send payloads now pass through a Zod/react-hook-form submit boundary before mutation, block unsupported audiences, empty text-only payloads, malformed HTTP(S) media URLs, whitespace-bearing Telegram file IDs, missing media references, and overlong text/media references, then submit through the current `/admin/broadcast/drafts` and `/admin/broadcast/:id/send` backend contract. Reiwa-facing branding payloads now pass through a Zod/react-hook-form submit boundary before `/admin/settings/branding` mutation, block malformed logo/card-logo URLs, accept backend-compatible HTTP(S) and `data:image` values, and normalize cleared URL fields to `null`. Legacy notification JSON settings now pass through a Zod/react-hook-form boundary, reject malformed JSON plus array/scalar JSON before `/admin/settings/notifications`, and submit parsed objects matching the backend merge contract.
 
 Work:
 
-- Add Zod/react-hook-form schemas for plans, broadcast, notification JSON, branding URLs. OAuth provider settings, plans, and broadcast payload composition are complete for this slice.
+- Add Zod/react-hook-form schemas for plans, broadcast, notification JSON, branding URLs. OAuth provider settings, plans, broadcast payload composition, branding URLs, and notification JSON are complete for this slice.
 
 Acceptance:
 
@@ -584,20 +584,32 @@ Verification:
 - `cd rezeis-admin/web && npx vitest run src/features/settings/auth-providers-tab.test.tsx` passed: 1 file, 5 tests. React Router future-flag warnings remain pre-existing test noise.
 - `cd rezeis-admin/web && npx vitest run src/features/plans/plan-form-schema.test.ts src/features/plans/plan-form.test.tsx` passed: 2 files, 6 tests. React Router future-flag warnings remain pre-existing test noise.
 - `cd rezeis-admin/web && npx vitest run src/features/broadcast/broadcast-form-schema.test.ts src/features/broadcast/broadcast-page.test.tsx` passed: 2 files, 7 tests. React Router future-flag warnings remain pre-existing test noise.
+- `cd rezeis-admin/web && npx vitest run src/features/branding/branding-form-schema.test.ts src/features/branding/branding-page.test.tsx` passed: 2 files, 5 tests. React Router future-flag warnings remain pre-existing test noise.
+- `cd rezeis-admin/web && npx vitest run src/features/settings/notification-json-settings-schema.test.ts src/features/settings/settings-page-notifications.test.tsx` passed: 2 files, 6 tests. React Router future-flag warnings remain pre-existing test noise.
 - `cd rezeis-admin/web && npx tsc -p tsconfig.app.json --noEmit --incremental false` passed.
-- Focused web ESLint on changed OAuth provider/plan form/broadcast/i18n files passed.
+- Focused web ESLint on changed OAuth provider/plan form/broadcast/branding/notification JSON settings/i18n files passed.
 
 ### F5 Accessibility Baseline
 
+Status: In progress 2026-06-04. The first admin shell baseline slice is complete: authenticated admin pages now expose a skip link to the main workspace, a focusable/named `<main>` target, named banner/sidebar/navigation landmarks, and accessible names for shell icon-only controls such as sidebar collapse and the account menu. The first destructive-confirm replacements are also complete: system log buffer clearing and FAQ entry deletion now use accessible alert dialogs instead of native `confirm()`. Remaining F5 work should stay narrow, preferably replacing the next high-risk destructive `window.confirm` flow or auditing the next keyboard/focus hotspot.
+
 Work:
 
-- Add skip-to-content and `<main>` landmark.
-- Replace native `window.confirm` destructive flows with accessible dialogs.
+- Add skip-to-content and `<main>` landmark. Admin shell baseline is complete for this slice.
+- Replace native `window.confirm` destructive flows with accessible dialogs. System log buffer clearing and FAQ entry deletion are complete for these slices.
 - Preserve visible focus and keyboard behavior.
 
 Acceptance:
 
 - Basic keyboard navigation and landmarks are present in admin shell.
+
+Verification:
+
+- `cd rezeis-admin/web && npx vitest run src/components/layout/admin-shell.test.tsx` passed: 1 file, 2 tests. React Router future-flag warnings remain pre-existing test noise.
+- `cd rezeis-admin/web && npx vitest run src/features/system-logs/system-logs-page.test.tsx` passed: 1 file, 1 test. React Router future-flag warnings remain pre-existing test noise.
+- `cd rezeis-admin/web && npx vitest run src/features/faq/faq-page.test.tsx` passed: 1 file, 1 test. React Router future-flag warnings remain pre-existing test noise.
+- `cd rezeis-admin/web && npx tsc -p tsconfig.app.json --noEmit --incremental false` passed.
+- Focused web ESLint on changed layout accessibility, system logs dialog, and FAQ dialog files passed.
 
 ## P3 — TypeScript Strictness And Larger Quality Work
 
