@@ -137,8 +137,9 @@ function TransactionsTab() {
         <CardContent className="pt-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <div className="space-y-1">
-              <Label className="text-xs">{t('paymentsPage.filters.user')}</Label>
+              <Label htmlFor="payments-filter-user" className="text-xs">{t('paymentsPage.filters.user')}</Label>
               <Input
+                id="payments-filter-user"
                 placeholder={t('paymentsPage.filters.userPlaceholder')}
                 value={userSearch}
                 onChange={(e) => { setUserSearch(e.target.value); setPage(0) }}
@@ -148,7 +149,7 @@ function TransactionsTab() {
             <div className="space-y-1">
               <Label className="text-xs">{t('paymentsPage.filters.status')}</Label>
               <Select value={status} onValueChange={(v) => { setStatus(v); setPage(0) }}>
-                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-9" aria-label={t('paymentsPage.filters.status')}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__all__">{t('paymentsPage.filters.all')}</SelectItem>
                   <SelectItem value="COMPLETED">{t('paymentsPage.statuses.COMPLETED')}</SelectItem>
@@ -161,7 +162,7 @@ function TransactionsTab() {
             <div className="space-y-1">
               <Label className="text-xs">{t('paymentsPage.filters.gateway')}</Label>
               <Select value={gateway} onValueChange={(v) => { setGateway(v); setPage(0) }}>
-                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-9" aria-label={t('paymentsPage.filters.gateway')}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__all__">{t('paymentsPage.filters.all')}</SelectItem>
                   <SelectItem value="TELEGRAM_STARS">Telegram Stars</SelectItem>
@@ -180,7 +181,7 @@ function TransactionsTab() {
             <div className="space-y-1">
               <Label className="text-xs">{t('paymentsPage.filters.type')}</Label>
               <Select value={purchaseType} onValueChange={(v) => { setPurchaseType(v); setPage(0) }}>
-                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-9" aria-label={t('paymentsPage.filters.type')}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__all__">{t('paymentsPage.filters.all')}</SelectItem>
                   <SelectItem value="NEW">{t('paymentsPage.purchaseTypes.NEW')}</SelectItem>

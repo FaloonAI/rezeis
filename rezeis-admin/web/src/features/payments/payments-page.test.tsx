@@ -50,6 +50,23 @@ describe('PaymentsPage RBAC gating', () => {
     expect(await screen.findByText('provider-event-1…')).toBeInTheDocument()
     expect(getSpy).toHaveBeenCalledWith('/admin/payments/webhooks/events?limit=30', expect.any(Object))
   })
+
+  it('names transaction filter controls when payment access is granted', async () => {
+    vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
+      if (path.startsWith('/admin/payments/transactions?')) {
+        return { data: { items: [], total: 0 } }
+      }
+      return { data: {} }
+    })
+    grantPermissions([{ resource: 'payments', action: 'view' }])
+
+    renderWithProviders(<PaymentsPage />)
+
+    expect(await screen.findByRole('textbox', { name: 'User' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Status' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Gateway' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Purchase type' })).toBeInTheDocument()
+  })
 })
 
 function grantPermissions(permissions: ReadonlyArray<{ resource: string; action: RbacAction }>): void {
