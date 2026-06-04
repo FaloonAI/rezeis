@@ -56,4 +56,10 @@ describe('SubscriptionsPage accessibility', () => {
     expect(await screen.findByRole('button', { name: 'Refresh subscriptions' })).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: 'Open user 12345' })).toBeInTheDocument()
   })
+
+  it('names the status filter select', async () => {
+    renderWithProviders(<SubscriptionsPage />)
+
+    expect(await screen.findByRole('combobox', { name: 'Status' })).toBeInTheDocument()
+  })
 })

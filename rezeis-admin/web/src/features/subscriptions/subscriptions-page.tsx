@@ -115,7 +115,7 @@ export default function SubscriptionsPage() {
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-muted-foreground" />
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-36 h-9"><SelectValue placeholder={t('subscriptionsPage.filters.allStatuses')} /></SelectTrigger>
+              <SelectTrigger className="w-36 h-9" aria-label={t('subscriptionsPage.table.status')}><SelectValue placeholder={t('subscriptionsPage.filters.allStatuses')} /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__">{t('subscriptionsPage.filters.allStatuses')}</SelectItem>
                 {STATUSES.map((s) => <SelectItem key={s} value={s}>{String(t(`subscriptionsPage.statuses.${s}`, s))}</SelectItem>)}
