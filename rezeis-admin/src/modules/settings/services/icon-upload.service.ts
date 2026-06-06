@@ -112,7 +112,7 @@ export class IconUploadService implements OnModuleInit {
     if (fileName.includes('/') || fileName.includes('\\') || fileName.includes('..')) {
       return;
     }
-    await fs.rm(join(this.uploadsDir, fileName), { force: true }).catch(() => undefined);
+    await fs.rm(join(this.uploadsDir, fileName), { force: true }).catch((): void => undefined);
   }
 
   private resolveUploadsDir(): string {

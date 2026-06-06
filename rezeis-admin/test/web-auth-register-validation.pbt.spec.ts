@@ -18,7 +18,7 @@ describe('WebAuthRegisterDto property validation', () => {
   it('accepts any login matching the current web-auth login DTO shape', async () => {
     await fc.assert(
       fc.asyncProperty(
-        fc.stringOf(fc.constantFrom(...LOGIN_CHARACTERS), { minLength: 3, maxLength: 64 }),
+        fc.string({ unit: fc.constantFrom(...LOGIN_CHARACTERS), minLength: 3, maxLength: 64 }),
         async (login) => {
           assert.equal(await isValidRegisterPayload({ login, password: VALID_PASSWORD }), true);
         },
@@ -31,8 +31,8 @@ describe('WebAuthRegisterDto property validation', () => {
     await fc.assert(
       fc.asyncProperty(
         fc.oneof(
-          fc.stringOf(fc.constantFrom(...LOGIN_CHARACTERS), { minLength: 0, maxLength: 2 }),
-          fc.stringOf(fc.constantFrom(...LOGIN_CHARACTERS), { minLength: 65, maxLength: 100 }),
+          fc.string({ unit: fc.constantFrom(...LOGIN_CHARACTERS), minLength: 0, maxLength: 2 }),
+          fc.string({ unit: fc.constantFrom(...LOGIN_CHARACTERS), minLength: 65, maxLength: 100 }),
         ),
         async (login) => {
           assert.equal(await isValidRegisterPayload({ login, password: VALID_PASSWORD }), false);

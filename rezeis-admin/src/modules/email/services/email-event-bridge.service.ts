@@ -67,7 +67,7 @@ export class EmailEventBridgeService implements OnModuleInit {
 
     // Build variables from event metadata
     const variables: Record<string, string | number | null> = {
-      name: user.name ?? 'User',
+      name: user?.name ?? 'User',
       email,
       ...(event.metadata as Record<string, string | number | null> ?? {}),
     };

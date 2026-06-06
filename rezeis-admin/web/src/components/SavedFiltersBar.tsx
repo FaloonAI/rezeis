@@ -118,6 +118,7 @@ export function SavedFiltersBar<T>({
               onChange={(e) => setName(e.target.value)}
               maxLength={64}
               placeholder={t('savedFiltersBar.namePlaceholder')}
+              // eslint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
             />
           </div>

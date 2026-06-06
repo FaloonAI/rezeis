@@ -107,7 +107,6 @@ export function BrandingPreview({ values }: BrandingPreviewProps) {
       return { colorStops: brandAuroraStops(primary), amplitude: 1.1, blend: 0.55, speed: 0.8, ...base }
     }
     return base
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- cardEffectProps identity is stable per render from the form
   }, [EffectComponent, cardEffect, cardEffectProps, primary])
 
   return (

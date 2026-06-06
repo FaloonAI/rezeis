@@ -28,7 +28,7 @@ export class TbankAdapter implements IPaymentGateway {
   private readonly logger = new Logger(TbankAdapter.name);
 
   private generateToken(params: Record<string, string | number>, password: string): string {
-    const sorted = { ...params, Password: password };
+    const sorted: Record<string, string | number> = { ...params, Password: password };
     const keys = Object.keys(sorted).sort();
     const concatenated = keys.map((k) => sorted[k]).join('');
     return crypto.createHash('sha256').update(concatenated).digest('hex');

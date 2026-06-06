@@ -24,7 +24,7 @@ export default function ProtectedRoute() {
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <div className="h-9 w-9 animate-spin rounded-full border-4 border-muted border-t-primary" />
-          <p className="text-sm text-muted-foreground">Verifying session…</p>
+          <p className="text-sm text-muted-foreground">{t("auth.verifyingSession")}</p>
         </div>
       </div>
     );

@@ -65,12 +65,14 @@ export default function BotBannerTab() {
   // Sync preview when admin payload changes (e.g. after upload mutation
   // settles and the query refetches). Relative URLs need the admin
   // host prefix to render in the SPA — assume same-origin in dev.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (bannerUrl.length === 0) {
       setPreviewSrc(null)
       return
     }
     setPreviewSrc(bannerUrl)
+  /* eslint-enable react-hooks/set-state-in-effect */
   }, [bannerUrl])
 
   const uploadMutation = useMutation({

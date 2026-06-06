@@ -37,9 +37,17 @@ import { ArrowRight, Globe2, Image as ImageIcon, Keyboard } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 import type { BotButton } from '@/features/bot-config/bot-config-api'
+import { resolveReplyButtonColor, replyButtonHandleId } from './reply-keyboard-utils'
 
 export const REPLY_KEYBOARD_NODE_ID = '__reply_keyboard__'
 export const REPLY_KEYBOARD_NODE_TYPE = 'replyKeyboard'
+
+const STYLE_COLORS: Record<string, { bg: string; text: string }> = {
+  PRIMARY: { bg: '#3b82f6', text: '#ffffff' },
+  SUCCESS: { bg: '#10b981', text: '#ffffff' },
+  DANGER: { bg: '#ef4444', text: '#ffffff' },
+  DEFAULT: { bg: 'var(--color-muted)', text: 'var(--color-foreground)' },
+}
 
 /**
  * Resolution: which screen `name` does this reply-button id default to?
@@ -61,70 +69,6 @@ const REPLY_BUTTON_TARGET_BY_ID: Record<string, string> = {
 export interface ReplyKeyboardNodeData extends Record<string, unknown> {
   buttons: readonly BotButton[]
   bannerUrl: string | null
-}
-
-const STYLE_COLORS: Record<string, { bg: string; text: string }> = {
-  PRIMARY: { bg: '#3b82f6', text: '#ffffff' },
-  SUCCESS: { bg: '#10b981', text: '#ffffff' },
-  DANGER: { bg: '#ef4444', text: '#ffffff' },
-  DEFAULT: { bg: 'var(--color-muted)', text: 'var(--color-foreground)' },
-}
-
-/**
- * Stable per-button-id colours for reply-keyboard edges. Picked from
- * tailwind's 500-tier palette so they read clearly on both light and
- * dark canvas backgrounds. Keys are the well-known reply button ids
- * (`cabinet` / `invite` / `rules` / `help`); arbitrary operator-defined
- * ids fall back to a deterministic hash bucket so the colour stays
- * stable across renders without us hard-coding every possible id.
- */
-const EDGE_COLORS: readonly string[] = [
-  '#3b82f6', // blue
-  '#10b981', // emerald
-  '#f59e0b', // amber
-  '#ef4444', // red
-  '#8b5cf6', // violet
-  '#06b6d4', // cyan
-  '#ec4899', // pink
-  '#f97316', // orange
-]
-
-const RESERVED_BUTTON_COLORS: Record<string, string> = {
-  cabinet: '#3b82f6', // blue
-  invite: '#10b981', // emerald
-  rules: '#f59e0b', // amber
-  help: '#ef4444', // red
-}
-
-/**
- * Resolve a deterministic edge colour for a reply-button. Callers
- * (the `utils.buildReplyToScreenEdges` helper, and the per-button
- * handle render below) MUST agree on the result so the indicator dot
- * on the source side and the edge stroke match.
- */
-export function resolveReplyButtonColor(buttonId: string): string {
-  const reserved = RESERVED_BUTTON_COLORS[buttonId]
-  if (reserved !== undefined) return reserved
-  // Tiny hash so unknown ids land on a stable bucket. Mirrors the
-  // approach React Flow uses internally for default edge colours.
-  let hash = 0
-  for (let i = 0; i < buttonId.length; i++) {
-    hash = (hash << 5) - hash + buttonId.charCodeAt(i)
-    hash |= 0
-  }
-  const idx = Math.abs(hash) % EDGE_COLORS.length
-  return EDGE_COLORS[idx]
-}
-
-/**
- * Source-handle id convention: each reply-keyboard button exposes a
- * dedicated handle whose id encodes the button. The
- * `buildReplyToScreenEdges` helper picks the same id on the edge
- * `sourceHandle` so React Flow positions the line emerging precisely
- * from the right edge of that button's row.
- */
-export function replyButtonHandleId(buttonId: string): string {
-  return `reply-btn-${buttonId}`
 }
 
 function ReplyKeyboardNodeComponent({ data, selected }: NodeProps) {

@@ -58,7 +58,7 @@ describe('AuthProvider protected route readiness', () => {
 
     renderProtectedRoutes('/')
 
-    expect(await screen.findByText(/Verifying session/)).toBeInTheDocument()
+    expect(await screen.findByText(/auth\.verifyingSession|Verifying session|Проверка сессии/)).toBeInTheDocument()
     expect(screen.queryByText('Admin shell rendered')).not.toBeInTheDocument()
 
     await act(async () => {

@@ -717,6 +717,7 @@ function PasskeyRow({
                 onChange={(e) => setDraftName(e.target.value)}
                 maxLength={30}
                 className="h-7 text-sm"
+                // eslint-disable-next-line jsx-a11y/no-autofocus
                 autoFocus
               />
               <Button

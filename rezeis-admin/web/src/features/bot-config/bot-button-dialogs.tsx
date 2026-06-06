@@ -252,7 +252,8 @@ export function BotButtonEditDialog({
   const [actionType, setActionType] = useState<BotButtonAction>('CALLBACK')
   const [actionTarget, setActionTarget] = useState('')
 
-  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    useEffect(() => {
     if (button !== null && open) {
       setLabel(button.label)
       setStyle(button.style)
@@ -263,6 +264,7 @@ export function BotButtonEditDialog({
       setActionTarget(button.actionTarget ?? '')
     }
   }, [button, open])
+    /* eslint-enable react-hooks/set-state-in-effect */
 
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { readonly id: string; readonly payload: UpdateBotButtonPayload }) =>
@@ -449,7 +451,8 @@ export function BotButtonCreateDialog({
   const [actionType, setActionType] = useState<BotButtonAction>('CALLBACK')
   const [actionTarget, setActionTarget] = useState('')
 
-  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    useEffect(() => {
     if (open) {
       setButtonId('')
       setLabel('')
@@ -461,6 +464,7 @@ export function BotButtonCreateDialog({
       setActionTarget('')
     }
   }, [open])
+    /* eslint-enable react-hooks/set-state-in-effect */
 
   const createMutation = useMutation({
     mutationFn: (payload: CreateBotButtonPayload) => botConfigApi.createButton(payload),

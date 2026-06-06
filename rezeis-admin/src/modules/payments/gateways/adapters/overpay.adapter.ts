@@ -59,7 +59,7 @@ export class OverpayAdapter implements IPaymentGateway {
         settings: {
           success_url: input.successUrl,
           fail_url: input.failUrl,
-          notification_url: undefined, // configured in dashboard
+          notification_url: undefined as string | undefined, // configured in dashboard
           language: 'ru',
         },
         customer: input.customerEmail ? {

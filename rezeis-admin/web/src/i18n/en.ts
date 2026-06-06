@@ -956,6 +956,7 @@ export const en = {
     sessionCheckFailedDescription: 'The workspace stays locked until your current session can be verified.',
     sessionCheckRetry: 'Retry verification',
     sessionCheckRetryingAction: 'Retrying...',
+    verifyingSession: 'Verifying session…',
     loginAcceptedTitle: 'Login accepted',
     loginAcceptedDescription: 'Your admin session is being verified before the workspace opens.',
     loginSuccess: 'Signed in successfully',

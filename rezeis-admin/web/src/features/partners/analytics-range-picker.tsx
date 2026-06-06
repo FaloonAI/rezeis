@@ -113,6 +113,7 @@ export function AnalyticsRangePicker({ value, onChange }: Props) {
                 mode="single"
                 selected={draftFrom}
                 onSelect={setDraftFrom}
+                // eslint-disable-next-line jsx-a11y/no-autofocus
                 autoFocus
               />
             </div>

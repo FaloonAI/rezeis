@@ -47,7 +47,7 @@ export class ProfileSyncQueueService {
     if (force) {
       // Remove any retained finished/failed job with this id so the
       // re-add is not deduplicated away.
-      await this.queue.remove(jobId).catch(() => undefined);
+      await this.queue.remove(jobId).catch((): void => undefined);
     }
     await this.queue.add(
       PROFILE_SYNC_JOB,

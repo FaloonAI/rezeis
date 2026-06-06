@@ -99,7 +99,7 @@ export class UpdateCheckerService implements OnModuleInit {
   public async onModuleInit(): Promise<void> {
     // Don't block startup — fire and forget. Failure logs but never
     // throws (see `safeCheck`).
-    this.safeCheck().catch(() => undefined);
+    this.safeCheck().catch((): void => undefined);
   }
 
   /**
@@ -114,7 +114,7 @@ export class UpdateCheckerService implements OnModuleInit {
     this.logger.log(`reiwa reported version: ${normalized}`);
     // Recompute in the background so the cached payload picks up the new
     // current version (and recomputes hasUpdate) promptly.
-    this.safeCheck().catch(() => undefined);
+    this.safeCheck().catch((): void => undefined);
   }
 
   /**
@@ -135,7 +135,7 @@ export class UpdateCheckerService implements OnModuleInit {
   @Cron(CronExpression.EVERY_HOUR)
   public async hourlyRefresh(): Promise<void> {
     if (!shouldRunSchedules()) return;
-    await this.safeCheck().catch(() => undefined);
+    await this.safeCheck().catch((): void => undefined);
   }
 
   // ── Private ──────────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ export default defineConfig({
     },
   },
   build: {
+    sourcemap: 'hidden',
     // three.js (~720 KB) is the largest vendor bundle and is only ever
     // pulled in when an operator opts into a heavy 3D background. We
     // raise the warning threshold past it so the rest of the build
@@ -129,5 +130,21 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup-tests.ts'],
+    coverage: {
+      provider: 'v8',
+      thresholds: {
+        lines: 60,
+        branches: 60,
+        functions: 60,
+        statements: 60,
+      },
+      exclude: [
+        'src/test/**',
+        'src/**/*.test.{ts,tsx}',
+        'src/**/*.spec.{ts,tsx}',
+        '**/*.d.ts',
+        'node_modules/**',
+      ],
+    },
   },
 })

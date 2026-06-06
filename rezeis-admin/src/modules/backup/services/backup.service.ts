@@ -300,8 +300,8 @@ export class BackupService implements OnModuleInit {
       const message = (err as Error).message;
       await this.prismaService.backupRecord
         .update({ where: { id: recordId }, data: { errorMessage: message } })
-        .catch(() => undefined);
-      await fsp.unlink(fullPath).catch(() => undefined);
+        .catch((): void => undefined);
+      await fsp.unlink(fullPath).catch((): void => undefined);
 
       this.systemEventsService.error(
         EVENT_TYPES.SYSTEM_ERROR,
@@ -500,8 +500,8 @@ export class BackupService implements OnModuleInit {
     const stale = all.slice(keep);
     for (const row of stale) {
       const fullPath = path.resolve(this.getBackupLocation(), row.filename);
-      await fsp.unlink(fullPath).catch(() => undefined);
-      await this.prismaService.backupRecord.delete({ where: { id: row.id } }).catch(() => undefined);
+      await fsp.unlink(fullPath).catch((): void => undefined);
+      await this.prismaService.backupRecord.delete({ where: { id: row.id } }).catch((): void => undefined);
     }
   }
 

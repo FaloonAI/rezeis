@@ -970,6 +970,7 @@
     sessionCheckFailedDescription: 'Рабочая область останется заблокированной, пока текущая сессия не будет подтверждена.',
     sessionCheckRetry: 'Повторить проверку',
     sessionCheckRetryingAction: 'Проверяем...',
+    verifyingSession: 'Проверка сессии…',
     loginAcceptedTitle: 'Логин принят',
     loginAcceptedDescription: 'Сессия администратора проверяется перед открытием рабочей области.',
     loginSuccess: 'Вход выполнен успешно',

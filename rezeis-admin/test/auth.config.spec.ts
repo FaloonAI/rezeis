@@ -35,6 +35,6 @@ function deriveJwtSecret(cryptKey: string): string {
 function createValidEnvironmentVariables(): Record<string, string> {
   return {
     NODE_ENV: 'test',
-    REZEIS_CRYPT_KEY: 'crypt-key',
+    REZEIS_CRYPT_KEY: 'a-really-long-crypt-key-that-is-32plus-bytes!!',
   };
 }

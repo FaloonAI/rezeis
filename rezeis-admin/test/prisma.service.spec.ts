@@ -13,7 +13,7 @@ import { PrismaService } from '../src/common/prisma/prisma.service';
 describe('PrismaService database configuration', () => {
   it('validates split database settings and builds the canonical URL', () => {
     const environment = validateEnvironment({
-      REZEIS_CRYPT_KEY: 'crypt-key',
+      REZEIS_CRYPT_KEY: 'a-really-long-crypt-key-that-is-32plus-bytes!!',
       DATABASE_HOST: 'db.internal',
       DATABASE_PORT: '6543',
       DATABASE_NAME: 'rezeis_prod',

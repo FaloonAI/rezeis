@@ -1,6 +1,9 @@
 import js from '@eslint/js'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const jsxA11y = require('eslint-plugin-jsx-a11y');
 import tseslint from 'typescript-eslint'
 import globals from 'globals'
 
@@ -12,6 +15,7 @@ import globals from 'globals'
  *    nested component" by enforcing rules-of-hooks.
  *  - Surface unused vars (with `_`-prefix opt-out for tests + handlers).
  *  - Keep the ruleset light — TypeScript covers the heavy stuff.
+ *  - Enforce basic accessibility checks for admin UI components.
  */
 export default tseslint.config(
   {
@@ -87,6 +91,38 @@ export default tseslint.config(
     files: ['src/**/*.test.{ts,tsx}', 'src/**/*.spec.{ts,tsx}', 'src/test/**'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    plugins: {
+      'jsx-a11y': jsxA11y,
+    },
+    rules: {
+      // jsxA11y.flatConfigs.recommended,.rules,
+      // Downgrade to warn during gradual adoption; promote to error
+      // once the initial audit pass is complete.
+      'jsx-a11y/alt-text': 'warn',
+      'jsx-a11y/anchor-has-content': 'warn',
+      'jsx-a11y/anchor-is-valid': 'warn',
+      'jsx-a11y/aria-props': 'warn',
+      'jsx-a11y/aria-proptypes': 'warn',
+      'jsx-a11y/aria-unsupported-elements': 'warn',
+      'jsx-a11y/heading-has-content': 'warn',
+      'jsx-a11y/img-redundant-alt': 'warn',
+      'jsx-a11y/no-access-key': 'warn',
+      'jsx-a11y/no-distracting-elements': 'warn',
+      'jsx-a11y/no-redundant-roles': 'warn',
+      'jsx-a11y/no-autofocus': 'warn',
+      'jsx-a11y/role-has-required-aria-props': 'warn',
+      'jsx-a11y/role-supports-aria-props': 'warn',
+      'jsx-a11y/scope': 'warn',
+      // These are too noisy for Radix/shadcn primitive wrappers.
+      // The primitives themselves handle the ARIA roles.
+      'jsx-a11y/click-events-have-key-events': 'off',
+      'jsx-a11y/no-static-element-interactions': 'off',
+      'jsx-a11y/no-noninteractive-element-interactions': 'off',
+      'jsx-a11y/no-noninteractive-tabindex': 'off',
     },
   },
 )

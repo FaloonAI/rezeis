@@ -151,12 +151,14 @@ function EmojiEditDialog({ emoji, open, onOpenChange }: EmojiEditDialogProps): J
   const [unicode, setUnicode] = useState('')
   const [tgEmojiId, setTgEmojiId] = useState('')
 
-  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    useEffect(() => {
     if (emoji !== null && open) {
       setUnicode(emoji.unicode)
       setTgEmojiId(emoji.tgEmojiId ?? '')
     }
   }, [emoji, open])
+    /* eslint-enable react-hooks/set-state-in-effect */
 
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { readonly id: string; readonly payload: UpdateBotEmojiPayload }) =>
@@ -262,7 +264,8 @@ function EmojiCreateDialog({ open, onOpenChange }: EmojiCreateDialogProps): JSX.
   const [key, setKey] = useState('')
   const [unicode, setUnicode] = useState('')
   const [tgEmojiId, setTgEmojiId] = useState('')
-
+  
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (open) {
       setKey('')
@@ -270,6 +273,7 @@ function EmojiCreateDialog({ open, onOpenChange }: EmojiCreateDialogProps): JSX.
       setTgEmojiId('')
     }
   }, [open])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const createMutation = useMutation({
     mutationFn: (payload: CreateBotEmojiPayload) => botConfigApi.createEmoji(payload),

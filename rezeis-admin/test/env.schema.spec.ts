@@ -17,7 +17,7 @@ describe('validateEnvironment', () => {
     assert.equal(actualEnvironment.REZEIS_PORT, 8000);
     assert.equal(actualEnvironment.REZEIS_LOCALES, 'ru,en');
     assert.equal(actualEnvironment.REZEIS_DEFAULT_LOCALE, 'ru');
-    assert.equal(actualEnvironment.REZEIS_CRYPT_KEY, 'crypt-key-v2');
+    assert.equal(actualEnvironment.REZEIS_CRYPT_KEY, 'crypt-key-v2-that-is-32plus-bytes-long!!');
     assert.equal(actualEnvironment.DATABASE_HOST, 'localhost');
     assert.equal(actualEnvironment.DATABASE_PORT, 5432);
     assert.equal(actualEnvironment.DATABASE_NAME, 'rezeis');
@@ -116,7 +116,7 @@ describe('validateEnvironment', () => {
       validateEnvironment({ DATABASE_PASSWORD: 'database-password-v2' });
     });
     assert.throws(() => {
-      validateEnvironment({ REZEIS_CRYPT_KEY: 'crypt-key-v2' });
+      validateEnvironment({ REZEIS_CRYPT_KEY: 'crypt-key-v2-that-is-32plus-bytes-long!!' });
     });
   });
 
@@ -225,7 +225,7 @@ describe('validateEnvironment', () => {
 
 function createRequiredEnvironment(): Record<string, unknown> {
   return {
-    REZEIS_CRYPT_KEY: 'crypt-key-v2',
+    REZEIS_CRYPT_KEY: 'crypt-key-v2-that-is-32plus-bytes-long!!',
     DATABASE_PASSWORD: 'database-password-v2',
   };
 }

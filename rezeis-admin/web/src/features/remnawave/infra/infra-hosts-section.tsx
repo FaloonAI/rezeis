@@ -72,11 +72,13 @@ export function InfraHostsSection() {
 
   // Local copy for optimistic ordering. Resyncs when the upstream list changes.
   const [order, setOrder] = useState<RemnawaveHost[]>([])
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (hosts) {
       setOrder([...hosts].sort((a, b) => a.viewPosition - b.viewPosition))
-    }
+          }
   }, [hosts])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const reorderMutation = useMutation({
     mutationFn: (uuids: string[]) => remnawaveApi.reorderHosts(uuids),

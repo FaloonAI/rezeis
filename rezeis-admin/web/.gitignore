@@ -11,3 +11,7 @@ pnpm-debug.log*
 # Country flag SVGs are vendored at build time from `country-flag-icons`
 # via `scripts/sync-flags.mjs`. Don't commit the snapshot.
 src/flags/*.svg
+
+# Vitest coverage/output artifacts
+vitest-results.json
+coverage/

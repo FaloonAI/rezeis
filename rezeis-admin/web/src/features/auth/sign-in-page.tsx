@@ -172,6 +172,7 @@ function LoginForm() {
                 id="totp"
                 inputMode="numeric"
                 autoComplete="one-time-code"
+                // eslint-disable-next-line jsx-a11y/no-autofocus
                 autoFocus
                 maxLength={20}
                 placeholder="123456"
@@ -219,6 +220,7 @@ function LoginForm() {
             <Input
               id="username"
               autoComplete="username"
+              // eslint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
               {...form.register('username')}
             />
@@ -299,6 +301,7 @@ function RegisterForm() {
             <Input
               id="reg-username"
               autoComplete="username"
+              // eslint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
               placeholder={t('signInPage.register.usernamePlaceholder')}
               {...form.register('username')}

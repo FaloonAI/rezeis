@@ -2,7 +2,7 @@ import type { Node, Edge } from '@xyflow/react'
 import {
   replyButtonHandleId,
   resolveReplyButtonColor,
-} from './components/ReplyKeyboardNode'
+} from './components/reply-keyboard-utils'
 import type { BotFlow, BotFlowButton, BotScreenNodeData } from './types'
 
 /** Group buttons by row index. */

@@ -269,7 +269,7 @@ export class InternalUserController {
   public async markBotBlocked(
     @Body() body: InternalByTelegramQueryDto,
   ): Promise<{ ok: true }> {
-    await this.internalUserEdgeService.markBotBlocked(body.telegramId);
+    await this.internalUserEdgeService.markBotBlocked(body.telegramId!);
     return { ok: true };
   }
 }

@@ -221,7 +221,7 @@ export class AdminUserManagementController {
     if (body.role !== undefined) data.role = body.role as UserRole;
     if (body.personalDiscount !== undefined) data.personalDiscount = Number(body.personalDiscount);
     if (body.purchaseDiscount !== undefined) data.purchaseDiscount = Number(body.purchaseDiscount);
-    if (body.maxSubscriptions !== undefined) data.maxSubscriptions = body.maxSubscriptions === null ? null : Number(body.maxSubscriptions);
+    if (body.maxSubscriptions !== undefined) data.maxSubscriptions = body.maxSubscriptions === null ? undefined : Number(body.maxSubscriptions);
     if (body.partnerBalanceCurrencyOverride !== undefined) data.partnerBalanceCurrencyOverride = (body.partnerBalanceCurrencyOverride as Currency) || null;
 
     const updated = await this.prismaService.user.update({ where: { id: user.id }, data });
@@ -535,7 +535,7 @@ export class AdminUserManagementController {
     readonly remnawaveProfileDescription: string | null;
   }>> {
     const enriched = await Promise.allSettled(
-      subscriptions.map(async (sub) => {
+      subscriptions.map(async (sub): Promise<T & { remnawaveProfileName: string | null; remnawaveProfileDescription: string | null }> => {
         if (!sub.remnawaveId) {
           return {
             ...sub,
@@ -551,7 +551,7 @@ export class AdminUserManagementController {
         };
       }),
     );
-    return enriched.map((result, index) => {
+    return enriched.map((result, index): T & { remnawaveProfileName: string | null; remnawaveProfileDescription: string | null } => {
       if (result.status === 'fulfilled') return result.value;
       const fallback = subscriptions[index];
       return {

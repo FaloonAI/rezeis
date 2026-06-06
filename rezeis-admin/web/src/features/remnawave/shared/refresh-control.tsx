@@ -19,13 +19,9 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 
-export type RefreshInterval = 'off' | '5s' | '30s'
+import { type RefreshInterval } from './refresh-interval-utils'
 
-const intervalToMs: Record<RefreshInterval, number | false> = {
-  off: false,
-  '5s': 5_000,
-  '30s': 30_000,
-}
+export { type RefreshInterval } from './refresh-interval-utils'
 
 interface RefreshControlProps {
   readonly interval: RefreshInterval
@@ -34,10 +30,6 @@ interface RefreshControlProps {
   readonly isFetching?: boolean
   readonly lastUpdatedAt?: Date | null
   readonly className?: string
-}
-
-export function intervalToRefetchMs(interval: RefreshInterval): number | false {
-  return intervalToMs[interval]
 }
 
 export function RefreshControl({
@@ -91,6 +83,7 @@ function RelativeTime({ date }: { date: Date }) {
     return () => window.clearInterval(id)
   }, [])
 
+  // eslint-disable-next-line react-hooks/purity -- Date.now() is appropriate for a live relative-time timer
   const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000))
   let label = `${seconds}s`
   if (seconds >= 60) {

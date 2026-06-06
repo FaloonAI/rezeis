@@ -287,12 +287,15 @@ export class ReferralPointsExchangeService {
     // spend — the sweep/retry path and admin re-sync are the safety net.
     try {
       if (trafficTopUp !== null) {
+
         await this.enqueueProfileSync(trafficTopUp.subscriptionId, {
           source: 'REFERRAL_EXCHANGE_TRAFFIC',
+
           topUpGb: trafficTopUp.gb,
         });
       }
       if (expiryExtended !== null) {
+
         await this.enqueueProfileSync(expiryExtended.subscriptionId, {
           source: 'REFERRAL_EXCHANGE_DAYS',
         });

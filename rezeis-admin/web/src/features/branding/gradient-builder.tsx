@@ -90,9 +90,10 @@ export function GradientBuilder({ value, onChange }: GradientBuilderProps) {
   // branding load). When `value` changes for any reason other than our own
   // emit, re-seed the controls from it so the builder stays in sync.
   const lastEmitted = useRef<string>(composeGradient(type, angle, stops))
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     const incoming = (value ?? '').trim()
-    if (incoming === lastEmitted.current.trim()) return
+      if (incoming === lastEmitted.current.trim()) return
     const parsed = parseGradient(incoming)
     if (!parsed) return
     setType(parsed.type)
@@ -100,6 +101,7 @@ export function GradientBuilder({ value, onChange }: GradientBuilderProps) {
     setStops(parsed.stops)
     lastEmitted.current = incoming
   }, [value])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const preview = composeGradient(type, angle, stops)
 

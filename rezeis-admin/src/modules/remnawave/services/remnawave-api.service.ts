@@ -495,6 +495,7 @@ export class RemnawaveApiService {
         break
       }
       if (response === null) break
+
       const usersPayload = response.response?.users ?? response.users ?? []
       if (!Array.isArray(usersPayload) || usersPayload.length === 0) break
 
@@ -540,6 +541,7 @@ export class RemnawaveApiService {
             typeof value.externalSquadUuid === 'string' ? value.externalSquadUuid : null,
         })
       }
+
 
       const totalReported = response.response?.total ?? response.total ?? null
       if (typeof totalReported === 'number' && collected.length >= totalReported) break

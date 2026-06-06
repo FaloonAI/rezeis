@@ -136,7 +136,8 @@ export function ImportProgressDialog({
   // Cosmetic stage cycler — runs while the job is live, just for visual
   // feedback. The real progress comes from the polling query below.
   const [stageIndex, setStageIndex] = useState(0)
-  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    useEffect(() => {
     if (!open) return
     setStageIndex(0)
     const handle = window.setInterval(() => {
@@ -144,13 +145,15 @@ export function ImportProgressDialog({
     }, STAGE_INTERVAL_MS)
     return () => window.clearInterval(handle)
   }, [open])
+    /* eslint-enable react-hooks/set-state-in-effect */
 
   // 90 s hard safety net so the spinner never spins forever even if
-  // the backend never reaches a terminal status. After timeout we
+    // the backend never reaches a terminal status. After timeout we
   // surface a soft warning but keep the polling alive — the user can
   // close the dialog and watch the history table instead.
   const [timedOut, setTimedOut] = useState(false)
   const startedAtRef = useRef<number | null>(null)
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!open) {
       startedAtRef.current = null
@@ -162,6 +165,7 @@ export function ImportProgressDialog({
     const handle = window.setTimeout(() => setTimedOut(true), 90_000)
     return () => window.clearTimeout(handle)
   }, [open])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Poll the import record every 1s while open + not in terminal state.
   const { data: record, isError } = useQuery<ImportRecordPayload>({

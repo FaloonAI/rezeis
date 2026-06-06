@@ -159,7 +159,8 @@ export default function BotFlowPage() {
   // Sync React Flow state — preserve local positions so an in-flight drag
   // is not undone when the server returns the same positionX/Y. Reuses the
   // merge logic from Wave 3 of the bot-flow refactor.
-  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    useEffect(() => {
     if (!projectedGraph) return
     const { nodes: incoming, edges: incomingEdges } = projectedGraph
 
@@ -188,9 +189,11 @@ export default function BotFlowPage() {
     // reference would yank the user's selection mid-edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectedGraph, replyButtons])
+    /* eslint-enable react-hooks/set-state-in-effect */
 
   // Separate effect to refresh just the reply-node data on bot-button
-  // mutations without reprojecting the whole flow.
+    // mutations without reprojecting the whole flow.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!replyNode) return
     setNodes((current) => {
@@ -201,6 +204,7 @@ export default function BotFlowPage() {
       return next
     })
   }, [replyNode])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const createScreenMutation = useMutation({

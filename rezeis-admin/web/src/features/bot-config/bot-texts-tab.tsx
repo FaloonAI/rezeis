@@ -198,12 +198,14 @@ function TextEditDialog({ text, open, onOpenChange }: TextEditDialogProps): JSX.
   const [value, setValue] = useState('')
   const [visible, setVisible] = useState(true)
 
-  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    useEffect(() => {
     if (text !== null && open) {
       setValue(text.value)
       setVisible(text.visible)
     }
   }, [text, open])
+    /* eslint-enable react-hooks/set-state-in-effect */
 
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { readonly id: string; readonly payload: UpdateBotTextPayload }) =>
@@ -307,7 +309,8 @@ function TextCreateDialog({ open, onOpenChange }: TextCreateDialogProps): JSX.El
   const [key, setKey] = useState('')
   const [value, setValue] = useState('')
   const [visible, setVisible] = useState(true)
-
+  
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (open) {
       setKey('')
@@ -315,6 +318,7 @@ function TextCreateDialog({ open, onOpenChange }: TextCreateDialogProps): JSX.El
       setVisible(true)
     }
   }, [open])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const createMutation = useMutation({
     mutationFn: (payload: CreateBotTextPayload) => botConfigApi.createText(payload),

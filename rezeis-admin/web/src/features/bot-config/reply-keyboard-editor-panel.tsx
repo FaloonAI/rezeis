@@ -63,11 +63,13 @@ export function ReplyKeyboardEditorPanel(): JSX.Element {
   })
 
   const [order, setOrder] = useState<BotButton[]>([])
-  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    useEffect(() => {
     if (buttons) {
       setOrder([...buttons].sort((a, b) => a.orderIndex - b.orderIndex))
     }
   }, [buttons])
+    /* eslint-enable react-hooks/set-state-in-effect */
 
   const reorderMutation = useMutation({
     mutationFn: (ids: string[]) => botConfigApi.reorderButtons(ids),

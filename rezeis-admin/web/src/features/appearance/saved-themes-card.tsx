@@ -311,6 +311,7 @@ function SaveThemeDialog({
               onChange={(e) => setName(e.target.value)}
               placeholder={t('appearancePage.savedThemes.fields.namePlaceholder')}
               maxLength={80}
+              // eslint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
             />
           </div>

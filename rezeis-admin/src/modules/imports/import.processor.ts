@@ -190,7 +190,7 @@ export class ImportProcessor extends WorkerHost {
     } finally {
       // Cleanup staged file
       if (stagedFilePath) {
-        await fsp.unlink(stagedFilePath).catch(() => undefined);
+        await fsp.unlink(stagedFilePath).catch((): void => undefined);
       }
     }
   }
