@@ -1,11 +1,21 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { createBrowserRouter, Navigate, useLocation } from 'react-router-dom'
 import { lazy, Suspense } from 'react'
 import ProtectedRoute from './protected-route'
 import AdminShell from '@/components/layout/admin-shell'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { withFeatureBundle } from '@/i18n/i18n'
+
+/**
+ * Wraps children in an ErrorBoundary that resets whenever the
+ * route pathname changes so a previous page error does not block
+ * navigation to a new route.
+ */
+function RouteErrorBoundary({ children }: { readonly children: React.ReactNode }) {
+  const { pathname } = useLocation()
+  return <ErrorBoundary key={pathname}>{children}</ErrorBoundary>
+}
 
 // Lazy-load pages
 const SignInPage = lazy(() => import('@/features/auth/sign-in-page'))
@@ -90,9 +100,9 @@ function PageFallback() {
 
 function withSuspense(element: React.ReactNode) {
   return (
-    <ErrorBoundary>
+    <RouteErrorBoundary>
       <Suspense fallback={<PageFallback />}>{element}</Suspense>
-    </ErrorBoundary>
+    </RouteErrorBoundary>
   )
 }
 
