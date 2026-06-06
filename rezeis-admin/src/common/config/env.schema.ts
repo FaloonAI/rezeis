@@ -34,7 +34,7 @@ const environmentSchema = z.object({
   ),
   REZEIS_LOCALES: z.string().min(1).default('ru,en'),
   REZEIS_DEFAULT_LOCALE: z.string().min(1).default('ru'),
-  REZEIS_CRYPT_KEY: z.string().min(1),
+  REZEIS_CRYPT_KEY: z.string().min(32, 'REZEIS_CRYPT_KEY must be at least 32 characters'),
 
   // ── Webhook ──────────────────────────────────────────────────────────────
   WEBHOOK_ENABLED: envBoolean(false),
@@ -60,7 +60,12 @@ const environmentSchema = z.object({
   DATABASE_PASSWORD: z.string().min(1),
   DATABASE_ECHO: envBoolean(false),
   DATABASE_ECHO_POOL: envBoolean(false),
-  DATABASE_POOL_SIZE: z.coerce.number().int().min(1).default(25),
+  // Optional: explicit Postgres connection-pool max. When unset/blank, the
+  // pool is auto-sized to the container's memory budget (resource-profile.util).
+  DATABASE_POOL_SIZE: z.preprocess(
+    normalizeOptionalString,
+    z.coerce.number().int().min(1).optional(),
+  ),
   DATABASE_MAX_OVERFLOW: z.coerce.number().int().min(0).default(25),
   DATABASE_POOL_TIMEOUT: z.coerce.number().int().min(1).default(10),
   DATABASE_POOL_RECYCLE: z.coerce.number().int().min(1).default(3600),
