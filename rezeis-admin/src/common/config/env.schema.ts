@@ -100,17 +100,16 @@ const environmentSchema = z.object({
   EMAIL_USE_SSL: envBoolean(false),
 
   // ── Reiwa internal channel ───────────────────────────────────────────────
-  /** URL of reiwa-bot's internal HTTP listener (for /invalidate, /notify).
-   * Default targets the docker DNS name; override in dev / staging when
-   * the bot lives on a different host. Skipped entirely when unset. */
-  REIWA_BOT_URL: z.preprocess(
+  /** Public base URL of reiwa (the user-facing edge). admin delivers
+   * operator webhooks here (`POST <REIWA_URL>/api/v1/webhooks/rezeis`):
+   * bot-config cache busts + per-user/broadcast notifications. reiwa-api
+   * receives, verifies the signature, and relays to the bot internally —
+   * the bot itself is never exposed. Same-VPS default points at the docker
+   * service; split deploy uses the public https domain. Skipped when unset. */
+  REIWA_URL: z.preprocess(
     normalizeOptionalString,
-    z.string().url().default('http://reiwa-bot:5100'),
+    z.string().url().default('http://reiwa:5000'),
   ),
-  /** Shared bearer token used by both the outbound /invalidate and /notify
-   * calls and by reiwa's incoming guard. Must match
-   * `REZEIS_INTERNAL_SHARED_SECRET` on reiwa side. Disabled when unset. */
-  REZEIS_INTERNAL_SHARED_SECRET: z.preprocess(normalizeOptionalString, z.string().min(16).optional()),
 
   // ── Update checker ───────────────────────────────────────────────────────
   /** Panel `<owner>/<repo>` GitHub slug whose `releases/latest` is compared

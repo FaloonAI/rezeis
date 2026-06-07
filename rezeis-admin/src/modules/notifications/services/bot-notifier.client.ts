@@ -1,57 +1,54 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { buildWebhookSignature } from '../../../common/http/webhook-signature.util';
+
 /**
  * BotNotifierClient
  * ─────────────────
- * Outbound HTTP client that punches per-user notifications and channel
- * broadcasts at reiwa-bot's internal listener (`POST /notify`,
- * `POST /notify-broadcast`). Auth: shared secret in `X-Auth-Token`.
+ * Delivers per-user Telegram messages and channel broadcasts to reiwa as
+ * signed webhooks (snoups/Remnawave-style — NOT a direct bot push):
  *
- * Fire-and-forget: callers never await delivery confirmation. The bot
- * acknowledges with 204 on success or 502 on transient failure; we
- * log the result and move on. Persistence of the notification (so the
- * user sees it in the cabinet feed) is the caller's responsibility
- * and runs independently of this delivery — failure to push to
- * Telegram never blocks cabinet UX.
+ *   admin → POST <REIWA_URL>/api/v1/webhooks/rezeis
+ *           body   { event: "reiwa.user.notify" | "reiwa.channel.broadcast",
+ *                    metadata: { eventId, telegramId|chatId, text, ... } }
+ *           header X-Rezeis-Signature: t=<sec>,v1=<hmac> (WEBHOOK_SECRET_HEADER)
  *
- * Idempotency: each call carries an `eventId` (typically the
- * `UserNotificationEvent.id` CUID). The bot keeps an LRU of recently
- * delivered ids and no-ops on replays. Safe to retry on transport
- * errors without producing duplicate Telegram messages.
+ * reiwa-api verifies the signature (`REZEIS_WEBHOOK_SECRET`) and relays the
+ * message to the bot process over its private docker hop — the bot is never
+ * exposed publicly and admin only knows reiwa's public domain.
  *
- * Disabled when `REIWA_BOT_URL` (or `REZEIS_INTERNAL_SHARED_SECRET`)
- * is unset — calls become no-ops so dev/test stacks don't need the
- * bot container running.
+ * Fire-and-forget: callers never await delivery confirmation. Persistence of
+ * the notification (cabinet feed) is the caller's responsibility and runs
+ * independently — a delivery failure never blocks cabinet UX.
+ *
+ * Idempotency: each call carries an `eventId` (the `UserNotificationEvent.id`
+ * CUID). The bot keeps an LRU of delivered ids and no-ops on replays.
+ *
+ * Enabled only when BOTH `REIWA_URL` and `WEBHOOK_SECRET_HEADER` are set.
  */
 @Injectable()
 export class BotNotifierClient {
   private readonly logger = new Logger(BotNotifierClient.name);
-  private readonly baseUrl: string | null;
+  private readonly endpoint: string | null;
   private readonly secret: string | null;
 
-  /**
-   * Per-call HTTP timeout. Push paths run inline with admin requests
-   * (e.g. payment webhook → notify) so we cap aggressively to avoid
-   * piling up connections when the bot is degraded. The bot's own
-   * sendMessage timeout is 10s; 4s here gives the network ~3s of
-   * round-trip headroom.
-   */
+  /** Per-call HTTP timeout — push paths run inline with admin requests. */
   private static readonly TIMEOUT_MS = 4_000;
 
   public constructor() {
-    this.baseUrl = (process.env.REIWA_BOT_URL ?? '').trim() || null;
-    this.secret = (process.env.REZEIS_INTERNAL_SHARED_SECRET ?? '').trim() || null;
-    if (this.baseUrl === null || this.secret === null) {
+    const baseUrl = (process.env.REIWA_URL ?? '').trim().replace(/\/+$/, '');
+    this.secret = (process.env.WEBHOOK_SECRET_HEADER ?? '').trim() || null;
+    this.endpoint = baseUrl.length > 0 ? `${baseUrl}/api/v1/webhooks/rezeis` : null;
+    if (this.endpoint === null || this.secret === null) {
       this.logger.warn(
-        'BotNotifierClient disabled — set REIWA_BOT_URL and REZEIS_INTERNAL_SHARED_SECRET to enable',
+        'BotNotifierClient disabled — set REIWA_URL and WEBHOOK_SECRET_HEADER to enable',
       );
     }
   }
 
   /**
-   * Deliver a per-user message to Telegram. `eventId` MUST be stable
-   * across retries; reuse the source `UserNotificationEvent.id` CUID
-   * to get free deduplication.
+   * Deliver a per-user message to Telegram. `eventId` MUST be stable across
+   * retries; reuse the source `UserNotificationEvent.id` CUID for free dedup.
    */
   public async notifyUser(input: {
     readonly eventId: string;
@@ -60,8 +57,7 @@ export class BotNotifierClient {
     readonly parseMode?: 'MarkdownV2' | 'HTML';
     readonly buttons?: ReadonlyArray<NotifyButton>;
   }): Promise<void> {
-    if (this.baseUrl === null || this.secret === null) return;
-    await this.post('/notify', {
+    await this.deliver('reiwa.user.notify', {
       eventId: input.eventId,
       telegramId: input.telegramId,
       text: input.text,
@@ -71,9 +67,8 @@ export class BotNotifierClient {
   }
 
   /**
-   * Deliver a message to a Telegram chat or forum topic. Used for
-   * operator-managed broadcast channels (admin event feed, partner
-   * channel, etc.) configured through the BotNotificationChannel UI.
+   * Deliver a message to a Telegram chat or forum topic (operator-managed
+   * broadcast channels).
    */
   public async notifyBroadcast(input: {
     readonly eventId: string;
@@ -83,8 +78,7 @@ export class BotNotifierClient {
     readonly parseMode?: 'MarkdownV2' | 'HTML';
     readonly buttons?: ReadonlyArray<NotifyButton>;
   }): Promise<void> {
-    if (this.baseUrl === null || this.secret === null) return;
-    await this.post('/notify-broadcast', {
+    await this.deliver('reiwa.channel.broadcast', {
       eventId: input.eventId,
       chatId: input.chatId,
       topicThreadId: input.topicThreadId,
@@ -94,31 +88,38 @@ export class BotNotifierClient {
     });
   }
 
-  private async post(path: string, body: unknown): Promise<void> {
-    if (this.baseUrl === null || this.secret === null) return;
-    const url = `${this.baseUrl.replace(/\/+$/, '')}${path}`;
+  private async deliver(event: string, metadata: Record<string, unknown>): Promise<void> {
+    if (this.endpoint === null || this.secret === null) return;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), BotNotifierClient.TIMEOUT_MS);
     try {
-      const response = await fetch(url, {
+      const body = JSON.stringify({
+        event,
+        category: 'REIWA',
+        severity: 'INFO',
+        message: event,
+        metadata,
+        timestamp: new Date().toISOString(),
+      });
+      const { header } = buildWebhookSignature({ secret: this.secret, body });
+      const response = await fetch(this.endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Auth-Token': this.secret,
+          'X-Rezeis-Event': event,
+          'X-Rezeis-Signature': header,
         },
-        body: JSON.stringify(body),
+        body,
         signal: controller.signal,
       });
       if (!response.ok && response.status !== 204) {
         this.logger.warn(
-          `Bot notify ${path} returned ${response.status} ${response.statusText}`,
+          `Bot notify ${event} returned ${response.status} ${response.statusText}`,
         );
       }
     } catch (err: unknown) {
-      // Bot unavailable / network blip / timeout — swallow because
-      // the cabinet feed already has the notification persisted.
       this.logger.warn(
-        `Bot notify ${path} threw: ${err instanceof Error ? err.message : String(err)}`,
+        `Bot notify ${event} threw: ${err instanceof Error ? err.message : String(err)}`,
       );
     } finally {
       clearTimeout(timeout);

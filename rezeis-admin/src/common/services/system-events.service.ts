@@ -24,7 +24,6 @@
  * rezeis-admin has no bot — the admin panel shows events in real-time.
  */
 
-import { createHmac } from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
@@ -32,6 +31,7 @@ import { ModuleRef } from '@nestjs/core';
 import { firstValueFrom } from 'rxjs';
 
 import { webhookConfig } from '../config/webhook.config';
+import { buildWebhookSignature } from '../http/webhook-signature.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../../modules/realtime/realtime.gateway';
 
@@ -322,14 +322,20 @@ export class SystemEventsService {
       timestamp: event.timestamp,
     });
 
-    const signature = this.signPayload(payload);
-
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-Rezeis-Event': event.type,
-      'X-Rezeis-Signature': signature,
-      'X-Rezeis-Timestamp': event.timestamp,
     };
+
+    // Unified signature: `X-Rezeis-Signature: t=<sec>,v1=<hmac>` over
+    // `<t>.<body>` — the same scheme as the per-subscription dispatcher and
+    // the reiwa webhook receiver, so any consumer verifies one way.
+    const secret = this.webhookConfiguration.secretHeader;
+    if (secret) {
+      const { header, timestamp } = buildWebhookSignature({ secret, body: payload });
+      headers['X-Rezeis-Signature'] = header;
+      headers['X-Rezeis-Timestamp'] = String(timestamp);
+    }
 
     for (const url of this.webhookConfiguration.urls) {
       try {
@@ -343,12 +349,6 @@ export class SystemEventsService {
         this.logger.warn(`Webhook to ${url} failed: ${(err as Error).message}`);
       }
     }
-  }
-
-  private signPayload(payload: string): string {
-    const secret = this.webhookConfiguration.secretHeader;
-    if (!secret) return '';
-    return createHmac('sha256', secret).update(payload).digest('hex');
   }
 
   // ── Realtime Delivery ───────────────────────────────────────────────────────

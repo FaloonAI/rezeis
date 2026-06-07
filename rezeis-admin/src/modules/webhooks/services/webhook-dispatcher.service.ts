@@ -12,7 +12,7 @@ import {
   WEBHOOK_RETRY_DELAYS_SEC,
 } from '../webhooks.constants';
 import { eventMatches } from '../utils/event-matcher';
-import { buildWebhookSignature } from '../utils/signature';
+import { buildWebhookSignature } from '../../../common/http/webhook-signature.util';
 import { WebhookQueueService } from './webhook-queue.service';
 
 export interface WebhookDispatchEventInput {

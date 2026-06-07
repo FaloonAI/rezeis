@@ -1,76 +1,78 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { buildWebhookSignature } from '../../../common/http/webhook-signature.util';
+
 /**
  * ReiwaCacheInvalidatorService
  * ────────────────────────────
- * Pushes a synchronous cache-bust to the reiwa-bot process when the
- * operator saves bot-config changes (buttons, emojis, texts).
+ * Tells reiwa that the bot-config changed so the running reiwa-bot drops
+ * its in-memory cache and re-pulls within ~50ms instead of waiting up to
+ * 5 minutes for the periodic refresh.
  *
- * Without this push, reiwa-bot would wait up to 5 minutes (the
- * `BotConfigCache` TTL) before picking up the change. With the push
- * the next user `/start` sees the new keyboard within ~50ms of the
- * operator clicking Save.
+ * Delivery model (snoups/Remnawave-style webhook — NOT a direct bot push):
+ *   admin → POST <REIWA_URL>/api/v1/webhooks/rezeis
+ *           body   { event: "reiwa.bot.invalidate", metadata: { reason } }
+ *           header X-Rezeis-Signature: t=<sec>,v1=<hmac>  (keyed by
+ *                  WEBHOOK_SECRET_HEADER, same scheme as the webhook system)
  *
- * Wire:
- *   admin (this service) → POST http://reiwa-bot:5100/invalidate
- *                          header X-Auth-Token: <REZEIS_INTERNAL_SHARED_SECRET>
+ * reiwa-api verifies the signature against `REZEIS_WEBHOOK_SECRET` and
+ * relays the bust to the bot over its private docker hop. The bot is never
+ * exposed publicly and admin only ever knows reiwa's public domain
+ * (`REIWA_URL`).
  *
- * `reiwa-bot:5100` is resolved through docker DNS — both processes
- * share the `remnawave-network` so the call never leaves the host.
- *
- * The endpoint is only available when the operator has set
- * `REZEIS_INTERNAL_SHARED_SECRET` (same key reiwa uses for outbound
- * HMAC). When unset, this service short-circuits to a debug log and
- * the cache invalidation falls back to the 5-minute TTL refresh.
- *
- * All calls are best-effort and fire-and-forget: a save in admin must
- * NEVER fail because reiwa-bot is down or unreachable. Logged at warn
- * level on failure so an operator inspecting logs can spot a
- * misconfigured bot endpoint.
+ * Enabled only when BOTH `REIWA_URL` and `WEBHOOK_SECRET_HEADER` are set.
+ * All calls are best-effort and fire-and-forget: a save in admin must NEVER
+ * fail because reiwa is down.
  */
 @Injectable()
 export class ReiwaCacheInvalidatorService {
   private readonly logger = new Logger(ReiwaCacheInvalidatorService.name);
-  private readonly endpoint: string;
-  private readonly secret: string;
-  private readonly enabled: boolean;
+  private readonly endpoint: string | null;
+  private readonly secret: string | null;
   private readonly timeoutMs = 3_000;
 
   public constructor() {
-    const host = (process.env.REIWA_BOT_HOST ?? 'reiwa-bot').trim();
-    const port = Number.parseInt(process.env.REIWA_BOT_INVALIDATE_PORT ?? '5100', 10);
-    this.endpoint = `http://${host}:${port}/invalidate`;
-    this.secret = (process.env.REZEIS_INTERNAL_SHARED_SECRET ?? '').trim();
-    this.enabled = this.secret.length >= 32;
-    if (!this.enabled) {
+    const baseUrl = (process.env.REIWA_URL ?? '').trim().replace(/\/+$/, '');
+    this.secret = (process.env.WEBHOOK_SECRET_HEADER ?? '').trim() || null;
+    this.endpoint = baseUrl.length > 0 ? `${baseUrl}/api/v1/webhooks/rezeis` : null;
+    if (this.endpoint === null || this.secret === null) {
       this.logger.log(
-        'Reiwa cache invalidation disabled (REZEIS_INTERNAL_SHARED_SECRET not configured)',
+        'Reiwa cache invalidation disabled (set REIWA_URL and WEBHOOK_SECRET_HEADER)',
       );
     }
   }
 
   /**
-   * Notify reiwa-bot that the cached bot-config is stale. Returns
-   * `true` when the push succeeded (HTTP 2xx), `false` otherwise.
-   * Never throws — callers are free to ignore the return value.
+   * Notify reiwa that the cached bot-config is stale. Returns `true` when
+   * the webhook was accepted (HTTP 2xx), `false` otherwise. Never throws.
    */
   public async invalidate(reason: string): Promise<boolean> {
-    if (!this.enabled) return false;
+    if (this.endpoint === null || this.secret === null) return false;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       controller.abort();
     }, this.timeoutMs);
     try {
+      const body = JSON.stringify({
+        event: 'reiwa.bot.invalidate',
+        category: 'REIWA',
+        severity: 'INFO',
+        message: 'reiwa.bot.invalidate',
+        metadata: { reason },
+        timestamp: new Date().toISOString(),
+      });
+      const { header } = buildWebhookSignature({ secret: this.secret, body });
       const response = await fetch(this.endpoint, {
         method: 'POST',
         headers: {
-          'X-Auth-Token': this.secret,
           'Content-Type': 'application/json',
+          'X-Rezeis-Event': 'reiwa.bot.invalidate',
+          'X-Rezeis-Signature': header,
         },
-        body: JSON.stringify({ reason }),
+        body,
         signal: controller.signal,
       });
-      if (!response.ok) {
+      if (!response.ok && response.status !== 204) {
         this.logger.warn(
           `Cache invalidate non-2xx: ${response.status} ${response.statusText} (reason=${reason})`,
         );

@@ -34,7 +34,7 @@ describe('validateEnvironment', () => {
     assert.equal(actualEnvironment.EMAIL_FROM_NAME, 'Rezeis');
     assert.equal(actualEnvironment.EMAIL_USE_TLS, true);
     assert.equal(actualEnvironment.EMAIL_USE_SSL, false);
-    assert.equal(actualEnvironment.REIWA_BOT_URL, 'http://reiwa-bot:5100');
+    assert.equal(actualEnvironment.REIWA_URL, 'http://reiwa:5000');
   });
 
   it('coerces split database and Redis config and builds service URLs', () => {
@@ -67,7 +67,6 @@ describe('validateEnvironment', () => {
       REMNAWAVE_PORT: '   ',
       REMNAWAVE_TOKEN: '   ',
       REDIS_PASSWORD: '   ',
-      REZEIS_INTERNAL_SHARED_SECRET: '   ',
       REZEIS_UPDATE_REPO: '   ',
       REZEIS_REIWA_UPDATE_REPO: '   ',
     });
@@ -78,7 +77,6 @@ describe('validateEnvironment', () => {
     assert.equal(actualEnvironment.REMNAWAVE_PORT, undefined);
     assert.equal(actualEnvironment.REMNAWAVE_TOKEN, undefined);
     assert.equal(actualEnvironment.REDIS_PASSWORD, undefined);
-    assert.equal(actualEnvironment.REZEIS_INTERNAL_SHARED_SECRET, undefined);
     assert.equal(actualEnvironment.REZEIS_UPDATE_REPO, undefined);
     assert.equal(actualEnvironment.REZEIS_REIWA_UPDATE_REPO, undefined);
   });
@@ -95,7 +93,6 @@ describe('validateEnvironment', () => {
       REMNAWAVE_WEBHOOK_SECRET: 'remnawave-webhook-secret-v2',
       REMNAWAVE_CADDY_TOKEN: 'remnawave-caddy-token-v2',
       REMNAWAVE_COOKIE: 'remnawave-cookie-v2',
-      REZEIS_INTERNAL_SHARED_SECRET: 'internal-shared-secret-v2',
       REZEIS_UPDATE_REPO: 'owner/rezeis',
       REZEIS_REIWA_UPDATE_REPO: 'owner/reiwa',
     });
@@ -106,7 +103,6 @@ describe('validateEnvironment', () => {
     assert.equal(actualEnvironment.REMNAWAVE_HOST, 'remnawave.internal');
     assert.equal(actualEnvironment.REMNAWAVE_PORT, 3001);
     assert.equal(actualEnvironment.REMNAWAVE_TOKEN, 'remnawave-token-v2');
-    assert.equal(actualEnvironment.REZEIS_INTERNAL_SHARED_SECRET, 'internal-shared-secret-v2');
     assert.equal(actualEnvironment.REZEIS_UPDATE_REPO, 'owner/rezeis');
     assert.equal(actualEnvironment.REZEIS_REIWA_UPDATE_REPO, 'owner/reiwa');
   });
@@ -182,8 +178,7 @@ describe('validateEnvironment', () => {
       { REDIS_NAME: '-1' },
       { WEBHOOK_URL: 'not-a-url' },
       { WEBHOOK_SECRET_HEADER: 'short' },
-      { REIWA_BOT_URL: 'not-a-url' },
-      { REZEIS_INTERNAL_SHARED_SECRET: 'short' },
+      { REIWA_URL: 'not-a-url' },
     ]) {
       assert.throws(() => {
         validateEnvironment({
