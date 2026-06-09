@@ -16,7 +16,7 @@
 
 import { lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Archive, FileCog, Image, Key, Paintbrush, Palette, Settings, Shield } from 'lucide-react'
+import { Archive, Bell, FileCog, Image, Key, Paintbrush, Palette, Settings, Shield } from 'lucide-react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -42,6 +42,7 @@ const BrandingTab = lazy(() => import('./panel-branding-tab'))
 const IconsTab = lazy(() => import('./panel-icons-tab'))
 const BackupTab = lazy(() => import('@/features/backup/backup-page'))
 const ConfigPortabilityTab = lazy(() => import('@/features/config-portability/config-portability-page'))
+const NotificationsTab = lazy(() => import('./panel-notifications-tab'))
 
 function TabFallback() {
   return (
@@ -84,6 +85,10 @@ export default function PanelSettingsHub() {
           <TabsTrigger value="security" className="gap-1.5">
             <Shield className="h-3.5 w-3.5" />
             {t('panelSettings.tabs.security')}
+          </TabsTrigger>
+          <TabsTrigger value="notifications" className="gap-1.5">
+            <Bell className="h-3.5 w-3.5" />
+            {t('panelSettings.tabs.notifications')}
           </TabsTrigger>
           <PermissionGate resource="auth_providers" action="view" hideWhileLoading>
             <TabsTrigger value="auth-providers" className="gap-1.5">
@@ -130,6 +135,12 @@ export default function PanelSettingsHub() {
         <TabsContent value="security">
           <Suspense fallback={<TabFallback />}>
             <SecurityTab />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="notifications">
+          <Suspense fallback={<TabFallback />}>
+            <NotificationsTab />
           </Suspense>
         </TabsContent>
 

@@ -382,6 +382,7 @@ model AdminUser {
   rbacRole      AdminRole?         @relation("AdminUserRbacRole", fields: [rbacRoleId], references: [id], onDelete: SetNull)
   scopePolicies AdminScopePolicy[] @relation("AdminUserScopePolicy")
   themePresets  AdminThemePreset[] @relation("AdminThemePresetOwner")
+  webPushSubscriptions AdminWebPushSubscription[] @relation("AdminUserWebPushSubscriptions")
 
   @@index([role])
   @@index([isActive])
@@ -1515,6 +1516,27 @@ model WebPushSubscription {
 
   @@index([userId])
   @@map("web_push_subscriptions")
+}
+
+/// Admin-scoped browser web-push subscription (parallel to
+/// `WebPushSubscription`, which is user-scoped). One row per (admin,
+/// endpoint); an admin can register several devices (laptop + phone PWA).
+/// Reuses the deployment VAPID keypair. Cascade-deleted with the admin.
+model AdminWebPushSubscription {
+  id           String   @id @default(cuid()) @map("id")
+  adminId      String   @map("admin_id")
+  endpoint     String   @unique @map("endpoint")
+  p256dhKey    String   @map("p256dh_key")
+  authKey      String   @map("auth_key")
+  userAgent    String?  @map("user_agent")
+  failureCount Int      @default(0) @map("failure_count")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt   DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+
+  admin AdminUser @relation("AdminUserWebPushSubscriptions", fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@map("admin_web_push_subscriptions")
 }
 
 /// Singleton row (id = 1).

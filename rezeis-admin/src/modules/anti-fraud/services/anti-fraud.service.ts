@@ -280,8 +280,8 @@ export class AntiFraudService {
 
     if (action === 'notify') {
       this.systemEventsService.warn(
-        EVENT_TYPES.SYSTEM_ERROR,
-        'SYSTEM',
+        EVENT_TYPES.FRAUD_SIGNAL_OPENED,
+        'FRAUD',
         `Fraud signal: ${candidate.title}`,
         {
           signalId: created.id,

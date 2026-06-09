@@ -45,6 +45,8 @@ export type SystemEventCategory =
   | 'REFERRAL'
   | 'PARTNER'
   | 'PROMOCODE'
+  | 'SUPPORT'
+  | 'FRAUD'
   | 'SYSTEM';
 
 export type SystemEventSeverity = 'INFO' | 'WARNING' | 'ERROR';
@@ -120,6 +122,13 @@ export const EVENT_TYPES = {
   PROMOCODE_ACTIVATED: 'promocode.activated',
   PROMOCODE_CREATED: 'promocode.created',
   PROMOCODE_DEPLETED: 'promocode.depleted',
+
+  // Support
+  SUPPORT_TICKET_CREATED: 'support.ticket_created',
+  SUPPORT_TICKET_USER_REPLY: 'support.ticket_user_reply',
+
+  // Anti-fraud
+  FRAUD_SIGNAL_OPENED: 'fraud.signal_opened',
 
   // System
   SYSTEM_STARTUP: 'system.startup',

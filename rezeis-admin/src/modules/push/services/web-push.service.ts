@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { WebPushSubscription } from '@prisma/client';
+import { AdminWebPushSubscription, WebPushSubscription } from '@prisma/client';
 import * as webpush from 'web-push';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
@@ -10,6 +10,22 @@ interface SubscribeInput {
   readonly p256dhKey: string;
   readonly authKey: string;
   readonly userAgent?: string | null;
+}
+
+interface AdminSubscribeInput {
+  readonly adminId: string;
+  readonly endpoint: string;
+  readonly p256dhKey: string;
+  readonly authKey: string;
+  readonly userAgent?: string | null;
+}
+
+interface AdminSendInput {
+  readonly adminId: string;
+  readonly title: string;
+  readonly body: string;
+  /** URL the SPA navigates to when the admin taps the notification. */
+  readonly url?: string;
 }
 
 interface SendInput {
@@ -155,6 +171,103 @@ export class WebPushService implements OnModuleInit {
       url: input.url ?? '/dashboard',
     });
     await Promise.all(subs.map((sub) => this.deliverOne(sub, payload)));
+  }
+
+  // ── Admin-scoped push (panel operators) ───────────────────────────────────
+
+  public async subscribeAdmin(input: AdminSubscribeInput): Promise<{ id: string }> {
+    return this.prismaService.adminWebPushSubscription.upsert({
+      where: { endpoint: input.endpoint },
+      create: {
+        adminId: input.adminId,
+        endpoint: input.endpoint,
+        p256dhKey: input.p256dhKey,
+        authKey: input.authKey,
+        userAgent: input.userAgent ?? null,
+      },
+      update: {
+        adminId: input.adminId,
+        p256dhKey: input.p256dhKey,
+        authKey: input.authKey,
+        userAgent: input.userAgent ?? null,
+        failureCount: 0,
+        lastSeenAt: new Date(),
+      },
+      select: { id: true },
+    });
+  }
+
+  public async unsubscribeAdmin(input: {
+    readonly adminId: string;
+    readonly endpoint: string;
+  }): Promise<void> {
+    await this.prismaService.adminWebPushSubscription.deleteMany({
+      where: { adminId: input.adminId, endpoint: input.endpoint },
+    });
+  }
+
+  /** True when at least one admin has an active push subscription. */
+  public async adminHasSubscription(adminId: string): Promise<boolean> {
+    const count = await this.prismaService.adminWebPushSubscription.count({
+      where: { adminId },
+    });
+    return count > 0;
+  }
+
+  /**
+   * Fan a notification out to every active subscription owned by one admin.
+   * Mirrors `sendToUser` isolation: a dead subscription never blocks the
+   * admin's other devices, and 404/410 prune immediately.
+   */
+  public async sendToAdmin(input: AdminSendInput): Promise<void> {
+    if (!this.vapidConfigured) return;
+    const subs = await this.prismaService.adminWebPushSubscription.findMany({
+      where: { adminId: input.adminId },
+    });
+    if (subs.length === 0) return;
+    const payload = JSON.stringify({
+      title: input.title,
+      body: input.body,
+      url: input.url ?? '/',
+    });
+    await Promise.all(subs.map((sub) => this.deliverOneAdmin(sub, payload)));
+  }
+
+  private async deliverOneAdmin(sub: AdminWebPushSubscription, payload: string): Promise<void> {
+    const target: PushSubscriptionPayload = {
+      endpoint: sub.endpoint,
+      keys: { p256dh: sub.p256dhKey, auth: sub.authKey },
+    };
+    try {
+      await webpush.sendNotification(target, payload, { TTL: 60 });
+      await this.prismaService.adminWebPushSubscription.update({
+        where: { id: sub.id },
+        data: { failureCount: 0, lastSeenAt: new Date() },
+      });
+    } catch (err: unknown) {
+      const status =
+        err !== null && typeof err === 'object' && 'statusCode' in err
+          ? (err as { statusCode?: number }).statusCode ?? null
+          : null;
+      if (status === 404 || status === 410) {
+        await this.prismaService.adminWebPushSubscription.delete({ where: { id: sub.id } });
+        this.logger.log(`WebPush(admin): deleted dead subscription ${sub.id} (${status})`);
+        return;
+      }
+      const next = sub.failureCount + 1;
+      if (next >= WebPushService.MAX_FAILURES) {
+        await this.prismaService.adminWebPushSubscription.delete({ where: { id: sub.id } });
+        this.logger.warn(`WebPush(admin): evicted ${sub.id} after ${next} consecutive failures`);
+        return;
+      }
+      await this.prismaService.adminWebPushSubscription.update({
+        where: { id: sub.id },
+        data: { failureCount: next },
+      });
+      this.logger.warn(
+        `WebPush(admin): send failed for ${sub.id} (${status ?? 'unknown'}), failureCount=${next}`,
+      );
+    }
   }
 
   private async deliverOne(sub: WebPushSubscription, payload: string): Promise<void> {

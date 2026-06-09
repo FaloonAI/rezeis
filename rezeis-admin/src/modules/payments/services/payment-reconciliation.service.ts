@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, Transaction, TransactionStatus } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { EVENT_TYPES, SystemEventsService } from '../../../common/services/system-events.service';
 import { PartnerEarningsService } from '../../partners/services/partner-earnings.service';
 import { ProfileSyncQueueService } from '../../profile-sync/profile-sync-queue.service';
 import { ReferralQualificationService } from '../../referrals/services/referral-qualification.service';
@@ -25,6 +26,7 @@ export class PaymentReconciliationService {
     private readonly partnerEarningsService: PartnerEarningsService,
     private readonly referralQualificationService: ReferralQualificationService,
     private readonly profileSyncQueueService: ProfileSyncQueueService,
+    private readonly systemEvents: SystemEventsService,
   ) {}
 
   public async reconcileWebhookEvent(eventId: string): Promise<void> {
@@ -75,6 +77,21 @@ export class PaymentReconciliationService {
           }
         }
         await this.runReferralAndPartnerHooks(refreshedTransaction);
+      }
+
+      if (nextStatus === TransactionStatus.FAILED) {
+        this.systemEvents.warn(
+          EVENT_TYPES.PAYMENT_FAILED,
+          'PAYMENT',
+          `Платёж не прошёл: ${transaction.purchaseType}`,
+          {
+            userId: transaction.userId,
+            paymentId: transaction.paymentId,
+            gatewayType: transaction.gatewayType,
+            amount: transaction.amount.toString(),
+            currency: transaction.currency,
+          },
+        );
       }
 
       await this.paymentWebhookInboxService.markProcessed(event.id);

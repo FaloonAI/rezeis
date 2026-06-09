@@ -41,6 +41,8 @@ export const REALTIME_TOPICS = [
   'REFERRAL',
   'PARTNER',
   'PROMOCODE',
+  'SUPPORT',
+  'FRAUD',
   'SYSTEM',
 ] as const satisfies readonly SystemEventCategory[];
 

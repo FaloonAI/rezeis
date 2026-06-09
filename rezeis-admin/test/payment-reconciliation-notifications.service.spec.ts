@@ -354,6 +354,7 @@ function createService(state: ReturnType<typeof createState>): PaymentReconcilia
     partnerEarningsService as unknown as PartnerEarningsService,
     referralQualificationService as unknown as ReferralQualificationService,
     profileSyncQueueService as unknown as ProfileSyncQueueService,
+    { warn: () => {}, info: () => {}, error: () => {}, emit: () => {} } as never,
   );
 }
 

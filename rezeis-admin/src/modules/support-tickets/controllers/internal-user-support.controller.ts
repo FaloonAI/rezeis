@@ -13,6 +13,10 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SupportTicket, SupportTicketMessage } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import {
+  EVENT_TYPES,
+  SystemEventsService,
+} from '../../../common/services/system-events.service';
 import { InternalAdminAuthGuard } from '../../auth/guards/internal-admin-auth.guard';
 import { buildUserReferenceWhere } from '../../internal-user/utils/user-reference.util';
 import { SupportTicketsService } from '../services/support-tickets.service';
@@ -38,6 +42,7 @@ export class InternalUserSupportController {
   public constructor(
     private readonly prismaService: PrismaService,
     private readonly supportTicketsService: SupportTicketsService,
+    private readonly systemEvents: SystemEventsService,
   ) {}
 
   @Get(':userRef/tickets')
@@ -81,6 +86,12 @@ export class InternalUserSupportController {
       authorId: userId,
       content: message,
     });
+    this.systemEvents.info(
+      EVENT_TYPES.SUPPORT_TICKET_CREATED,
+      'SUPPORT',
+      `Новый тикет: ${subject}`,
+      { ticketId: created.id, userId, subject },
+    );
     return serializeTicket(await this.supportTicketsService.getById(created.id));
   }
 
@@ -106,6 +117,12 @@ export class InternalUserSupportController {
       authorId: userId,
       content,
     });
+    this.systemEvents.info(
+      EVENT_TYPES.SUPPORT_TICKET_USER_REPLY,
+      'SUPPORT',
+      `Ответ пользователя в тикете: ${ticket.subject}`,
+      { ticketId, userId, subject: ticket.subject },
+    );
     return serializeTicket(await this.supportTicketsService.getById(ticketId));
   }
 
