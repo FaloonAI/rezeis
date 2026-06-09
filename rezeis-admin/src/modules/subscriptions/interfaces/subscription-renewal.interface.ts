@@ -13,6 +13,9 @@ export interface RenewalItemInterface {
   readonly planId: string | null;
   readonly planName: string | null;
   readonly durationDays: number | null;
+  /** Durations the target plan offers, so the UI can let the user re-pick the
+   *  renewal term. Empty when the item isn't renewable. */
+  readonly availableDurations: readonly { readonly id: string; readonly days: number }[];
   readonly currency: Currency | null;
   readonly amount: string | null;
   readonly discountPercent: number;

@@ -1,4 +1,5 @@
 import { PaymentGatewayType, PurchaseChannel } from '@prisma/client';
+import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -10,7 +11,10 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
+
+import { RenewalDurationDto } from '../../subscriptions/dto/renewal-duration.dto';
 
 /**
  * Creates one combined provider checkout that renews several subscriptions.
@@ -59,4 +63,12 @@ export class InternalRenewalCheckoutDto {
   @IsUrl({ require_protocol: true, protocols: ['http', 'https', 'tg', 'tgapp'] })
   @MaxLength(2048)
   public failUrl?: string;
+
+  /** Optional explicit renewal-duration choices, one entry per subscription. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => RenewalDurationDto)
+  public durations?: RenewalDurationDto[];
 }

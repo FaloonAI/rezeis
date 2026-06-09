@@ -16,6 +16,8 @@ interface SubFixture {
   readonly currency: Currency;
   readonly price: string;
   readonly discountPercent: number;
+  /** Durations the target plan offers (defaults to `[durationDays]`). */
+  readonly durations?: readonly number[];
   /** When true, the discovery quote returns no available plans (not renewable). */
   readonly notRenewable?: boolean;
 }
@@ -119,6 +121,77 @@ describe('SubscriptionRenewalService.priceRenewalItems', () => {
   });
 });
 
+describe('SubscriptionRenewalService duration selection', () => {
+  const MULTI = [30, 90, 180] as const;
+
+  it('exposes the plan available durations on each renewal option', async () => {
+    const service = createService([sub({ id: 's1', durationDays: 30, durations: MULTI })]);
+    const result = await service.getRenewalOptions({
+      identity: { userId: 'u' },
+      gatewayType: GATEWAY,
+    });
+    assert.deepEqual(
+      result.items[0]?.availableDurations.map((d) => d.days),
+      [...MULTI],
+    );
+  });
+
+  it('Property 2: honours a chosen duration the plan offers', async () => {
+    const service = createService([sub({ id: 's1', durationDays: 30, durations: MULTI })]);
+    for (const chosen of MULTI) {
+      const result = await service.getRenewalOptions({
+        identity: { userId: 'u' },
+        gatewayType: GATEWAY,
+        durations: new Map([['s1', chosen]]),
+      });
+      assert.equal(result.items[0]?.durationDays, chosen);
+      assert.ok(!result.items[0]?.warnings.some((w) => w.code === 'DURATION_INVALID'));
+    }
+  });
+
+  it('Property 3: defaults to the originally purchased duration when none is chosen', async () => {
+    const service = createService([sub({ id: 's1', durationDays: 90, durations: MULTI })]);
+    const result = await service.getRenewalOptions({
+      identity: { userId: 'u' },
+      gatewayType: GATEWAY,
+    });
+    assert.equal(result.items[0]?.durationDays, 90);
+    assert.ok(!result.items[0]?.warnings.some((w) => w.code === 'DURATION_INVALID'));
+  });
+
+  it('Property 4: rejects an unoffered choice and falls back to the original (DURATION_INVALID)', async () => {
+    const service = createService([sub({ id: 's1', durationDays: 30, durations: MULTI })]);
+    const result = await service.getRenewalOptions({
+      identity: { userId: 'u' },
+      gatewayType: GATEWAY,
+      durations: new Map([['s1', 45]]), // not in MULTI
+    });
+    assert.equal(result.items[0]?.durationDays, 30);
+    assert.ok(result.items[0]?.warnings.some((w) => w.code === 'DURATION_INVALID'));
+  });
+
+  it('Property 5: a single-duration plan auto-selects that duration', async () => {
+    const service = createService([sub({ id: 's1', durationDays: 30, durations: [30] })]);
+    const result = await service.getRenewalOptions({
+      identity: { userId: 'u' },
+      gatewayType: GATEWAY,
+    });
+    assert.equal(result.items[0]?.availableDurations.length, 1);
+    assert.equal(result.items[0]?.durationDays, 30);
+  });
+
+  it('priceRenewalItems carries a chosen duration into the line item', async () => {
+    const service = createService([sub({ id: 's1', durationDays: 30, durations: MULTI })]);
+    const result = await service.priceRenewalItems({
+      identity: { userId: 'u' },
+      subscriptionIds: ['s1'],
+      gatewayType: GATEWAY,
+      durations: new Map([['s1', 180]]),
+    });
+    assert.equal(result.items[0]?.durationDays, 180);
+  });
+});
+
 function sub(input: {
   readonly id: string;
   readonly planId?: string;
@@ -126,6 +199,7 @@ function sub(input: {
   readonly currency?: Currency;
   readonly price?: string;
   readonly discountPercent?: number;
+  readonly durations?: readonly number[];
   readonly notRenewable?: boolean;
 }): SubFixture {
   return {
@@ -135,6 +209,7 @@ function sub(input: {
     currency: input.currency ?? Currency.USD,
     price: input.price ?? '10.00',
     discountPercent: input.discountPercent ?? 0,
+    durations: input.durations,
     notRenewable: input.notRenewable ?? false,
   };
 }
@@ -174,6 +249,8 @@ function createService(fixtures: readonly SubFixture[]): SubscriptionRenewalServ
           warnings: [{ code: 'SOURCE_PLAN_MISSING', message: 'missing' }],
         };
       }
+      const durationDaysList =
+        f.durations !== undefined && f.durations.length > 0 ? f.durations : [f.durationDays];
       const plan = {
         id: f.planId,
         name: `Plan ${f.id}`,
@@ -182,7 +259,7 @@ function createService(fixtures: readonly SubFixture[]): SubscriptionRenewalServ
         trafficLimit: 1024,
         deviceLimit: 1,
         trafficLimitStrategy: 'NO_RESET',
-        durations: [{ id: `d${f.durationDays}`, days: f.durationDays }],
+        durations: durationDaysList.map((d) => ({ id: `d${d}`, days: d })),
       };
       if (input.planId === undefined) {
         // discovery pass
@@ -196,7 +273,8 @@ function createService(fixtures: readonly SubFixture[]): SubscriptionRenewalServ
           warnings: [],
         };
       }
-      // pricing pass
+      // pricing pass — echo the requested duration so callers can assert it.
+      const requestedDays = input.durationDays ?? durationDaysList[0]!;
       return {
         isEligible: true,
         price: {
@@ -208,7 +286,7 @@ function createService(fixtures: readonly SubFixture[]): SubscriptionRenewalServ
           discountSource: f.discountPercent > 0 ? 'PURCHASE' : 'NONE',
         },
         selectedPlan: plan,
-        selectedDuration: plan.durations[0],
+        selectedDuration: { id: `d${requestedDays}`, days: requestedDays },
         selectedSubscriptionId: f.id,
         availablePlans: [plan],
         warnings: [],

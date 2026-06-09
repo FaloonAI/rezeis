@@ -1,4 +1,5 @@
 import { PaymentGatewayType, PurchaseChannel } from '@prisma/client';
+import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -8,7 +9,10 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
+
+import { RenewalDurationDto } from './renewal-duration.dto';
 
 /**
  * Lists a user's renewable subscriptions with per-item renewal pricing.
@@ -41,4 +45,12 @@ export class InternalRenewalOptionsDto {
   @IsOptional()
   @IsEnum(PurchaseChannel)
   public channel?: PurchaseChannel;
+
+  /** Optional explicit renewal-duration choices, one entry per subscription. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => RenewalDurationDto)
+  public durations?: RenewalDurationDto[];
 }

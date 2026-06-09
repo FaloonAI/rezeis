@@ -6,6 +6,7 @@ import { SettingsService } from '../../settings/services/settings.service';
 import { isGatewayAvailableForChannel } from '../../plans/utils/purchase-gateway-policy.util';
 import { InternalPaymentCheckoutDto } from '../dto/internal-payment-checkout.dto';
 import { InternalRenewalCheckoutDto } from '../dto/internal-renewal-checkout.dto';
+import { toDurationMap } from '../../subscriptions/dto/renewal-duration.dto';
 import {
   InternalPaymentCheckoutInterface,
   InternalPaymentStatusInterface,
@@ -97,6 +98,7 @@ export class InternalPaymentsController {
       channel: input.channel,
       successUrl: input.successUrl ?? null,
       failUrl: input.failUrl ?? null,
+      durations: toDurationMap(input.durations),
     });
   }
 

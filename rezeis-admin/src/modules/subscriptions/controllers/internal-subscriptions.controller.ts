@@ -3,6 +3,7 @@ import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { InternalAdminAuthGuard } from '../../auth/guards/internal-admin-auth.guard';
 import { SubscriptionActionPolicyDto } from '../dto/subscription-action-policy.dto';
 import { InternalRenewalOptionsDto } from '../dto/internal-renewal-options.dto';
+import { toDurationMap } from '../dto/renewal-duration.dto';
 import { InternalSubscriptionDeleteDto } from '../dto/internal-subscription-delete.dto';
 import { SubscriptionQuoteDto } from '../dto/subscription-quote.dto';
 import {
@@ -49,6 +50,7 @@ export class InternalSubscriptionsController {
       subscriptionIds: input.subscriptionIds,
       gatewayType: input.gatewayType,
       channel: input.channel,
+      durations: toDurationMap(input.durations),
     });
   }
 

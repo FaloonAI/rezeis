@@ -31,6 +31,7 @@ interface SingleRenewalQuote {
   readonly planId: string | null;
   readonly planName: string | null;
   readonly durationDays: number | null;
+  readonly availableDurations: readonly { readonly id: string; readonly days: number }[];
   readonly currency: Currency | null;
   readonly amount: string | null;
   readonly discountPercent: number;
@@ -41,6 +42,11 @@ interface SingleRenewalQuote {
 const DURATION_ADJUSTED: SubscriptionQuoteWarningInterface = {
   code: 'DURATION_NOT_AVAILABLE',
   message: 'The originally purchased duration is no longer offered; the nearest available duration was used.',
+};
+
+const DURATION_INVALID: SubscriptionQuoteWarningInterface = {
+  code: 'DURATION_INVALID',
+  message: 'The requested duration is not offered by this plan; the original duration was used instead.',
 };
 
 /**
@@ -66,6 +72,8 @@ export class SubscriptionRenewalService {
     readonly subscriptionIds?: readonly string[];
     readonly gatewayType?: PaymentGatewayType;
     readonly channel?: PurchaseChannel;
+    /** Optional per-subscription chosen renewal duration (days). */
+    readonly durations?: ReadonlyMap<string, number>;
   }): Promise<RenewalOptionsInterface> {
     const userId = await this.resolveUserId(input.identity);
     const channel = input.channel ?? PurchaseChannel.WEB;
@@ -79,6 +87,7 @@ export class SubscriptionRenewalService {
           subscriptionId: subscription.id,
           gatewayType: input.gatewayType,
           channel,
+          chosenDurationDays: input.durations?.get(subscription.id) ?? null,
         }),
       );
     }
@@ -88,6 +97,7 @@ export class SubscriptionRenewalService {
       planId: quote.planId,
       planName: quote.planName,
       durationDays: quote.durationDays,
+      availableDurations: quote.availableDurations,
       currency: quote.currency,
       amount: quote.amount,
       discountPercent: quote.discountPercent,
@@ -120,6 +130,8 @@ export class SubscriptionRenewalService {
     readonly subscriptionIds: readonly string[];
     readonly gatewayType: PaymentGatewayType;
     readonly channel?: PurchaseChannel;
+    /** Optional per-subscription chosen renewal duration (days). */
+    readonly durations?: ReadonlyMap<string, number>;
   }): Promise<PricedRenewalInterface> {
     if (input.subscriptionIds.length === 0) {
       throw new BadRequestException('RENEWAL_NO_ITEMS');
@@ -139,6 +151,7 @@ export class SubscriptionRenewalService {
         subscriptionId: subscription.id,
         gatewayType: input.gatewayType,
         channel,
+        chosenDurationDays: input.durations?.get(subscription.id) ?? null,
       });
       if (
         !quote.renewable ||
@@ -193,6 +206,7 @@ export class SubscriptionRenewalService {
     readonly subscriptionId: string;
     readonly gatewayType?: PaymentGatewayType;
     readonly channel: PurchaseChannel;
+    readonly chosenDurationDays?: number | null;
   }): Promise<SingleRenewalQuote> {
     const subscription = await this.prismaService.subscription.findUnique({
       where: { id: input.subscriptionId },
@@ -217,6 +231,7 @@ export class SubscriptionRenewalService {
         planId: null,
         planName: null,
         durationDays: null,
+        availableDurations: [],
         currency: null,
         amount: null,
         discountPercent: 0,
@@ -225,13 +240,19 @@ export class SubscriptionRenewalService {
       };
     }
 
-    const durationChoice = pickDuration(targetPlan, original.durationDays);
+    const availableDurations = targetPlan.durations.map((d) => ({ id: d.id, days: d.days }));
+    const durationChoice = resolveDuration(
+      targetPlan,
+      original.durationDays,
+      input.chosenDurationDays ?? null,
+    );
     if (durationChoice === null) {
       return {
         subscriptionId: input.subscriptionId,
         planId: targetPlan.id,
         planName: targetPlan.name,
         durationDays: null,
+        availableDurations,
         currency: null,
         amount: null,
         discountPercent: 0,
@@ -250,7 +271,10 @@ export class SubscriptionRenewalService {
       durationDays: durationChoice.days,
     });
 
-    const warnings = mergeWarnings(discovery.warnings, durationChoice.adjusted ? [DURATION_ADJUSTED] : []);
+    const adjustWarnings: SubscriptionQuoteWarningInterface[] = [];
+    if (durationChoice.invalidChosen) adjustWarnings.push(DURATION_INVALID);
+    else if (durationChoice.adjusted) adjustWarnings.push(DURATION_ADJUSTED);
+    const warnings = mergeWarnings(discovery.warnings, adjustWarnings);
 
     if (!priced.isEligible || priced.price === null) {
       return {
@@ -258,6 +282,7 @@ export class SubscriptionRenewalService {
         planId: targetPlan.id,
         planName: targetPlan.name,
         durationDays: durationChoice.days,
+        availableDurations,
         currency: null,
         amount: null,
         discountPercent: 0,
@@ -271,6 +296,7 @@ export class SubscriptionRenewalService {
       planId: targetPlan.id,
       planName: targetPlan.name,
       durationDays: durationChoice.days,
+      availableDurations,
       currency: priced.price.currency,
       amount: priced.price.price,
       discountPercent: priced.price.discountPercent,
@@ -344,13 +370,51 @@ function pickTargetPlan(
   return availablePlans[0] ?? null;
 }
 
-function pickDuration(
+interface DurationChoice {
+  readonly days: number;
+  /** The originally purchased duration was unavailable; nearest was used. */
+  readonly adjusted: boolean;
+  /** A user-supplied duration was rejected; the original was used instead. */
+  readonly invalidChosen: boolean;
+}
+
+/**
+ * Resolves the renewal duration for a target plan.
+ *
+ * When the user explicitly chose a duration (`chosenDurationDays`), it is
+ * honoured if the plan offers it; otherwise the choice is rejected
+ * (`invalidChosen`) and resolution falls back to the originally purchased
+ * duration logic. When no choice is supplied, the originally purchased
+ * duration is matched exactly, or the nearest available one is used
+ * (`adjusted`). Returns `null` only when the plan offers no durations.
+ */
+function resolveDuration(
   plan: SubscriptionQuotePlanInterface,
   originalDurationDays: number | null,
-): { readonly days: number; readonly adjusted: boolean } | null {
+  chosenDurationDays: number | null,
+): DurationChoice | null {
   if (plan.durations.length === 0) {
     return null;
   }
+
+  if (chosenDurationDays !== null) {
+    const chosen = plan.durations.find((duration) => duration.days === chosenDurationDays);
+    if (chosen !== undefined) {
+      return { days: chosen.days, adjusted: false, invalidChosen: false };
+    }
+    const fallback = resolveOriginalDuration(plan, originalDurationDays);
+    return fallback === null ? null : { ...fallback, invalidChosen: true };
+  }
+
+  const resolved = resolveOriginalDuration(plan, originalDurationDays);
+  return resolved === null ? null : { ...resolved, invalidChosen: false };
+}
+
+/** Matches the originally purchased duration exactly, or the nearest one. */
+function resolveOriginalDuration(
+  plan: SubscriptionQuotePlanInterface,
+  originalDurationDays: number | null,
+): { readonly days: number; readonly adjusted: boolean } | null {
   if (originalDurationDays !== null) {
     const exact = plan.durations.find((duration) => duration.days === originalDurationDays);
     if (exact !== undefined) {
