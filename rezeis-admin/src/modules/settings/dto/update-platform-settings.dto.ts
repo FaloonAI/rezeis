@@ -31,9 +31,74 @@ export class MultiSubscriptionSettingsDto {
 }
 
 /**
- * Validates partial updates for platform settings.
+ * Verification template locales (RU/EN). Each is optional and nullable; a
+ * cleared field is sent as null/empty and falls back to the default message.
  */
-export class UpdatePlatformSettingsDto {
+export class VerificationLocalesDto {
+  @IsOptional()
+  @ValidateIf((_o: object, value: unknown): boolean => value !== null)
+  @IsString()
+  @MaxLength(2048)
+  public ru?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_o: object, value: unknown): boolean => value !== null)
+  @IsString()
+  @MaxLength(2048)
+  public en?: string | null;
+}
+
+/**
+ * Telegram verification / password-reset message templates.
+ */
+export class VerificationTemplatesDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => VerificationLocalesDto)
+  public telegramTemplate?: VerificationLocalesDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => VerificationLocalesDto)
+  public passwordResetTelegramTemplate?: VerificationLocalesDto;
+}
+
+/**
+ * Platform-branding texts block (persisted to `Settings.platformPolicy`).
+ * Separate from the visual branding (`Settings.brandingSettings`).
+ */
+export class PlatformBrandingDto {
+  @IsOptional()
+  @ValidateIf((_o: object, value: unknown): boolean => value !== null)
+  @IsString()
+  @MaxLength(128)
+  public projectName?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_o: object, value: unknown): boolean => value !== null)
+  @IsString()
+  @MaxLength(128)
+  public webTitle?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_o: object, value: unknown): boolean => value !== null)
+  @IsString()
+  @MaxLength(128)
+  public channelUsername?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  public channelRecheck?: boolean;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => VerificationTemplatesDto)
+  public verification?: VerificationTemplatesDto;
+}
+
+/**
+ * Validates partial updates for platform settings.
+ */export class UpdatePlatformSettingsDto {
   @IsOptional()
   @IsBoolean()
   public rulesRequired?: boolean;
@@ -83,4 +148,9 @@ export class UpdatePlatformSettingsDto {
   @ValidateNested()
   @Type(() => MultiSubscriptionSettingsDto)
   public multiSubscriptionSettings?: MultiSubscriptionSettingsDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PlatformBrandingDto)
+  public platformBranding?: PlatformBrandingDto;
 }

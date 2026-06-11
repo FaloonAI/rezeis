@@ -31,6 +31,14 @@ export interface InternalPublicConfigInterface {
    * operator configured per plan.
    */
   readonly defaultCurrency: string;
+  /**
+   * Platform-branding texts (project name, web page title) used by the SPA
+   * to set the document title and brand-aware copy.
+   */
+  readonly platformBranding: {
+    readonly projectName: string | null;
+    readonly webTitle: string | null;
+  };
 }
 
 @Controller('internal/branding')
@@ -62,6 +70,7 @@ export class InternalBrandingController {
       this.settingsService.getInternalPlatformPolicy(),
       this.settingsService.getCustomIcons(),
     ]);
+    const platformBranding = await this.settingsService.getPlatformBranding();
     const locales = this.appConfiguration.locales;
     const defaultLocale = this.appConfiguration.defaultLocale;
     return {
@@ -70,6 +79,10 @@ export class InternalBrandingController {
       defaultLocale,
       customIcons,
       defaultCurrency: policy.defaultCurrency,
+      platformBranding: {
+        projectName: platformBranding.projectName,
+        webTitle: platformBranding.webTitle,
+      },
     };
   }
 }

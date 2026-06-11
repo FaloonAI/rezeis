@@ -580,6 +580,20 @@ const DEFAULT_TEXTS: readonly DefaultTextSeed[] = [
     key: 'access_mode.purchase_blocked',
     value: '🛒 Покупка временно недоступна. Действующие подписки можно продлевать как обычно.',
   },
+  // Channel-subscription gate (used by /start + the "I subscribed" button
+  // when the operator requires a channel subscription). Editable copy.
+  {
+    key: 'channel.required',
+    value:
+      'Для доступа к боту подпишитесь на наш канал, затем нажмите «Я подписался».',
+  },
+  { key: 'channel.join_button', value: '📢 Перейти в канал' },
+  { key: 'channel.check_button', value: '✅ Я подписался' },
+  {
+    key: 'channel.not_subscribed',
+    value: '❌ Вы ещё не подписаны на канал. Подпишитесь и попробуйте снова.',
+  },
+  { key: 'channel.verified', value: '✅ Подписка подтверждена!' },
 ];
 
 type FlowWithScreens = BotFlow & {

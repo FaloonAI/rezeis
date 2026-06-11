@@ -7,6 +7,7 @@ import { WebPushService } from '../../push/services/web-push.service';
 import { BotNotifierClient, NotifyButton } from './bot-notifier.client';
 import { NotificationTemplatesService } from './notification-templates.service';
 import { isNotificationDeliveryEnabled, resolveToggleKey } from '../utils/notification-toggle.util';
+import { readPlatformBranding } from '../../settings/utils/platform-branding.util';
 
 /**
  * Categories the user notifications fall under for topic routing when
@@ -317,16 +318,38 @@ export class UserNotificationsService {
       (await this.templatesService.getByType(canonicalType)) ??
       (await this.templatesService.getByType(type));
     if (template === null || !template.isActive) return null;
+    // Brand-aware substitution: expose the operator's project name so any
+    // template can use `{{project_name}}` / `{{projectName}}`.
+    const projectName = await this.resolveProjectName();
     const ctx: Record<string, unknown> = {
       ...(payload !== null && typeof payload === 'object' && !Array.isArray(payload)
         ? (payload as Record<string, unknown>)
         : {}),
       name: userName ?? '',
+      project_name: projectName,
+      projectName,
     };
     const title = substitute(template.title, ctx);
     const body = substitute(template.body, ctx);
     const html = `<b>${escapeHtml(title)}</b>\n\n${body}`;
     return { title, body, html };
+  }
+
+  /**
+   * Reads the operator's configured project name from platform branding
+   * (`Settings.platformPolicy`). Empty string when unset so `{{project_name}}`
+   * collapses cleanly rather than leaking the placeholder.
+   */
+  private async resolveProjectName(): Promise<string> {
+    try {
+      const settings = await this.prismaService.settings.findUnique({
+        where: { id: 1 },
+        select: { platformPolicy: true },
+      });
+      return readPlatformBranding(settings?.platformPolicy ?? null).projectName ?? '';
+    } catch {
+      return '';
+    }
   }
 }
 

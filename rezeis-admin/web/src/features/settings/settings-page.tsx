@@ -35,6 +35,7 @@ interface BrandingSettings {
   readonly projectName?: string
   readonly webTitle?: string
   readonly channelUsername?: string
+  readonly channelRecheck?: boolean
   readonly verification?: BrandingVerificationSettings
 }
 
@@ -54,6 +55,7 @@ interface AdminSettings {
   readonly userNotifications?: Record<string, unknown>
   readonly systemNotifications?: Record<string, unknown>
   readonly brandingSettings?: BrandingSettings
+  readonly platformBranding?: BrandingSettings
   readonly multiSubscriptionSettings?: MultiSubscriptionSettings
 }
 
@@ -319,11 +321,12 @@ function FieldError({ message }: { readonly message?: string }) {
 export function BrandingTab({ settings }: { settings: AdminSettings | undefined }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const branding = settings?.brandingSettings ?? {}
+  const branding = settings?.platformBranding ?? {}
 
   const [projectName, setProjectName] = useState(branding.projectName ?? '')
   const [webTitle, setWebTitle] = useState(branding.webTitle ?? '')
   const [channelUsername, setChannelUsername] = useState(branding.channelUsername ?? '')
+  const [channelRecheck, setChannelRecheck] = useState(branding.channelRecheck ?? true)
 
   // Verification templates
   const verification = branding.verification ?? {}
@@ -333,7 +336,7 @@ export function BrandingTab({ settings }: { settings: AdminSettings | undefined 
   const [passwordResetEn, setPasswordResetEn] = useState(verification.passwordResetTelegramTemplate?.en ?? '')
 
   const mutation = useMutation({
-    mutationFn: (data: BrandingSettings) => api.patch('/admin/settings/platform', { brandingSettings: data }),
+    mutationFn: (data: BrandingSettings) => api.patch('/admin/settings/platform', { platformBranding: data }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] }); toast.success(t('settingsPage.branding.saved')) },
     onError: () => toast.error(t('settingsPage.branding.saveFailed')),
   })
@@ -343,6 +346,7 @@ export function BrandingTab({ settings }: { settings: AdminSettings | undefined 
       projectName,
       webTitle,
       channelUsername,
+      channelRecheck,
       verification: {
         telegramTemplate: { ru: verifyTelegramRu, en: verifyTelegramEn },
         passwordResetTelegramTemplate: { ru: passwordResetRu, en: passwordResetEn },
@@ -387,6 +391,18 @@ export function BrandingTab({ settings }: { settings: AdminSettings | undefined 
               placeholder={t('settingsPage.branding.channelUsernamePlaceholder')}
             />
           </div>
+        </div>
+
+        <div className="flex items-center justify-between rounded-lg border p-3">
+          <div className="pr-3">
+            <Label>{t('settingsPage.branding.channelRecheck')}</Label>
+            <p className="text-xs text-muted-foreground">{t('settingsPage.branding.channelRecheckHint')}</p>
+          </div>
+          <Switch
+            checked={channelRecheck}
+            onCheckedChange={setChannelRecheck}
+            aria-label={t('settingsPage.branding.channelRecheck')}
+          />
         </div>
 
         <Separator />

@@ -26,12 +26,18 @@ import {
   BrandingSettingsInterface,
 } from '../interfaces/branding-settings.interface';
 import { CustomIconInterface } from '../interfaces/custom-icon.interface';
-import { InternalPlatformPolicyInterface } from '../interfaces/internal-platform-policy.interface';
-import { PlatformSettingsInterface } from '../interfaces/platform-settings.interface';
+import { InternalPlatformPolicyInterface } from '../interfaces/internal-platform-policy.interface';import { PlatformSettingsInterface } from '../interfaces/platform-settings.interface';
 import {
   mergeBrandingSettings,
   readBrandingSettings,
 } from '../utils/branding-settings.util';
+import {
+  PlatformBrandingInterface,
+} from '../interfaces/platform-branding.interface';
+import {
+  mergePlatformBranding,
+  readPlatformBranding,
+} from '../utils/platform-branding.util';
 import { readCustomIcons } from '../utils/custom-icons.util';
 import { IconUploadService } from './icon-upload.service';
 
@@ -128,6 +134,9 @@ const DEFAULT_INTERNAL_PLATFORM_POLICY: InternalPlatformPolicyInterface = {
   rulesLink: null,
   channelRequired: false,
   channelLink: null,
+  channelId: null,
+  channelUsername: null,
+  channelRecheck: true,
   accessMode: 'PUBLIC',
   inviteModeStartedAt: null,
   defaultCurrency: 'USD',
@@ -271,6 +280,16 @@ export class SettingsService {
   }
 
   /**
+   * Returns the typed platform-branding texts (project name, web title,
+   * channel username/re-check, verification templates) stored in the
+   * `platformPolicy` JSON column.
+   */
+  public async getPlatformBranding(): Promise<PlatformBrandingInterface> {
+    const settings = await this.getSettingsRecord(this.prismaService);
+    return readPlatformBranding(settings?.platformPolicy ?? null);
+  }
+
+  /**
    * Applies a partial branding update. Records an audit log entry tracking
    * which branding fields were modified.
    */
@@ -329,9 +348,19 @@ export class SettingsService {
     const settings: Settings = await this.prismaService.$transaction(
       async (transactionClient: Prisma.TransactionClient): Promise<Settings> => {
         const existingSettings: Settings = await this.getOrCreateSettingsRecord(transactionClient);
+        const data: Prisma.SettingsUpdateInput = { ...updateChanges.data };
+        // Platform-branding texts live in the (otherwise unused) platformPolicy
+        // JSON column; merge over the existing value so partial patches keep
+        // omitted keys.
+        if (input.updatePlatformSettingsDto.platformBranding !== undefined) {
+          data.platformPolicy = mergePlatformBranding({
+            existing: existingSettings.platformPolicy,
+            patch: input.updatePlatformSettingsDto.platformBranding,
+          }) as Prisma.InputJsonValue;
+        }
         const updatedSettings: Settings = await transactionClient.settings.update({
           where: { id: existingSettings.id },
-          data: updateChanges.data,
+          data,
         });
         await transactionClient.adminAuditLog.create({
           data: {
@@ -354,7 +383,7 @@ export class SettingsService {
     if (
       this.reiwaCacheInvalidator !== undefined &&
       updateChanges.updatedFields.some((f) =>
-        ['accessMode', 'rulesRequired', 'rulesLink', 'channelRequired', 'channelLink', 'defaultCurrency'].includes(f),
+        ['accessMode', 'rulesRequired', 'rulesLink', 'channelRequired', 'channelLink', 'defaultCurrency', 'platformBranding'].includes(f),
       )
     ) {
       void this.reiwaCacheInvalidator.invalidatePolicy(
@@ -371,19 +400,37 @@ export class SettingsService {
    * UI aware of the DB shape.
    */
   public async getOverview(): Promise<{
+    readonly accessMode: PlatformSettingsInterface['accessMode'];
+    readonly defaultCurrency: PlatformSettingsInterface['defaultCurrency'];
+    readonly rulesRequired: boolean;
+    readonly rulesLink: string | null;
+    readonly channelRequired: boolean;
+    readonly channelLink: string | null;
+    readonly channelId: string | null;
     readonly userNotifications: Record<string, unknown>;
     readonly systemNotifications: Record<string, unknown>;
     readonly platform: PlatformSettingsInterface;
     readonly branding: BrandingSettingsInterface;
+    readonly platformBranding: PlatformBrandingInterface;
     readonly paymentOpsAlerts: PaymentOpsAlertSettingsInterface;
     readonly multiSubscriptionSettings: Record<string, unknown>;
   }> {
     const settings = await this.getOrCreateSettingsRecord(this.prismaService);
+    const platform = mapPlatformSettings(settings);
     return {
+      // Flat platform fields — consumed directly by the settings SPA tabs.
+      accessMode: platform.accessMode,
+      defaultCurrency: platform.defaultCurrency,
+      rulesRequired: platform.rulesRequired,
+      rulesLink: platform.rulesLink,
+      channelRequired: platform.channelRequired,
+      channelLink: platform.channelLink,
+      channelId: platform.channelId,
       userNotifications: readJsonObject(settings.userNotifications),
       systemNotifications: readJsonObject(settings.systemNotifications),
-      platform: mapPlatformSettings(settings),
+      platform,
       branding: readBrandingSettings(settings.brandingSettings),
+      platformBranding: readPlatformBranding(settings.platformPolicy),
       paymentOpsAlerts: readPaymentOpsAlertSettings(settings.systemNotifications),
       multiSubscriptionSettings: readJsonObject(settings.multiSubscriptionSettings),
     };
@@ -790,6 +837,12 @@ function buildSettingsUpdateChanges(
     data.multiSubscriptionSettings = next as Prisma.InputJsonValue;
     updatedFields.push('multiSubscriptionSettings');
   }
+  if (hasOwnField(updatePlatformSettingsDto, 'platformBranding')) {
+    // The merge needs the existing column value, so it is applied inside the
+    // update transaction (see updatePlatformSettings). Here we only record it
+    // for the audit field list.
+    updatedFields.push('platformBranding');
+  }
   return {
     updatedFields,
     data,
@@ -822,11 +875,15 @@ function mapPlatformSettings(settings: Settings): PlatformSettingsInterface {
 }
 
 function mapInternalPlatformPolicy(settings: Settings): InternalPlatformPolicyInterface {
+  const branding = readPlatformBranding(settings.platformPolicy);
   return {
     rulesRequired: settings.rulesRequired,
     rulesLink: settings.rulesLink,
     channelRequired: settings.channelRequired,
     channelLink: settings.channelLink,
+    channelId: settings.channelId === null ? null : settings.channelId.toString(),
+    channelUsername: branding.channelUsername,
+    channelRecheck: branding.channelRecheck,
     accessMode: settings.accessMode,
     inviteModeStartedAt:
       settings.inviteModeStartedAt === null ? null : settings.inviteModeStartedAt.toISOString(),

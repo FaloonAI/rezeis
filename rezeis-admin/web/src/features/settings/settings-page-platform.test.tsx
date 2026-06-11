@@ -53,7 +53,7 @@ describe('BrandingTab accessibility', () => {
     renderWithProviders(
       <BrandingTab
         settings={{
-          brandingSettings: {
+          platformBranding: {
             projectName: 'Rezeis',
             webTitle: 'Rezeis VPN',
             channelUsername: '@rezeis',

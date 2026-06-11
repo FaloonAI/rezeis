@@ -501,6 +501,8 @@ export const en = {
       webTitle: 'Web Title',
       webTitleHint: 'Browser tab title for the Mini App',
       channelUsername: 'Channel Username',
+      channelRecheck: 'Re-check subscription',
+      channelRecheckHint: 'When on, channel membership is re-checked on every entry and a user who later leaves is gated again. When off, membership is checked only on first entry.',
       verificationTemplates: 'Verification Templates',
       verificationTemplatesHint: 'Templates for Telegram verification messages. Use {project_name} and {code} as placeholders.',
       verificationRu: 'Verification (RU)',

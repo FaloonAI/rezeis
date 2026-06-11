@@ -507,6 +507,8 @@
       webTitle: 'Заголовок веб-страницы',
       webTitleHint: 'Заголовок вкладки браузера для Mini App',
       channelUsername: 'Username канала',
+      channelRecheck: 'Перепроверять подписку',
+      channelRecheckHint: 'Если включено — подписка на канал проверяется при каждом входе, и пользователь, отписавшийся позже, снова блокируется. Если выключено — проверка только при первом входе.',
       verificationTemplates: 'Шаблоны верификации',
       verificationTemplatesHint: 'Шаблоны для Telegram-сообщений верификации. Используйте {project_name} и {code} как плейсхолдеры.',
       verificationRu: 'Верификация (RU)',
