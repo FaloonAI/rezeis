@@ -11,12 +11,14 @@ import {
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { RawCacheService } from '../../../common/cache/raw-cache.service';
 import { PasswordHashService } from '../../auth/services/password-hash.service';
 import { loginPolicy } from '../../auth/utils/login-policy.util';
 import { readInviteBypassFlag } from '../../referrals/services/referral-invite-limits.service';
 import { ReferralManualAttachService } from '../../referrals/services/referral-manual-attach.service';
 import { AccessModeGuard } from '../../settings/services/access-mode-guard.service';
 import { SettingsService } from '../../settings/services/settings.service';
+import { tempPasswordCacheKey } from '../../users/utils/temp-password-cache.util';
 import { WebAuthChangePasswordDto } from '../dto/web-auth-change-password.dto';
 import { WebAuthLoginDto } from '../dto/web-auth-login.dto';
 import { WebAuthRecoverDto } from '../dto/web-auth-recover.dto';
@@ -65,6 +67,7 @@ export class WebAuthService {
     private readonly referralManualAttachService: ReferralManualAttachService,
     private readonly settingsService: SettingsService,
     private readonly accessModeGuard: AccessModeGuard,
+    private readonly cacheService: RawCacheService,
   ) {}
 
   public async register(input: WebAuthRegisterDto): Promise<WebAuthRegisterResultInterface> {
@@ -343,6 +346,9 @@ export class WebAuthService {
         temporaryPasswordExpiresAt: null,
       },
     });
+    // Clear the operator-viewable temporary password — the user has set their
+    // own, so it must no longer be retrievable from the admin panel.
+    await this.cacheService.del(tempPasswordCacheKey(webAccount.id));
     return { success: true };
   }
 

@@ -21,6 +21,7 @@ import {
   Body,
   ConflictException,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   NotFoundException,
@@ -35,6 +36,7 @@ import { Request } from 'express';
 import { createHash, randomBytes } from 'node:crypto';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { RawCacheService } from '../../../common/cache/raw-cache.service';
 import { CurrentAdmin } from '../../auth/decorators/current-admin.decorator';
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
 import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.interface';
@@ -43,6 +45,10 @@ import { extractRequestMetadata } from '../../auth/utils/request-metadata.util';
 import { loginPolicy } from '../../auth/utils/login-policy.util';
 import { BindTelegramIdDto } from '../dto/bind-telegram-id.dto';
 import { RenameWebLoginDto } from '../dto/rename-web-login.dto';
+import {
+  TEMP_PASSWORD_TTL_SECONDS,
+  tempPasswordCacheKey,
+} from '../utils/temp-password-cache.util';
 
 /** Default lifespan of an admin-issued temporary password. */
 const TEMPORARY_PASSWORD_TTL_HOURS = 24;
@@ -55,6 +61,7 @@ export class AdminUserWebController {
   public constructor(
     private readonly prismaService: PrismaService,
     private readonly passwordHashService: PasswordHashService,
+    private readonly cacheService: RawCacheService,
   ) {}
 
   /**
@@ -98,6 +105,16 @@ export class AdminUserWebController {
       },
     });
 
+    // Persist the plaintext temporarily (Redis, 24h TTL) so the operator can
+    // re-view it until the user changes their password. Cleared in
+    // `WebAuthService.changePassword`. Best-effort: a cache outage just means
+    // the operator must re-issue.
+    await this.cacheService.set(
+      tempPasswordCacheKey(webAccount.id),
+      temporaryPassword,
+      TEMP_PASSWORD_TTL_SECONDS,
+    );
+
     await this.auditLog(admin, req, 'user.web.password.reset', {
       userId: user.id,
       webAccountId: webAccount.id,
@@ -109,6 +126,39 @@ export class AdminUserWebController {
       expiresAt: expiresAt.toISOString(),
       requiresPasswordChange: true,
       login: webAccount.login,
+    };
+  }
+
+  /**
+   * Returns the currently-active temporary password for the user's web
+   * account, if one was issued and is still valid (within TTL and not yet
+   * changed by the user). `null` when none is active. Admin-JWT gated; the
+   * value is never logged.
+   */
+  @Get(':telegramId/web/temp-password')
+  @HttpCode(HttpStatus.OK)
+  public async getTemporaryPassword(
+    @Param('telegramId') telegramId: string,
+  ): Promise<{ temporaryPassword: string | null; expiresAt: string | null }> {
+    const user = await this.findUserByTelegramId(telegramId);
+    const webAccount = await this.prismaService.webAccount.findFirst({
+      where: { userId: user.id },
+    });
+    if (!webAccount) {
+      throw new NotFoundException('User has no linked web account');
+    }
+    const expiresAt = webAccount.temporaryPasswordExpiresAt;
+    const stillRequired =
+      webAccount.requiresPasswordChange &&
+      expiresAt !== null &&
+      expiresAt.getTime() > Date.now();
+    if (!stillRequired) {
+      return { temporaryPassword: null, expiresAt: null };
+    }
+    const cached = await this.cacheService.get<string>(tempPasswordCacheKey(webAccount.id));
+    return {
+      temporaryPassword: cached,
+      expiresAt: expiresAt.toISOString(),
     };
   }
 

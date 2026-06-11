@@ -241,6 +241,31 @@ describe('WebAuthService', () => {
     ]);
   });
 
+  it('clears the cached temporary password when the user changes their password', async () => {
+    const prisma = createPrismaMock({
+      accountsByUserId: new Map([
+        ['user-1', { id: 'web-account-1', passwordHash: 'hashed:old-password' }],
+      ]),
+    });
+    const delCalls: string[] = [];
+    const cacheService = {
+      set: async () => undefined,
+      get: async () => null,
+      del: async (key: string) => {
+        delCalls.push(key);
+      },
+    };
+    const service = createService({ prisma, cacheService });
+
+    await service.changePassword({
+      userId: 'user-1',
+      currentPassword: 'old-password',
+      newPassword: 'new-password',
+    });
+
+    assert.deepStrictEqual(delCalls, ['web-auth:temp-password:web-account-1']);
+  });
+
   it('rejects password changes for missing accounts and wrong current passwords', async () => {
     const service = createService({
       prisma: createPrismaMock({
@@ -390,6 +415,8 @@ function createService(options: {
   readonly referralManualAttachService?: ReferralManualAttachServiceMock;
   /** When set, drives the real AccessModeGuard with this platform mode. */
   readonly accessMode?: 'PUBLIC' | 'INVITED' | 'PURCHASE_BLOCKED' | 'REG_BLOCKED' | 'RESTRICTED';
+  /** Optional cache stub to observe temp-password clearing on change. */
+  readonly cacheService?: { set: (...a: unknown[]) => Promise<void>; get: (...a: unknown[]) => Promise<unknown>; del: (...a: unknown[]) => Promise<void> };
 } = {}): WebAuthService {
   // Stub SettingsService → returns the requested mode (PUBLIC by default, so
   // the gate is a no-op for the existing unit tests). When `accessMode` is
@@ -401,12 +428,14 @@ function createService(options: {
   };
   const accessModeGuard =
     options.accessMode === undefined ? { evaluate: () => null } : new AccessModeGuard();
+  const cacheService = options.cacheService ?? { set: async () => undefined, get: async () => null, del: async () => undefined };
   return new WebAuthService(
     options.prisma ?? createPrismaMock(),
     options.passwordHashService ?? createPasswordHashServiceMock(),
     options.referralManualAttachService ?? createReferralManualAttachServiceMock(),
     settingsService as never,
     accessModeGuard as never,
+    cacheService as never,
   );
 }
 

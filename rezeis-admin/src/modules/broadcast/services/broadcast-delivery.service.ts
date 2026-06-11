@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { SystemEventsService, EVENT_TYPES } from '../../../common/services/system-events.service';
+import { UserNotificationsService } from '../../notifications/services/user-notifications.service';
 import { TELEGRAM_RATE_LIMIT_MS } from '../broadcast.constants';
 
 /**
@@ -21,6 +22,7 @@ export class BroadcastDeliveryService {
     private readonly prismaService: PrismaService,
     private readonly configService: ConfigService,
     private readonly systemEventsService: SystemEventsService,
+    private readonly userNotifications: UserNotificationsService,
   ) {}
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -141,38 +143,75 @@ export class BroadcastDeliveryService {
         where: { id: message.userId },
         select: { telegramId: true },
       });
-
-      if (!user?.telegramId) {
-        await this.markFailed(message.id, 'No telegramId');
+      if (!user) {
+        await this.markFailed(message.id, 'User not found');
         failed++;
         continue;
       }
 
-      const chatId = user.telegramId.toString();
-      const result = await this.sendTelegramMessage(botToken, {
-        chatId,
-        text,
-        mediaType: mediaType ?? 'none',
-        mediaFileId,
-        parseMode,
-      });
+      // Cabinet feed + web-push for EVERY recipient (text). This is the
+      // guaranteed delivery surface for web-only users (no Telegram). We pass
+      // `skipTelegram` because the broadcast does its own Telegram send below
+      // (with media support the notification path lacks).
+      let feedOk = false;
+      try {
+        await this.userNotifications.create({
+          userId: message.userId,
+          type: 'broadcast',
+          payload: { broadcastId, text },
+          preRenderedText: text || ' ',
+          skipTelegram: true,
+        });
+        feedOk = true;
+      } catch (err: unknown) {
+        this.logger.warn(
+          `Broadcast feed/web-push failed for ${message.userId}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
 
-      if (result.ok) {
+      // Telegram delivery (with media) for users who have it.
+      let telegramOk = false;
+      let telegramMessageId: number | undefined;
+      let telegramError: string | null = null;
+      if (user.telegramId !== null) {
+        const result = await this.sendTelegramMessage(botToken, {
+          chatId: user.telegramId.toString(),
+          text,
+          mediaType: mediaType ?? 'none',
+          mediaFileId,
+          parseMode,
+        });
+        telegramOk = result.ok;
+        telegramMessageId = result.messageId;
+        telegramError = result.ok ? null : (result.error ?? 'Unknown error');
+        await sleep(TELEGRAM_RATE_LIMIT_MS);
+      }
+
+      // Status decision:
+      //   • Telegram users → status tracks Telegram (preserves retry/error
+      //     semantics); the feed/web-push above is a best-effort bonus channel.
+      //   • Web-only users → the cabinet feed IS the delivery channel; SENT
+      //     when the feed row was written.
+      const delivered = user.telegramId !== null ? telegramOk : feedOk;
+      if (delivered) {
         await this.prismaService.broadcastMessage.update({
           where: { id: message.id },
           data: {
             status: BroadcastMessageStatus.SENT,
-            telegramMessageId: result.messageId ? BigInt(result.messageId) : null,
+            telegramMessageId: telegramMessageId ? BigInt(telegramMessageId) : null,
             sentAt: new Date(),
           },
         });
         sent++;
       } else {
-        await this.markFailed(message.id, result.error ?? 'Unknown error');
+        await this.markFailed(
+          message.id,
+          telegramError ?? 'Delivery failed: no Telegram and feed write failed',
+        );
         failed++;
       }
-
-      await sleep(TELEGRAM_RATE_LIMIT_MS);
     }
 
     await this.checkAndFinalize(broadcastId);
@@ -528,10 +567,12 @@ export class BroadcastDeliveryService {
   }
 
   private async resolveRecipients(audience: string): Promise<string[]> {
+    // Web-only users (no Telegram) are intentionally included now — broadcasts
+    // reach them via web-push + the in-cabinet feed. `isBotBlocked` only
+    // affects Telegram delivery; it does not exclude web-only users (whose
+    // flag stays false).
     const where: Record<string, unknown> = {
       isBlocked: false,
-      isBotBlocked: false,
-      telegramId: { not: null },
     };
 
     switch (audience) {

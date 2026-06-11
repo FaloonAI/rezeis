@@ -32,6 +32,12 @@ interface CreateUserNotificationInput {
    * feed ignores them — they live only on the bot side.
    */
   readonly buttons?: ReadonlyArray<NotifyButton>;
+  /**
+   * When true, the Telegram fanout is skipped (web-push + cabinet feed still
+   * run). Used by the broadcast pipeline, which performs its own Telegram
+   * delivery with media support and only needs the web-push + feed channels.
+   */
+  readonly skipTelegram?: boolean;
 }
 
 /**
@@ -96,6 +102,7 @@ export class UserNotificationsService {
       payload: event.payload,
       preRenderedText: input.preRenderedText,
       buttons: input.buttons,
+      skipTelegram: input.skipTelegram,
     });
 
     return event.id;
@@ -108,6 +115,7 @@ export class UserNotificationsService {
     payload: unknown;
     preRenderedText?: string;
     buttons?: ReadonlyArray<NotifyButton>;
+    skipTelegram?: boolean;
   }): Promise<void> {
     try {
       // Operator opt-out gate. `preRenderedText` callers (explicit
@@ -145,7 +153,8 @@ export class UserNotificationsService {
       if (
         user.telegramId !== null &&
         !user.isBotBlocked &&
-        rendered !== null
+        rendered !== null &&
+        input.skipTelegram !== true
       ) {
         await this.botNotifier.notifyUser({
           eventId: input.eventId,

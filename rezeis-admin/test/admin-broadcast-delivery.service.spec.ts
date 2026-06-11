@@ -33,8 +33,6 @@ describe('BroadcastDeliveryService', () => {
             assert.deepStrictEqual(args, {
               where: {
                 isBlocked: false,
-                isBotBlocked: false,
-                telegramId: { not: null },
                 subscriptions: { some: { isTrial: true, status: 'ACTIVE' } },
               },
               select: { id: true },
@@ -58,6 +56,7 @@ describe('BroadcastDeliveryService', () => {
       } as never,
       configService('bot-token'),
       { info: (...args: unknown[]) => eventCalls.push(args) } as never,
+      { create: async () => 'evt' } as never,
     );
 
     assert.deepStrictEqual(await service.stageRecipients('broadcast-1'), ['message-1', 'message-2']);
@@ -123,6 +122,7 @@ describe('BroadcastDeliveryService', () => {
       } as never,
       configService('bot-token'),
       { info: () => undefined } as never,
+      { create: async () => 'evt' } as never,
     );
 
     await withFetch(async (input, init) => {
@@ -176,6 +176,7 @@ describe('BroadcastDeliveryService', () => {
       } as never,
       configService(null),
       { info: () => undefined } as never,
+      { create: async () => 'evt' } as never,
     );
 
     assert.deepStrictEqual(await service.deliverBatch('broadcast-1', ['message-1', 'message-2']), {
@@ -224,6 +225,7 @@ describe('BroadcastDeliveryService', () => {
       } as never,
       configService('bot-token'),
       { info: () => undefined } as never,
+      { create: async () => 'evt' } as never,
     );
 
     await withFetch(async () => {
@@ -241,6 +243,75 @@ describe('BroadcastDeliveryService', () => {
     assert.equal(persisted.includes('api.telegram.org'), false);
     assert.equal(persisted.includes('[telegram api url hidden]'), true);
     assert.equal(persisted.includes('[chat-id hidden]'), true);
+  });
+
+  it('delivers to web-only users via the cabinet feed without Telegram', async () => {
+    const messageUpdates: unknown[] = [];
+    const createCalls: Array<{ userId: string; skipTelegram?: boolean }> = [];
+    const fetchCalls: unknown[] = [];
+    const service = new BroadcastDeliveryService(
+      {
+        broadcast: {
+          findUnique: async (args: { readonly select?: { readonly payload?: boolean } }) => {
+            if (args.select?.payload) {
+              return {
+                id: 'broadcast-1',
+                status: BroadcastStatus.PROCESSING,
+                payload: { text: 'News for everyone', mediaType: 'none' },
+              };
+            }
+            return { status: BroadcastStatus.PROCESSING };
+          },
+          update: async () => undefined,
+        },
+        broadcastMessage: {
+          findMany: async () => [{ id: 'message-1', userId: 'web-user-1' }],
+          update: async (args: unknown) => {
+            messageUpdates.push(args);
+          },
+          count: async (args: { readonly where: { readonly status: BroadcastMessageStatus } }) => {
+            if (args.where.status === BroadcastMessageStatus.PENDING) return 0;
+            if (args.where.status === BroadcastMessageStatus.SENT) return 1;
+            return 0;
+          },
+        },
+        user: {
+          // Web-only user: no Telegram.
+          findUnique: async () => ({ telegramId: null }),
+        },
+      } as never,
+      configService('bot-token'),
+      { info: () => undefined } as never,
+      {
+        create: async (input: { userId: string; skipTelegram?: boolean }) => {
+          createCalls.push(input);
+          return 'evt-1';
+        },
+      } as never,
+    );
+
+    await withFetch(
+      async (input, init) => {
+        fetchCalls.push({ input, init });
+        return { ok: true, json: async () => ({}), text: async () => '' } as Response;
+      },
+      async () => {
+        assert.deepStrictEqual(await service.deliverBatch('broadcast-1', ['message-1']), {
+          sent: 1,
+          failed: 0,
+        });
+      },
+    );
+
+    // No Telegram call for a web-only user.
+    assert.equal(fetchCalls.length, 0);
+    // Cabinet feed + web-push attempted with skipTelegram (broadcast owns TG).
+    assert.equal(createCalls.length, 1);
+    assert.equal(createCalls[0]?.userId, 'web-user-1');
+    assert.equal(createCalls[0]?.skipTelegram, true);
+    // Message marked SENT via the feed channel.
+    const update = messageUpdates[0] as { readonly data: { readonly status: BroadcastMessageStatus } };
+    assert.equal(update.data.status, BroadcastMessageStatus.SENT);
   });
 });
 

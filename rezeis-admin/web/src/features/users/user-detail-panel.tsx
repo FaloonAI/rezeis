@@ -71,9 +71,8 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Slider } from '@/components/ui/slider'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Switch } from '@/components/ui/switch'
-import { CARD_EFFECT_REGISTRY } from '@/features/branding/card-effect-registry'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   AlertDialog,
@@ -719,6 +718,7 @@ function SubscriptionsTab({ user, telegramId, queryKey }: { user: UserDetail; te
   const [showGiveSub, setShowGiveSub] = useState(false)
   const [showAssignPlan, setShowAssignPlan] = useState(false)
   const [assignPlanId, setAssignPlanId] = useState('')
+  const [selectedSubIds, setSelectedSubIds] = useState<string[]>([])
   const [openSubId, setOpenSubId] = useState<string | null>(null)
 
   const grantTrialMutation = useMutation({
@@ -771,6 +771,24 @@ function SubscriptionsTab({ user, telegramId, queryKey }: { user: UserDetail; te
     onError: (err) => toast.error(getErrorMessage(err, t('userDetailPanel.toasts.subUpdated'))),
   })
 
+  // Bulk assign: apply the chosen plan to each selected subscription via the
+  // per-subscription PATCH (sequential to avoid hammering the Remnawave sync).
+  const bulkAssignMutation = useMutation({
+    mutationFn: async ({ ids, planId }: { ids: string[]; planId: string }) => {
+      for (const id of ids) {
+        await api.patch(`/admin/users/subscriptions/${id}`, { planId })
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey })
+      toast.success(t('userDetailPanel.subscriptions.planAssigned'))
+      setShowAssignPlan(false)
+      setAssignPlanId('')
+      setSelectedSubIds([])
+    },
+    onError: (err) => toast.error(getErrorMessage(err, t('userDetailPanel.subscriptions.assignFailed'))),
+  })
+
   const { data: plans } = usePlans()
   const assignablePlans = (plans ?? []).filter((p) => !p.isArchived && p.isActive !== false)
 
@@ -809,35 +827,75 @@ function SubscriptionsTab({ user, telegramId, queryKey }: { user: UserDetail; te
       </div>
 
       {showAssignPlan && plans && (
-        <div className="flex items-center gap-2 rounded-md border border-primary/30 p-2">
-          <Select value={assignPlanId} onValueChange={setAssignPlanId}>
-            <SelectTrigger className="flex-1 h-8 text-xs" aria-label={t('userDetailPanel.subscriptions.selectPlan')}>
-              <SelectValue placeholder={t('userDetailPanel.subscriptions.selectPlan')} />
-            </SelectTrigger>
-            <SelectContent>
-              {assignablePlans.map((plan) => (
-                <SelectItem key={plan.id} value={String(plan.id)} className="text-xs">
-                  {plan.name} {plan.trafficLimit ? `(${plan.trafficLimit} GB)` : ''}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            size="sm"
-            className="h-8"
-            onClick={() => {
-              // Assign to all subs that don't have a plan
-              const unassigned = subs.filter((s) => !s.planSnapshot?.planId && s.status !== 'DELETED')
-              if (unassigned.length > 0) {
-                api.post('/admin/imports/assign-plan', { planId: assignPlanId, userIds: [user.id] })
-                  .then(() => { queryClient.invalidateQueries({ queryKey }); toast.success(t('userDetailPanel.subscriptions.planAssigned')); setShowAssignPlan(false); setAssignPlanId('') })
-                  .catch(() => toast.error(t('userDetailPanel.subscriptions.assignFailed')))
-              }
-            }}
-            disabled={!assignPlanId}
-          >
-            {t('userDetailPanel.subscriptions.assign')}
-          </Button>
+        <div className="space-y-3 rounded-md border border-primary/30 p-3">
+          {(() => {
+            const selectable = subs.filter((s) => s.status !== 'DELETED')
+            const allSelected = selectable.length > 0 && selectedSubIds.length === selectable.length
+            const toggle = (id: string) =>
+              setSelectedSubIds((prev) =>
+                prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+              )
+            const toggleAll = () =>
+              setSelectedSubIds(allSelected ? [] : selectable.map((s) => s.id))
+            return (
+              <>
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t('userDetailPanel.subscriptions.assignPlanPickSubs')}
+                </p>
+                {selectable.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t('userDetailPanel.subscriptions.noSubs')}
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-2 text-xs font-medium">
+                      <Checkbox checked={allSelected} onCheckedChange={toggleAll} />
+                      {t('userDetailPanel.subscriptions.assignPlanSelectAll')}
+                    </label>
+                    <div className="max-h-40 space-y-1 overflow-y-auto pl-1">
+                      {selectable.map((s) => (
+                        <label key={s.id} className="flex items-center gap-2 text-xs">
+                          <Checkbox
+                            checked={selectedSubIds.includes(s.id)}
+                            onCheckedChange={() => toggle(s.id)}
+                          />
+                          <span className="truncate">
+                            {s.plan?.name || s.id}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <Select value={assignPlanId} onValueChange={setAssignPlanId}>
+                    <SelectTrigger
+                      className="flex-1 h-8 text-xs"
+                      aria-label={t('userDetailPanel.subscriptions.selectPlan')}
+                    >
+                      <SelectValue placeholder={t('userDetailPanel.subscriptions.selectPlan')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {assignablePlans.map((plan) => (
+                        <SelectItem key={plan.id} value={String(plan.id)} className="text-xs">
+                          {plan.name} {plan.trafficLimit ? `(${plan.trafficLimit} GB)` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    className="h-8"
+                    onClick={() => bulkAssignMutation.mutate({ ids: selectedSubIds, planId: assignPlanId })}
+                    disabled={!assignPlanId || selectedSubIds.length === 0 || bulkAssignMutation.isPending}
+                  >
+                    {bulkAssignMutation.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                    {t('userDetailPanel.subscriptions.assign')}
+                  </Button>
+                </div>
+              </>
+            )
+          })()}
         </div>
       )}
 
@@ -872,83 +930,6 @@ function SubscriptionsTab({ user, telegramId, queryKey }: { user: UserDetail; te
           <GiveSubForm telegramId={telegramId} queryKey={queryKey} onClose={() => setShowGiveSub(false)} />
         </DialogContent>
       </Dialog>
-    </div>
-  )
-}
-
-/**
- * CardBackgroundControl — per-subscription animated background override.
- * Lets the operator pick a distinct card effect + opacity for this specific
- * subscription (multi-sub users get individual cards). Persists via the
- * generic subscription PATCH (`{ cardBranding }`); "Inherit" clears it.
- */
-function CardBackgroundControl({
-  sub,
-  onUpdate,
-}: {
-  sub: UserSubscription
-  onUpdate: (data: Record<string, unknown>) => void
-}) {
-  const { t } = useTranslation()
-  const current = sub.cardBranding ?? null
-  const effect = (current?.cardEffect ?? 'INHERIT') as string
-  const opacity = typeof current?.cardEffectOpacity === 'number' ? current.cardEffectOpacity : 1
-
-  const apply = (patch: { cardEffect?: string; cardEffectOpacity?: number } | null) => {
-    if (patch === null) {
-      onUpdate({ cardBranding: null })
-      return
-    }
-    const next = {
-      ...(current ?? {}),
-      ...patch,
-    }
-    onUpdate({ cardBranding: next })
-  }
-
-  return (
-    <div className="space-y-1.5 rounded-md border border-dashed border-border/60 p-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <Wifi className="h-3 w-3 text-muted-foreground/60" />
-          {t('userDetailPanel.subscriptions.cardBackground.label')}
-        </span>
-        <Select
-          value={effect}
-          onValueChange={(v) => {
-            if (v === 'INHERIT') apply(null)
-            else apply({ cardEffect: v, cardEffectOpacity: opacity })
-          }}
-        >
-          <SelectTrigger className="h-7 w-40 text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="INHERIT">{t('userDetailPanel.subscriptions.cardBackground.inherit')}</SelectItem>
-            <SelectItem value="NONE">{t('brandingPage.cardEffects.NONE')}</SelectItem>
-            {CARD_EFFECT_REGISTRY.map((e) => (
-              <SelectItem key={e.id} value={e.id}>
-                {t(`brandingPage.cardEffects.${e.id}`, { defaultValue: e.name })}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      {current?.cardEffect && current.cardEffect !== 'NONE' && (
-        <div className="flex items-center gap-2">
-          <span className="w-20 shrink-0 text-[10px] text-muted-foreground">
-            {t('userDetailPanel.subscriptions.cardBackground.opacity')}
-          </span>
-          <Slider
-            value={[opacity]}
-            min={0.05}
-            max={1}
-            step={0.05}
-            onValueChange={(v: number[]) => apply({ cardEffectOpacity: v[0] ?? 1 })}
-          />
-          <span className="w-8 shrink-0 text-right font-mono text-[10px] text-muted-foreground">
-            {(opacity * 100).toFixed(0)}%
-          </span>
-        </div>
-      )}
     </div>
   )
 }
@@ -1283,8 +1264,6 @@ function SubscriptionCard({
                   </Select>
                 </div>
               )}
-              {/* Per-card animated background override */}
-              <CardBackgroundControl sub={sub} onUpdate={onUpdate} />
               {/* HWID devices bound to this Remnawave profile */}
               {sub.remnawaveId && <DevicesSection subscriptionId={sub.id} />}
               {/* Footer */}
@@ -2246,6 +2225,7 @@ function WebCabinetTab({
     mutationFn: () => api.post(`/admin/users/${telegramId}/web/reset-password`),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'user-temp-password', telegramId] })
       const creds = {
         login: res.data.login,
         temporaryPassword: res.data.temporaryPassword,
@@ -2280,6 +2260,19 @@ function WebCabinetTab({
     },
     onError: (err) =>
       toast.error(getErrorMessage(err, t('userDetailPanel.web.telegramBindFailed'))),
+  })
+
+  // Current operator-viewable temporary password (persists in cache until the
+  // user changes their password or the 24h TTL lapses).
+  const tempPwQuery = useQuery({
+    queryKey: ['admin', 'user-temp-password', telegramId],
+    queryFn: async () =>
+      (await api.get(`/admin/users/${telegramId}/web/temp-password`)).data as {
+        temporaryPassword: string | null
+        expiresAt: string | null
+      },
+    enabled: !!user.webAccount,
+    staleTime: 30_000,
   })
 
   const webAccount = user.webAccount
@@ -2358,6 +2351,29 @@ function WebCabinetTab({
                     )}
                   />
                 )}
+              {tempPwQuery.data?.temporaryPassword && (
+                <div className="space-y-1">
+                  <Label className="text-xs">{t('userDetailPanel.web.currentTempPassword')}</Label>
+                  <div className="flex gap-2">
+                    <code className="flex-1 rounded-md border bg-muted/30 px-3 py-2 font-mono text-sm">
+                      {tempPwQuery.data.temporaryPassword}
+                    </code>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() =>
+                        copyCredentials(webAccount.login, tempPwQuery.data!.temporaryPassword!)
+                      }
+                      aria-label={t('userDetailPanel.web.credentialsCopied')}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {t('userDetailPanel.web.currentTempPasswordHint')}
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
