@@ -20,6 +20,7 @@ import { AccessModeGuard } from '../../settings/services/access-mode-guard.servi
 import { SettingsService } from '../../settings/services/settings.service';
 import { tempPasswordCacheKey } from '../../users/utils/temp-password-cache.util';
 import { WebAuthChangePasswordDto } from '../dto/web-auth-change-password.dto';
+import { WebAuthClaimDto } from '../dto/web-auth-claim.dto';
 import { WebAuthLoginDto } from '../dto/web-auth-login.dto';
 import { WebAuthRecoverDto } from '../dto/web-auth-recover.dto';
 import { WebAuthRegisterDto } from '../dto/web-auth-register.dto';
@@ -171,6 +172,66 @@ export class WebAuthService {
     }
 
     return result;
+  }
+
+  /**
+   * Claim: attach a `WebAccount` (login + password) to an ALREADY-EXISTING
+   * `User` identified by its canonical reiwa_id. Used by the mandatory
+   * first-entry onboarding for Telegram-first users (who have a `User` but no
+   * `WebAccount`). Mirrors `register` phases 2-4 but the user is known, so it
+   * never creates a new `User` and never resolves by Telegram id — the caller
+   * (reiwa BFF) passes the userId from the authenticated WebSession, so it can
+   * only ever attach credentials to the caller's own account.
+   */
+  public async claim(input: WebAuthClaimDto): Promise<WebAuthRegisterResultInterface> {
+    if (!loginPolicy.isValidLogin(input.login)) {
+      throw new BadRequestException('login is invalid');
+    }
+    const login = loginPolicy.sanitizeLogin(input.login);
+    const loginNormalized = loginPolicy.normalizeLogin(input.login);
+    const passwordHash = await this.passwordHashService.hashPassword({
+      plainTextPassword: input.password,
+    });
+
+    return this.prismaService.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({
+        where: { id: input.userId },
+        select: { id: true },
+      });
+      if (user === null) {
+        throw new NotFoundException('User not found');
+      }
+
+      const existingWebAccount = await tx.webAccount.findUnique({
+        where: { userId: user.id },
+        select: { id: true },
+      });
+      if (existingWebAccount !== null) {
+        throw new ConflictException('User already has a web account');
+      }
+
+      const loginConflict = await tx.webAccount.findUnique({
+        where: { loginNormalized },
+        select: { id: true },
+      });
+      if (loginConflict !== null) {
+        throw new ConflictException('login is already taken');
+      }
+
+      const webAccount = await tx.webAccount.create({
+        data: {
+          userId: user.id,
+          login,
+          loginNormalized,
+          passwordHash,
+          requiresPasswordChange: false,
+          credentialsBootstrappedAt: new Date(),
+        },
+        select: { id: true },
+      });
+
+      return { userId: user.id, webAccountId: webAccount.id };
+    });
   }
 
   /**

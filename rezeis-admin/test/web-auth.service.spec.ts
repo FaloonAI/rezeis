@@ -115,6 +115,79 @@ describe('WebAuthService', () => {
     );
   });
 
+  it('claims a web account against an existing user identified by reiwa_id', async () => {
+    const prisma = createPrismaMock({ usersById: new Map([['user-1', { id: 'user-1' }]]) });
+    const passwordHashService = createPasswordHashServiceMock();
+    const service = createService({ prisma, passwordHashService });
+
+    const result = await service.claim({
+      userId: 'user-1',
+      login: '  Claim.Login  ',
+      password: 'plain-password',
+    });
+
+    assert.deepStrictEqual(result, { userId: 'user-1', webAccountId: 'web-account-1' });
+    assert.equal(prisma.createdUsers.length, 0);
+    assert.equal(prisma.createdWebAccounts.length, 1);
+    assert.equal(prisma.createdWebAccounts[0].userId, 'user-1');
+    assert.equal(prisma.createdWebAccounts[0].login, 'Claim.Login');
+    assert.equal(prisma.createdWebAccounts[0].loginNormalized, 'claim.login');
+    assert.equal(prisma.createdWebAccounts[0].passwordHash, 'hashed:plain-password');
+    assert.equal(prisma.createdWebAccounts[0].requiresPasswordChange, false);
+    assert.deepStrictEqual(passwordHashService.hashPasswordCalls, ['plain-password']);
+  });
+
+  it('rejects invalid claim logins before hashing or starting a transaction', async () => {
+    const prisma = createPrismaMock({ usersById: new Map([['user-1', { id: 'user-1' }]]) });
+    const passwordHashService = createPasswordHashServiceMock();
+    const service = createService({ prisma, passwordHashService });
+
+    await assert.rejects(
+      () => service.claim({ userId: 'user-1', login: 'invalid login', password: 'plain-password' }),
+      BadRequestException,
+    );
+
+    assert.equal(prisma.transactionCallsCount, 0);
+    assert.deepStrictEqual(passwordHashService.hashPasswordCalls, []);
+  });
+
+  it('rejects a claim when the resolved user does not exist', async () => {
+    const service = createService({ prisma: createPrismaMock() });
+
+    await assert.rejects(
+      () => service.claim({ userId: 'missing-user', login: 'claim-login', password: 'plain-password' }),
+      (error: unknown) => error instanceof NotFoundException && error.message === 'User not found',
+    );
+  });
+
+  it('rejects a claim when the user already has a web account', async () => {
+    const service = createService({
+      prisma: createPrismaMock({
+        usersById: new Map([['user-1', { id: 'user-1' }]]),
+        existingWebAccountByUserId: new Map([['user-1', { id: 'existing' }]]),
+      }),
+    });
+
+    await assert.rejects(
+      () => service.claim({ userId: 'user-1', login: 'claim-login', password: 'plain-password' }),
+      (error: unknown) => error instanceof ConflictException && error.message === 'User already has a web account',
+    );
+  });
+
+  it('rejects a claim when the login is already taken case-insensitively', async () => {
+    const service = createService({
+      prisma: createPrismaMock({
+        usersById: new Map([['user-1', { id: 'user-1' }]]),
+        existingWebAccountByLoginNormalized: new Map([['taken', { id: 'existing' }]]),
+      }),
+    });
+
+    await assert.rejects(
+      () => service.claim({ userId: 'user-1', login: 'TaKeN', password: 'plain-password' }),
+      (error: unknown) => error instanceof ConflictException && error.message === 'login is already taken',
+    );
+  });
+
   it('consumes referral codes best-effort after successful registration', async () => {
     const prisma = createPrismaMock({ referrersByCode: new Map([['ref-code', { id: 'referrer-1' }]]) });
     const referralManualAttachService = createReferralManualAttachServiceMock();
@@ -354,6 +427,7 @@ describe('WebAuthService', () => {
 
 interface CreatePrismaMockOptions {
   readonly usersByTelegramId?: Map<bigint, { readonly id: string }>;
+  readonly usersById?: Map<string, { readonly id: string }>;
   readonly existingWebAccountByUserId?: Map<string, { readonly id: string }>;
   readonly existingWebAccountByLoginNormalized?: Map<string, { readonly id: string }>;
   readonly loginAccounts?: Map<string, LoginAccountRecord>;
@@ -449,8 +523,17 @@ function createPrismaMock(options: CreatePrismaMockOptions = {}): PrismaMock {
 
   const tx = {
     user: {
-      findUnique: async (args: { readonly where: { readonly telegramId: bigint } }) =>
-        options.usersByTelegramId?.get(args.where.telegramId) ?? null,
+      findUnique: async (args: {
+        readonly where: { readonly telegramId?: bigint; readonly id?: string };
+      }) => {
+        if (args.where.id !== undefined) {
+          return options.usersById?.get(args.where.id) ?? null;
+        }
+        if (args.where.telegramId !== undefined) {
+          return options.usersByTelegramId?.get(args.where.telegramId) ?? null;
+        }
+        return null;
+      },
       updateMany: async (args: { readonly where: unknown; readonly data: unknown }) => {
         userEmailUpdateCalls.push(args);
         return { count: 1 };

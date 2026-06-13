@@ -6,6 +6,7 @@ import { BotSigninConsumeDto } from '../dto/bot-signin-consume.dto';
 import { BotSigninIssueDto } from '../dto/bot-signin-issue.dto';
 import { WebAuthChangePasswordDto } from '../dto/web-auth-change-password.dto';
 import { WebAuthCheckLoginDto } from '../dto/web-auth-check-login.dto';
+import { WebAuthClaimDto } from '../dto/web-auth-claim.dto';
 import { WebAuthLoginDto } from '../dto/web-auth-login.dto';
 import { WebAuthRecoverDto } from '../dto/web-auth-recover.dto';
 import { WebAuthRegisterDto } from '../dto/web-auth-register.dto';
@@ -48,6 +49,17 @@ export class InternalWebAuthController {
   @ApiOperation({ summary: 'Create a WebAccount + (optionally) link to existing Telegram User' })
   public register(@Body() body: WebAuthRegisterDto): Promise<WebAuthRegisterResultInterface> {
     return this.webAuthService.register(body);
+  }
+
+  @Post('claim')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Attach a WebAccount (login + password) to an existing User by reiwa_id',
+    description:
+      'Mandatory first-entry onboarding for Telegram-first users: links credentials to the caller\'s own existing User. Never creates a new User. 409 on existing web account / taken login.',
+  })
+  public claim(@Body() body: WebAuthClaimDto): Promise<WebAuthRegisterResultInterface> {
+    return this.webAuthService.claim(body);
   }
 
   @Post('check-login')
