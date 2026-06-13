@@ -1,0 +1,20 @@
+# ════════════════════════════════════════════════════════════════════════════
+#  docker-compose.build.yml — сборка образа из исходников (НЕ для прода)
+#
+#  Базовый docker-compose.yml ссылается только на готовый образ из GHCR, чтобы
+#  установка на VPS была чистым `docker compose pull` без исходников. Этот
+#  оверлей добавляет `build:` для локальной разработки/тестов реального образа.
+#
+#  Использование (из каталога rezeis-admin):
+#    docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#    docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build rezeis rezeis-worker
+#
+#  Собранный образ тегается тем же именем (ghcr.io/dizzzable/rezeis:latest),
+#  поэтому потом его можно поднимать обычным `docker compose up -d`.
+# ════════════════════════════════════════════════════════════════════════════
+
+services:
+  rezeis:
+    build: .
+  rezeis-worker:
+    build: .

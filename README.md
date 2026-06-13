@@ -65,41 +65,86 @@ docker pull ghcr.io/dizzzable/rezeis:v0.9.5.1
 
 ## 🚀 Quick Start
 
-### Production через Docker Compose
+### Установка на VPS (production, готовый образ)
+
+Образ тянется из GHCR — **исходники на сервере не нужны**, только два файла.
 
 ```bash
-git clone https://github.com/dizzzable/rezeis.git
-cd rezeis/rezeis-admin
-cp .env.example .env
-# заполнить секреты и сгенерировать уникальные DATABASE_PASSWORD, REDIS_PASSWORD,
-# JWT_SECRET, REZEIS_CRYPT_KEY перед запуском production compose
+# 1. Каталог установки
+mkdir -p /opt/rezeis && cd /opt/rezeis
+
+# 2. Скачать compose и шаблон окружения
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/dizzzable/rezeis/main/rezeis-admin/docker-compose.yml
+curl -fsSL -o .env               https://raw.githubusercontent.com/dizzzable/rezeis/main/rezeis-admin/.env.example
+
+# 3. Общая docker-сеть.
+#    Если Remnawave на ЭТОМ же VPS — сеть уже создана им, шаг можно пропустить.
+#    Если Remnawave отдельно — создаём один раз (нужна для связи rezeis ↔ reiwa):
+docker network create remnawave-network 2>/dev/null || true
+
+# 4. Заполнить .env. Минимум что нужно задать:
+#      REZEIS_CRYPT_KEY        (>=32 симв.)        openssl rand -hex 24
+#      DATABASE_PASSWORD                            openssl rand -hex 16
+#      REDIS_PASSWORD                               openssl rand -hex 16
+#      REMNAWAVE_HOST / REMNAWAVE_TOKEN             из панели Remnawave
+#      REZEIS_DOMAIN, ADMIN_CORS_ORIGINS           ваш домен админки
+nano .env
+
+# 5. Запуск (контейнер сам прогонит миграции Prisma на старте)
 docker compose up -d
 ```
 
-Production compose строит подключение к PostgreSQL и Redis из отдельных `DATABASE_*` и `REDIS_*` переменных. Не используйте старый примерный `DATABASE_URL` с фиксированным паролем для нового запуска; для уже существующей базы перенесите текущие DB/Redis passwords в `.env` перед `docker compose up -d`. Контейнер автоматически прогонит миграции через `docker-entrypoint.sh`. Панель будет доступна на порту 8000.
+Панель слушает `:8000` внутри docker-сети; наружу её публикует reverse proxy.
+Полный разбор каждой переменной — **[docs/environment.md](rezeis-admin/docs/environment.md)**.
 
-В documented split compose режиме API контейнер запускается с `RUID_PROCESS_ROLE=api`, а `rezeis-worker` с `RUID_PROCESS_ROLE=worker`, чтобы scheduled/worker side effects не выполнялись дважды.
+**Обновление:**
 
-Чтобы пропустить миграции (для восстановления из бэкапа):
+```bash
+cd /opt/rezeis && docker compose pull && docker compose up -d
+```
+
+### Reverse proxy
+
+Готовые конфиги в `deploy/proxies/`. Если rezeis и **reiwa стоят на одном VPS** —
+используйте `caddy-combined` (один Caddy на оба домена, авто-TLS):
+
+```bash
+mkdir -p /opt/rezeis/proxy && cd /opt/rezeis/proxy
+base=https://raw.githubusercontent.com/dizzzable/rezeis/main/rezeis-admin/deploy/proxies/caddy-combined
+curl -fsSL -o docker-compose.yml "$base/docker-compose.yml"
+curl -fsSL -o Caddyfile          "$base/Caddyfile.example"
+# заменить PANEL_DOMAIN и APP_DOMAIN на свои домены, открыть порты 80 и 443
+nano Caddyfile
+docker compose up -d
+```
+
+Другие варианты (acme.sh/Cloudflare, nginx, traefik, только rezeis) —
+в `deploy/proxies/` и его `README.md`.
+
+### Восстановление из бэкапа (пропуск миграций)
 
 ```bash
 RUID_SKIP_MIGRATIONS=true docker compose up -d
 ```
 
-### Локальная разработка
+### Локальная разработка / сборка из исходников
+
+Прод-`docker-compose.yml` ссылается только на готовый образ. Чтобы собрать
+образ из исходников локально, добавьте build-оверлей:
+
+```bash
+git clone https://github.com/dizzzable/rezeis.git && cd rezeis/rezeis-admin
+cp .env.example .env   # заполнить секреты
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+Чистая фронт/бэк разработка без docker:
 
 ```bash
 # Backend
-cd rezeis-admin
-npm install
-npx prisma generate
-npx prisma migrate deploy
-npm run start:dev
-
-# Frontend (в отдельном терминале)
-cd web
-npm install
-npm run dev
+cd rezeis-admin && npm install && npx prisma generate && npx prisma migrate deploy && npm run start:dev
+# Frontend (отдельный терминал)
+cd rezeis-admin/web && npm install && npm run dev
 ```
 
 **Системные требования:** Node.js 22+, PostgreSQL 17, Redis/Valkey 8.

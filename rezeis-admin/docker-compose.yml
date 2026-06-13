@@ -18,12 +18,12 @@
 
 services:
   rezeis:
-    # Прод тянет готовый образ из GHCR (его публикует CI на каждый push в main
-    # и тег v*). Обновление на VPS:  `docker compose pull && docker compose up -d`.
-    # `build: .` оставлен для локальной пересборки из исходников — он тегает
-    # ровно этот же image, поэтому `docker compose build` и `pull` совместимы.
+    # Прод тянет ГОТОВЫЙ образ из GHCR (его публикует CI на каждый push в main
+    # и тег v*). Установка/обновление на VPS — без исходников:
+    #   docker compose pull && docker compose up -d
+    # Для локальной сборки из исходников используйте build-оверлей:
+    #   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
     image: ghcr.io/dizzzable/rezeis:latest
-    build: .
     container_name: rezeis
     hostname: rezeis
     restart: unless-stopped
@@ -87,7 +87,6 @@ services:
   rezeis-worker:
     # Тот же образ, что и rezeis (CI собирает один unified image: API + worker).
     image: ghcr.io/dizzzable/rezeis:latest
-    build: .
     container_name: rezeis-worker
     hostname: rezeis-worker
     restart: unless-stopped
@@ -226,6 +225,15 @@ networks:
   rezeis-private:
     driver: bridge
     internal: true
+  # Общая сеть с reiwa и (если на этом же VPS) с Remnawave. По ней reiwa
+  # ходит к rezeis по имени `rezeis:8000`, а rezeis — к `remnawave:3000`.
+  # Сеть ВНЕШНЯЯ: её должен кто-то создать заранее, иначе docker ругается
+  # «network remnawave-network declared as external, but could not be found».
+  #   • Remnawave на этом же VPS → сеть уже создана Remnawave, ничего не делаем.
+  #   • Remnawave удалённый/отдельный → создайте один раз:
+  #       docker network create remnawave-network
+  #     (rezeis всё равно нужна эта сеть для связи с reiwa; до удалённого
+  #      Remnawave rezeis ходит по публичному домену через REMNAWAVE_HOST).
   remnawave-network:
     name: remnawave-network
     driver: bridge

@@ -1,0 +1,58 @@
+# Caddyfile (combined) — rezeis + reiwa на одном VPS, авто-TLS Let's Encrypt
+#
+# 1. Замените PANEL_DOMAIN и APP_DOMAIN на свои домены (A-записи должны
+#    указывать на этот VPS, порты 80 и 443 открыты).
+# 2. Сохраните как `Caddyfile` (без .example).
+# 3. docker compose up -d   (или reload: docker exec caddy caddy reload --config /etc/caddy/Caddyfile)
+
+# ── Админка rezeis ───────────────────────────────────────────────────────────
+PANEL_DOMAIN {
+    encode zstd gzip
+
+    # SSE realtime в админке: отключаем буферизацию, иначе события копятся.
+    @sse {
+        path /api/admin/events/* /api/internal/user/*/realtime/*
+    }
+    handle @sse {
+        reverse_proxy rezeis:8000 {
+            flush_interval -1
+            transport http {
+                read_timeout 24h
+            }
+        }
+    }
+
+    reverse_proxy rezeis:8000
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "SAMEORIGIN"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        -Server
+    }
+}
+
+# ── Кабинет reiwa (SPA + /api BFF, единый образ на :5000) ────────────────────
+APP_DOMAIN {
+    encode zstd gzip
+
+    # Один образ отдаёт и SPA, и /api/* — проксируем всё на reiwa:5000.
+    # flush_interval -1 держит SSE-стрим realtime живым.
+    reverse_proxy reiwa:5000 {
+        flush_interval -1
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options    "nosniff"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        -Server
+    }
+}
+
+# Чужой хост/скан по IP → пустой ответ, домены не раскрываем.
+:443 {
+    tls internal
+    respond 444
+}

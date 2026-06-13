@@ -1,0 +1,58 @@
+# ════════════════════════════════════════════════════════════════════════════
+#  Caddy (combined) — ОДИН reverse proxy для rezeis + reiwa на ОДНОМ VPS
+#
+#  Фронтит обе поверхности из единого контейнера по общей docker-сети
+#  remnawave-network:
+#     panel.example.com  →  rezeis:8000   (админка)
+#     app.example.com    →  reiwa:5000    (кабинет/Mini App/бот webApp)
+#
+#  TLS — автоматический Let's Encrypt (HTTP-01), поэтому открыты и 80, и 443.
+#  Это самый простой путь: сертификаты Caddy выпускает и продлевает сам, ничего
+#  на хосте генерировать не нужно. (Если нужен DNS-01/Cloudflare или свой
+#  сертификат — см. соседние папки caddy/ и caddy-auto/.)
+#
+#  Порядок (на одном VPS, где уже подняты стек rezeis и стек reiwa):
+#    1. Убедитесь, что сеть существует:  docker network create remnawave-network
+#       (если Remnawave на этом же VPS — она уже создана).
+#    2. cp Caddyfile.example Caddyfile  и подставьте свои домены.
+#    3. Откройте на VPS порты 80 и 443.
+#    4. docker compose up -d
+# ════════════════════════════════════════════════════════════════════════════
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    hostname: caddy
+    restart: unless-stopped
+    ports:
+      - '0.0.0.0:80:80'
+      - '0.0.0.0:443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - remnawave-network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+
+volumes:
+  caddy-data:
+    name: caddy-data
+  caddy-config:
+    name: caddy-config
+
+networks:
+  remnawave-network:
+    name: remnawave-network
+    external: true

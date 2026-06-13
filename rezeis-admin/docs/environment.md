@@ -160,13 +160,19 @@
 по имени контейнера `rezeis`.
 
 ```bash
-# 1) reverse proxy (caddy|nginx|traefik) из deploy/proxies/<выбор>/
-cd deploy/proxies/caddy && docker compose up -d && cd -
-# 2) панель
+# 0) общая сеть (если Remnawave не на этом VPS — создать один раз)
+docker network create remnawave-network 2>/dev/null || true
+# 1) reverse proxy: на одном VPS с reiwa — deploy/proxies/caddy-combined/
+# 2) панель (готовый образ из GHCR, без сборки)
 docker compose up -d            # поднимет rezeis + rezeis-worker + db + redis
 ```
 
 `.env`: `REIWA_URL=http://reiwa:5000`, на стороне reiwa `REZEIS_HOST=rezeis`.
+
+> Сборка из исходников (для разработки):
+> `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
+> Прод-`docker-compose.yml` ссылается только на `image:`, поэтому установка на
+> VPS — это чистый `docker compose pull` без исходников.
 
 ### Разные VPS (split)
 
@@ -178,25 +184,31 @@ reverse-proxy на `:443`.
 ### Обновление образов на VPS
 
 ```bash
-git pull                          # получить актуальный compose (важно!)
+cd /opt/rezeis
 docker compose pull               # стянуть свежий образ из ghcr.io/dizzzable/rezeis
 docker compose up -d              # пересоздать контейнеры на новом образе
 ```
 
-`docker-compose.yml` ссылается на `image: ghcr.io/dizzzable/rezeis:latest`
-(+ `build: .` для локальной сборки), поэтому `docker compose pull` работает
-штатно. Контейнер на старте сам прогоняет миграции (`docker-entrypoint.sh`).
+`docker-compose.yml` ссылается на `image: ghcr.io/dizzzable/rezeis:latest`,
+поэтому `docker compose pull` работает штатно (исходники на сервере не нужны).
+Контейнер на старте сам прогоняет миграции (`docker-entrypoint.sh`). Если
+обновился сам `docker-compose.yml` (редко) — перекачайте его тем же `curl`,
+что и при установке, затем `pull` + `up -d`.
 
 ---
 
-## 5. Про `docker-compose.override.yml`
+## 5. Сборка из исходников и `docker-compose.override.yml`
 
-`docker-compose.override.yml` **подхватывается автоматически** обычной
-командой `docker compose up -d` (без `-f`). В этом репозитории он
-gitignore-ится и нужен только локально — добавляет публикацию порта 8000 на
-loopback для отладки.
+Прод-`docker-compose.yml` ссылается **только на готовый образ** (`image:`),
+без `build:` — чтобы установка на VPS была чистым `docker compose pull` без
+исходников. Для локальной сборки из исходников есть оверлей
+`docker-compose.build.yml`:
 
-Ответ на частый вопрос: **да**, если перенести строки из override прямо в
-`docker-compose.yml`, всё продолжит работать обычными командами — override
-это просто удобный «слой поверх», а не обязательный отдельный файл. На
-проде override не нужен (наружу порт не публикуем, ходит reverse proxy).
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+`docker-compose.override.yml` (gitignore-ится, нужен только локально)
+**подхватывается автоматически** обычным `docker compose up -d` без `-f` —
+в этом репозитории он публикует порт 8000 на loopback для отладки. На проде
+он не нужен (наружу порт не публикуем, ходит reverse proxy).
