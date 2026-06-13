@@ -1,46 +1,42 @@
 # ════════════════════════════════════════════════════════════════════════════
-#  Caddy (combined) — ОДИН reverse proxy для rezeis + reiwa на ОДНОМ VPS
+#  Nginx (combined) — ОДИН reverse proxy для rezeis + reiwa на ОДНОМ VPS
 #  443-only, свой сертификат (bring-your-own, напр. SAN-cert от acme.sh).
 #
-#  Фронтит обе поверхности из единого контейнера по сети remnawave-network:
 #     PANEL_DOMAIN  →  rezeis:8000   (админка)
 #     APP_DOMAIN    →  reiwa:5000    (кабинет / Mini App / webApp бота)
 #
-#  Наружу открыт ТОЛЬКО 443. Сертификат — заранее выпущенный, лежит рядом с
+#  Наружу открыт ТОЛЬКО 443. Один SAN-сертификат на оба домена лежит рядом с
 #  этим файлом (fullchain.pem + privkey.key) и монтируется read-only.
 #
-#  Выпуск SAN-сертификата на оба домена (порт 80 нужен только в этот момент,
-#  к прокси отношения не имеет — на момент выпуска прокси не запущен):
+#  Выпуск (порт 80 нужен только на момент выпуска, прокси ещё не запущен):
 #     apt update && apt install -y socat
 #     curl https://get.acme.sh | sh
 #     ~/.acme.sh/acme.sh --issue --standalone \
 #         -d PANEL_DOMAIN -d APP_DOMAIN \
-#         --key-file       /opt/rezeis/caddy/privkey.key \
-#         --fullchain-file /opt/rezeis/caddy/fullchain.pem
+#         --key-file       /opt/rezeis/nginx/privkey.key \
+#         --fullchain-file /opt/rezeis/nginx/fullchain.pem
 #
 #  Запуск:
-#     cp Caddyfile.example Caddyfile   # подставить PANEL_DOMAIN / APP_DOMAIN
+#     cp nginx.conf.example nginx.conf   # подставить PANEL_DOMAIN / APP_DOMAIN
 #     docker compose up -d
 # ════════════════════════════════════════════════════════════════════════════
 
 services:
-  caddy:
-    image: caddy:2-alpine
-    container_name: caddy
-    hostname: caddy
+  nginx:
+    image: nginx:1.28
+    container_name: rezeis-nginx
+    hostname: rezeis-nginx
     restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./fullchain.pem:/etc/nginx/ssl/fullchain.pem:ro
+      - ./privkey.key:/etc/nginx/ssl/privkey.key:ro
     ports:
       - '0.0.0.0:443:443'
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./fullchain.pem:/etc/caddy/certs/fullchain.pem:ro
-      - ./privkey.key:/etc/caddy/certs/privkey.key:ro
-      - caddy-data:/data
-      - caddy-config:/config
     networks:
       - remnawave-network
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:2019/config/"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/nginx-health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -50,12 +46,6 @@ services:
         limits:
           memory: 256M
           cpus: '0.5'
-
-volumes:
-  caddy-data:
-    name: caddy-data
-  caddy-config:
-    name: caddy-config
 
 networks:
   remnawave-network:

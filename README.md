@@ -105,21 +105,33 @@ cd /opt/rezeis && docker compose pull && docker compose up -d
 
 ### Reverse proxy
 
-Готовые конфиги в `deploy/proxies/`. Если rezeis и **reiwa стоят на одном VPS** —
-используйте `caddy-combined` (один Caddy на оба домена, авто-TLS):
+Готовые конфиги — в `rezeis-admin/deploy/proxies/`. Если **rezeis и reiwa
+стоят на ОДНОМ VPS**, используйте combined-стек (один прокси на оба домена,
+**443-only**, один SAN-сертификат на оба домена). Доступны под любой вкус:
+`caddy-combined`, `nginx-combined`, `angie-combined`, `traefik-combined`.
+
+Пример для nginx (остальные — аналогично, см. README внутри каждого каталога):
 
 ```bash
-mkdir -p /opt/rezeis/proxy && cd /opt/rezeis/proxy
-base=https://raw.githubusercontent.com/dizzzable/rezeis/main/rezeis-admin/deploy/proxies/caddy-combined
+docker network create remnawave-network 2>/dev/null || true
+mkdir -p /opt/rezeis/nginx && cd /opt/rezeis/nginx
+base=https://raw.githubusercontent.com/dizzzable/rezeis/main/rezeis-admin/deploy/proxies/nginx-combined
 curl -fsSL -o docker-compose.yml "$base/docker-compose.yml"
-curl -fsSL -o Caddyfile          "$base/Caddyfile.example"
-# заменить PANEL_DOMAIN и APP_DOMAIN на свои домены, открыть порты 80 и 443
-nano Caddyfile
+curl -fsSL -o nginx.conf         "$base/nginx.conf.example"
+
+# Один SAN-сертификат на ОБА домена (80 нужен только сейчас, прокси ещё не запущен)
+apt update && apt install -y socat && curl https://get.acme.sh | sh
+~/.acme.sh/acme.sh --issue --standalone -d PANEL_DOMAIN -d APP_DOMAIN \
+    --key-file /opt/rezeis/nginx/privkey.key --fullchain-file /opt/rezeis/nginx/fullchain.pem
+
+sed -i 's/PANEL_DOMAIN/panel.example.com/g; s/APP_DOMAIN/app.example.com/g' nginx.conf
 docker compose up -d
 ```
 
-Другие варианты (acme.sh/Cloudflare, nginx, traefik, только rezeis) —
-в `deploy/proxies/` и его `README.md`.
+`PANEL_DOMAIN → rezeis:8000` (админка), `APP_DOMAIN → reiwa:5000` (кабинет).
+Для развёртывания **только панели** (без reiwa) — стеки `caddy/`, `caddy-auto/`,
+`nginx/`, `traefik/` и сводная таблица в
+[`deploy/proxies/README.md`](rezeis-admin/deploy/proxies/README.md).
 
 ### Восстановление из бэкапа (пропуск миграций)
 

@@ -1,0 +1,43 @@
+# config/dynamic.yml — динамическая конфигурация Traefik (combined)
+#
+# 1. Замените PANEL_DOMAIN и APP_DOMAIN на свои домены.
+# 2. Сохраните как `dynamic.yml` (без .example). Traefik подхватит сам (watch).
+#
+# Один SAN-сертификат на оба домена монтируется из /certs (см. docker-compose).
+
+tls:
+  certificates:
+    - certFile: /certs/fullchain.pem
+      keyFile: /certs/privkey.key
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /certs/fullchain.pem
+        keyFile: /certs/privkey.key
+
+http:
+  routers:
+    rezeis:
+      rule: "Host(`PANEL_DOMAIN`)"
+      entrypoints:
+        - https
+      service: rezeis
+      tls: {}
+    reiwa:
+      rule: "Host(`APP_DOMAIN`)"
+      entrypoints:
+        - https
+      service: reiwa
+      tls: {}
+
+  services:
+    rezeis:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: 'http://rezeis:8000'
+    reiwa:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: 'http://reiwa:5000'

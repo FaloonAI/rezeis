@@ -1,9 +1,5 @@
 # Reverse-proxy stacks for rezeis-admin
 
-Legacy/reference copy only. Use the repository-root `deploy/proxies` tree for
-new deployments; it is the canonical proxy documentation and contains the
-current hardened runtime settings.
-
 Каждая подпапка — независимый Docker Compose-стек. Стек прокси поднимается
 **первым**, панель — **вторым**. Они встречаются в общей внешней сети
 `remnawave-network` и общаются по docker DNS (прокси ходит на `rezeis:8000`,
@@ -14,7 +10,36 @@ Internet ──443──> reverse-proxy ──http://rezeis:8000──> rezeis (
                   (свой compose)                        (rezeis-admin/docker-compose.yml)
 ```
 
-## Какой стек выбрать
+## Один сервис (только панель) vs два сервиса (панель + reiwa) на одном VPS
+
+- **Только панель** → стеки `caddy/`, `caddy-auto/`, `nginx/`, `traefik/`.
+- **rezeis + reiwa на ОДНОМ VPS** (два домена, один прокси, один SAN-сертификат
+  на оба домена) → стеки `*-combined/`. Это закрывает кейс «один reverse proxy
+  на оба проекта»:
+
+| Combined-стек        | TLS                         | Порты | Маршруты |
+|----------------------|-----------------------------|-------|----------|
+| `caddy-combined/`    | свой cert (напр. acme.sh)   | 443   | `PANEL_DOMAIN→rezeis:8000`, `APP_DOMAIN→reiwa:5000` |
+| `nginx-combined/`    | свой cert (напр. acme.sh)   | 443   | то же |
+| `angie-combined/`    | свой cert (напр. acme.sh)   | 443   | то же |
+| `traefik-combined/`  | свой cert (file-provider)   | 443   | то же |
+
+Все combined-варианты — **443-only** и используют **один заранее выпущенный
+SAN-сертификат на оба домена**, лежащий прямо в каталоге прокси:
+
+```bash
+apt update && apt install -y socat
+curl https://get.acme.sh | sh
+~/.acme.sh/acme.sh --issue --standalone \
+    -d PANEL_DOMAIN -d APP_DOMAIN \
+    --key-file       /opt/rezeis/<proxy>/privkey.key \
+    --fullchain-file /opt/rezeis/<proxy>/fullchain.pem
+```
+
+Порт 80 нужен только в момент выпуска (acme.sh `--standalone`), к самому прокси
+он отношения не имеет. Пошаговые команды — в README каждого `*-combined/`.
+
+## Какой стек выбрать (только панель)
 
 | Стек          | TLS выпускает          | Порты наружу    | Когда выбирать                                                                  |
 |---------------|------------------------|-----------------|---------------------------------------------------------------------------------|

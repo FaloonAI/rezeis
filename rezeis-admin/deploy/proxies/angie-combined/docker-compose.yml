@@ -1,0 +1,46 @@
+# ════════════════════════════════════════════════════════════════════════════
+#  Angie (combined) — ОДИН reverse proxy для rezeis + reiwa на ОДНОМ VPS
+#  443-only, свой сертификат (bring-your-own, напр. SAN-cert от acme.sh).
+#
+#     PANEL_DOMAIN  →  rezeis:8000   (админка)
+#     APP_DOMAIN    →  reiwa:5000    (кабинет / Mini App / webApp бота)
+#
+#  Наружу — только 443. Один SAN-сертификат на оба домена рядом с этим файлом.
+#
+#  Выпуск (80 нужен только на момент выпуска, прокси ещё не запущен):
+#     apt update && apt install -y socat
+#     curl https://get.acme.sh | sh
+#     ~/.acme.sh/acme.sh --issue --standalone \
+#         -d PANEL_DOMAIN -d APP_DOMAIN \
+#         --key-file       /opt/rezeis/angie/privkey.key \
+#         --fullchain-file /opt/rezeis/angie/fullchain.pem
+#
+#  Запуск:
+#     cp angie.conf.example angie.conf   # подставить PANEL_DOMAIN / APP_DOMAIN
+#     docker compose up -d
+# ════════════════════════════════════════════════════════════════════════════
+
+services:
+  angie:
+    image: docker.angie.software/angie:1.9.0
+    container_name: rezeis-angie
+    hostname: rezeis-angie
+    restart: unless-stopped
+    ports:
+      - '0.0.0.0:443:443'
+    networks:
+      - remnawave-network
+    volumes:
+      - ./angie.conf:/etc/angie/http.d/default.conf:ro
+      - ./fullchain.pem:/etc/angie/ssl/fullchain.pem:ro
+      - ./privkey.key:/etc/angie/ssl/privkey.key:ro
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+
+networks:
+  remnawave-network:
+    name: remnawave-network
+    external: true

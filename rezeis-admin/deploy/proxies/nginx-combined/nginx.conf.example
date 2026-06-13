@@ -1,0 +1,127 @@
+# nginx.conf (combined) — rezeis + reiwa на одном VPS, 443-only, свой SAN-cert
+#
+# 1. Замените PANEL_DOMAIN и APP_DOMAIN на свои домены.
+# 2. Сохраните как `nginx.conf` (без .example).
+# 3. Положите рядом fullchain.pem + privkey.key (SAN-cert на оба домена).
+# 4. Перезагрузка: docker exec rezeis-nginx nginx -s reload
+
+upstream rezeis_upstream {
+    server rezeis:8000;
+    keepalive 32;
+}
+
+upstream reiwa_upstream {
+    server reiwa:5000;
+    keepalive 32;
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+# ── Общие SSL-параметры (Mozilla Intermediate) ───────────────────────────────
+# Один SAN-сертификат на оба домена.
+ssl_protocols          TLSv1.2 TLSv1.3;
+ssl_ciphers            ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+ssl_session_timeout    1d;
+ssl_session_cache      shared:MozSSL:10m;
+ssl_session_tickets    off;
+
+# ── Админка rezeis ───────────────────────────────────────────────────────────
+server {
+    server_name PANEL_DOMAIN;
+    listen 443 ssl reuseport;
+    listen [::]:443 ssl reuseport;
+    http2 on;
+
+    ssl_certificate     "/etc/nginx/ssl/fullchain.pem";
+    ssl_certificate_key "/etc/nginx/ssl/privkey.key";
+
+    # SSE — отключаем буферизацию и держим долгие соединения.
+    location ~ ^/api/(admin/events/|internal/user/[^/]+/realtime/) {
+        proxy_http_version 1.1;
+        proxy_pass http://rezeis_upstream;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering    off;
+        proxy_cache        off;
+        proxy_read_timeout 24h;
+        chunked_transfer_encoding off;
+    }
+
+    location = /nginx-health {
+        access_log off;
+        return 204;
+    }
+
+    location / {
+        proxy_http_version 1.1;
+        proxy_pass http://rezeis_upstream;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        $connection_upgrade;
+    }
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+    add_header X-Content-Type-Options    "nosniff" always;
+    add_header X-Frame-Options           "SAMEORIGIN" always;
+    add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
+
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_min_length 256;
+    gzip_types application/javascript application/json application/manifest+json application/xml font/woff2 image/svg+xml text/css text/plain;
+}
+
+# ── Кабинет reiwa (SPA + /api BFF, единый образ на :5000) ────────────────────
+server {
+    server_name APP_DOMAIN;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+
+    ssl_certificate     "/etc/nginx/ssl/fullchain.pem";
+    ssl_certificate_key "/etc/nginx/ssl/privkey.key";
+
+    location / {
+        proxy_http_version 1.1;
+        proxy_pass http://reiwa_upstream;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # SSE (/api/v1/realtime/stream) + websocket keep-alive.
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_buffering    off;
+        proxy_read_timeout 3600s;
+    }
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+    add_header X-Content-Type-Options    "nosniff" always;
+    add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
+
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_min_length 256;
+    gzip_types application/javascript application/json application/manifest+json application/xml font/woff2 image/svg+xml text/css text/plain;
+}
+
+# Любой чужой Host → reject TLS handshake.
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+    ssl_reject_handshake on;
+}

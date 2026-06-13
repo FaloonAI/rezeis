@@ -1,15 +1,21 @@
-# Caddyfile (combined) — rezeis + reiwa на одном VPS, авто-TLS Let's Encrypt
+# Caddyfile (combined) — rezeis + reiwa на одном VPS, 443-only, свой сертификат
 #
-# 1. Замените PANEL_DOMAIN и APP_DOMAIN на свои домены (A-записи должны
-#    указывать на этот VPS, порты 80 и 443 открыты).
+# 1. Замените PANEL_DOMAIN и APP_DOMAIN на свои домены.
 # 2. Сохраните как `Caddyfile` (без .example).
-# 3. docker compose up -d   (или reload: docker exec caddy caddy reload --config /etc/caddy/Caddyfile)
+# 3. Положите рядом fullchain.pem + privkey.key (SAN-cert на оба домена).
+# 4. docker compose up -d
+
+{
+    # Мы НЕ слушаем :80 — выключаем авто-редирект и ACME.
+    auto_https disable_redirects
+}
 
 # ── Админка rezeis ───────────────────────────────────────────────────────────
-PANEL_DOMAIN {
+https://PANEL_DOMAIN {
+    tls /etc/caddy/certs/fullchain.pem /etc/caddy/certs/privkey.key
     encode zstd gzip
 
-    # SSE realtime в админке: отключаем буферизацию, иначе события копятся.
+    # SSE realtime в админке: отключаем буферизацию.
     @sse {
         path /api/admin/events/* /api/internal/user/*/realtime/*
     }
@@ -34,11 +40,10 @@ PANEL_DOMAIN {
 }
 
 # ── Кабинет reiwa (SPA + /api BFF, единый образ на :5000) ────────────────────
-APP_DOMAIN {
+https://APP_DOMAIN {
+    tls /etc/caddy/certs/fullchain.pem /etc/caddy/certs/privkey.key
     encode zstd gzip
 
-    # Один образ отдаёт и SPA, и /api/* — проксируем всё на reiwa:5000.
-    # flush_interval -1 держит SSE-стрим realtime живым.
     reverse_proxy reiwa:5000 {
         flush_interval -1
     }

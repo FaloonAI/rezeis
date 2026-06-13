@@ -1,0 +1,5 @@
+traefik.yml
+config/dynamic.yml
+*.pem
+*.key
+logs/

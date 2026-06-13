@@ -1,0 +1,27 @@
+# traefik.yml — статическая конфигурация (combined, 443-only, свой сертификат)
+#
+# Сохраните как `traefik.yml` (без .example). Здесь НЕТ ACME и НЕТ :80 —
+# сертификат отдаётся из файла (см. config/dynamic.yml).
+
+api:
+  dashboard: false
+  debug: false
+
+entryPoints:
+  https:
+    address: ':443'
+
+serversTransport:
+  insecureSkipVerify: false
+
+providers:
+  file:
+    directory: /config
+    watch: true
+
+log:
+  level: INFO
+  filePath: /var/log/traefik/traefik.log
+
+accessLog:
+  filePath: /var/log/traefik/access.log
