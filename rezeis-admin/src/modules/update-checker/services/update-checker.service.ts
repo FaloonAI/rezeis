@@ -306,9 +306,12 @@ export class UpdateCheckerService implements OnModuleInit {
  *   zero      when `a === b`
  *   positive  when `a > b`
  *
- * Handles a subset: `MAJOR.MINOR.PATCH[-PRERELEASE]`. Pre-release tags
- * are compared lexicographically as a tiebreaker, mirroring the npm
- * convention "any prerelease < release of the same triple".
+ * Handles `MAJOR.MINOR.PATCH[.BUILD][-PRERELEASE]`. The optional 4th
+ * numeric `BUILD` segment lets us ship hotfix releases like `0.9.5.1`
+ * that sort strictly above `0.9.5`. A missing segment counts as `0`, so
+ * `0.9.5` === `0.9.5.0` < `0.9.5.1`. Pre-release tags are compared
+ * lexicographically as a tiebreaker, mirroring the npm convention
+ * "any prerelease < release of the same triple".
  */
 export function compareSemver(a: string, b: string): number {
   const parsedA = parseSemver(a);
@@ -316,19 +319,27 @@ export function compareSemver(a: string, b: string): number {
   if (parsedA.major !== parsedB.major) return parsedA.major - parsedB.major;
   if (parsedA.minor !== parsedB.minor) return parsedA.minor - parsedB.minor;
   if (parsedA.patch !== parsedB.patch) return parsedA.patch - parsedB.patch;
+  if (parsedA.build !== parsedB.build) return parsedA.build - parsedB.build;
   if (parsedA.pre === '' && parsedB.pre !== '') return 1;
   if (parsedA.pre !== '' && parsedB.pre === '') return -1;
   return parsedA.pre.localeCompare(parsedB.pre);
 }
 
-function parseSemver(value: string): { major: number; minor: number; patch: number; pre: string } {
+function parseSemver(value: string): {
+  major: number;
+  minor: number;
+  patch: number;
+  build: number;
+  pre: string;
+} {
   const trimmed = value.trim().replace(/^v/i, '');
   const [main, pre = ''] = trimmed.split('-', 2);
-  const [maj, min, pat] = (main ?? '').split('.');
+  const [maj, min, pat, build] = (main ?? '').split('.');
   return {
     major: toInt(maj),
     minor: toInt(min),
     patch: toInt(pat),
+    build: toInt(build),
     pre,
   };
 }

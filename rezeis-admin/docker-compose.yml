@@ -18,6 +18,11 @@
 
 services:
   rezeis:
+    # Прод тянет готовый образ из GHCR (его публикует CI на каждый push в main
+    # и тег v*). Обновление на VPS:  `docker compose pull && docker compose up -d`.
+    # `build: .` оставлен для локальной пересборки из исходников — он тегает
+    # ровно этот же image, поэтому `docker compose build` и `pull` совместимы.
+    image: ghcr.io/dizzzable/rezeis:latest
     build: .
     container_name: rezeis
     hostname: rezeis
@@ -40,7 +45,6 @@ services:
       NODE_ENV: production
       RUID_PROCESS_ROLE: api
       BACKUP_LOCATION: /app/data/backups
-      REZEIS_UPDATE_REPO: dizzzable/rezeis
     # Наружу 8000 не публикуем — reverse proxy ходит на rezeis:8000 по
     # docker-сети. Если нужен доступ с самого VPS для дебага, временно
     # верни строку: `ports: ['127.0.0.1:8000:8000']` (только loopback).
@@ -81,6 +85,8 @@ services:
       - remnawave-network
 
   rezeis-worker:
+    # Тот же образ, что и rezeis (CI собирает один unified image: API + worker).
+    image: ghcr.io/dizzzable/rezeis:latest
     build: .
     container_name: rezeis-worker
     hostname: rezeis-worker

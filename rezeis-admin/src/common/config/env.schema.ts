@@ -112,11 +112,14 @@ const environmentSchema = z.object({
   ),
 
   // ── Update checker ───────────────────────────────────────────────────────
-  /** Panel `<owner>/<repo>` GitHub slug whose `releases/latest` is compared
-   * against the running panel version. Unset = update checks disabled. */
+  /** Optional override for the panel `<owner>/<repo>` GitHub slug whose
+   * `releases/latest` is compared against the running version. The upstream
+   * repo is baked into the build as a default (see update-checker.service),
+   * so leaving this unset still performs the check — set it only on a fork. */
   REZEIS_UPDATE_REPO: z.preprocess(normalizeOptionalString, z.string().min(1).optional()),
-  /** reiwa `<owner>/<repo>` GitHub slug. When set, the Updates widget also
-   * surfaces the latest reiwa release vs. the version reiwa reports in. */
+  /** Optional override for the reiwa `<owner>/<repo>` GitHub slug. Defaults
+   * are baked in; the Updates widget surfaces the latest reiwa release vs.
+   * the version reiwa reports in over the internal channel. */
   REZEIS_REIWA_UPDATE_REPO: z.preprocess(normalizeOptionalString, z.string().min(1).optional()),
 }).superRefine((env, ctx) => {
   try {
