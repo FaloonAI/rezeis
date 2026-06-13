@@ -3,9 +3,12 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { BotScreenNodeData, BotFlowButton } from '../types'
+import { useEmojiRegistry } from '../../custom-emoji/use-emoji-registry'
 
 function BotScreenNodeComponent({ data, id, selected }: NodeProps) {
   const nodeData = data as unknown as BotScreenNodeData
+  // Resolve a button's stored custom_emoji_id back to its registry preview.
+  const { byCustomEmojiId } = useEmojiRegistry()
 
   const STYLE_COLORS: Record<string, { bg: string; text: string }> = {
     PRIMARY: { bg: '#3b82f6', text: '#ffffff' },
@@ -72,7 +75,10 @@ function BotScreenNodeComponent({ data, id, selected }: NodeProps) {
                   >
                     {btn.iconCustomEmojiId && (
                       <img
-                        src={`/uploads/emoji/${btn.iconCustomEmojiId}.webp`}
+                        src={
+                          byCustomEmojiId.get(btn.iconCustomEmojiId)?.imageUrl ??
+                          `/uploads/emoji/${btn.iconCustomEmojiId}.webp`
+                        }
                         alt=""
                         className="inline-block h-3 w-3 mr-0.5 align-middle"
                         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}

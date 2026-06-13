@@ -57,6 +57,7 @@ const AnalyticsPage = lazy(
 )
 const BotConfigPage = lazy(() => import('@/features/bot-config/bot-config-page'))
 const BotFlowPage = lazy(() => import('@/features/bot-flow/bot-flow-page'))
+const CustomEmojiPage = lazy(() => import('@/features/custom-emoji/custom-emoji-page'))
 const NotificationsPage = lazy(
   withFeatureBundle('notifications', () => import('@/features/notifications/notifications-page')),
 )
@@ -136,6 +137,7 @@ export const router = createBrowserRouter([
           { path: 'referrals', element: withSuspense(<ReferralsPage />) },
           { path: 'partners', element: withSuspense(<PartnersPage />) },
           { path: 'broadcast', element: withSuspense(<BroadcastPage />) },
+          { path: 'emoji-packs', element: withSuspense(<CustomEmojiPage />) },
           { path: 'remnawave', element: withSuspense(<RemnaWavePage />) },
           { path: 'settings', element: withSuspense(<SettingsPage />) },
           { path: 'web-reiwa', element: withSuspense(<WebReiwaPage />) },

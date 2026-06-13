@@ -27,6 +27,7 @@ import {
   ShieldAlert,
   BarChart3,
   Smartphone,
+  Smile,
 } from 'lucide-react'
 
 import type { SidebarGroupOrder } from '@/stores/sidebar-store'
@@ -82,6 +83,7 @@ export const navGroups: ReadonlyArray<NavGroup> = [
       { key: 'addOns', path: '/add-ons', icon: Puzzle },
       { key: 'promocodes', path: '/promocodes', icon: Tag },
       { key: 'broadcast', path: '/broadcast', icon: Megaphone },
+      { key: 'emojiPacks', path: '/emoji-packs', icon: Smile },
     ],
   },
   {

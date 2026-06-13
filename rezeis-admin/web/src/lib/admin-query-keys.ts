@@ -16,6 +16,7 @@ export const adminQueryKeys = {
   broadcast: {
     all: ['admin', 'broadcast'] as const,
     audienceCount: (audience: string) => ['admin', 'broadcast', 'audience-count', audience] as const,
+    detail: (id: string) => ['admin', 'broadcast', 'detail', id] as const,
   },
   dashboard: {
     all: ['admin', 'dashboard'] as const,

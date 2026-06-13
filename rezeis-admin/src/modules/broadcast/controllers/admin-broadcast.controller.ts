@@ -141,7 +141,7 @@ export class AdminBroadcastController {
   // ── EDIT (already-sent messages) ────────────────────────────────────────
 
   @Post(':broadcastId/edit')
-  @ApiOperation({ summary: 'Edit already-sent messages (editMessageText/Caption in Telegram)' })
+  @ApiOperation({ summary: 'Edit a sent broadcast: rewrite cabinet feed + Telegram messages' })
   public async editBroadcast(
     @Param('broadcastId') broadcastId: string,
     @Body() dto: EditBroadcastDto,
@@ -151,17 +151,40 @@ export class AdminBroadcastController {
     if (broadcast.status !== 'COMPLETED') {
       throw new BadRequestException('Only completed broadcasts can be edited');
     }
-    const sentMessages = await this.broadcastQueueService.getSentMessageIds(broadcastId);
-    if (sentMessages.length === 0) {
-      throw new BadRequestException('No sent messages found to edit');
-    }
-    const batches = await this.broadcastQueueService.enqueueEdit({
+    // Always update the stored payload + cabinet-feed events so web-only and
+    // Telegram users see the corrected text in their in-app feed.
+    await this.broadcastService.updateBroadcastContent({
       broadcastId,
-      newText: dto.text,
+      text: dto.text,
       parseMode: dto.parseMode ?? null,
-      messageIds: sentMessages,
     });
-    return { batches, totalMessages: sentMessages.length, message: 'Edit enqueued' };
+    // Telegram message edits now apply to BOTH direct media sends and text
+    // broadcasts (the reiwa-bot fanout returns the message id, which we persist
+    // on delivery). The edit worker silently skips messages outside Telegram's
+    // 48h edit window. Default to HTML — that's what text delivery sends.
+    const sentMessages = await this.broadcastQueueService.getSentMessageIds(broadcastId);
+    let batches = 0;
+    if (sentMessages.length > 0) {
+      batches = await this.broadcastQueueService.enqueueEdit({
+        broadcastId,
+        newText: dto.text,
+        parseMode: dto.parseMode ?? 'HTML',
+        messageIds: sentMessages,
+      });
+    }
+    return { batches, totalMessages: sentMessages.length, message: 'Broadcast updated' };
+  }
+
+  // ── DELETE (whole broadcast) ────────────────────────────────────────────
+
+  @Delete(':broadcastId')
+  @ApiOperation({ summary: 'Delete a broadcast and all of its message rows' })
+  public async deleteBroadcast(
+    @Param('broadcastId') broadcastId: string,
+    @CurrentAdmin() _currentAdmin: CurrentAdminInterface,
+  ): Promise<{ deleted: true }> {
+    await this.broadcastService.deleteBroadcast(broadcastId);
+    return { deleted: true };
   }
 
   // ── DELETE (already-sent messages) ──────────────────────────────────────

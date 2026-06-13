@@ -5,6 +5,16 @@ import { BroadcastAudience, BroadcastMessageStatus, BroadcastStatus } from '@pri
 
 import { BroadcastDeliveryService } from '../src/modules/broadcast/services/broadcast-delivery.service';
 
+/** Minimal BotNotifierClient stub. `messageId` is the value notifyUser resolves to. */
+function botNotifier(messageId: number | null, calls?: unknown[]): never {
+  return {
+    notifyUser: async (input: unknown) => {
+      calls?.push(input);
+      return messageId;
+    },
+  } as never;
+}
+
 describe('BroadcastDeliveryService', () => {
   it('stages current audience recipients and transitions draft broadcasts to processing', async () => {
     const createManyCalls: unknown[] = [];
@@ -57,6 +67,8 @@ describe('BroadcastDeliveryService', () => {
       configService('bot-token'),
       { info: (...args: unknown[]) => eventCalls.push(args) } as never,
       { create: async () => 'evt' } as never,
+      { getDecryptedBotToken: async () => null } as never,
+      botNotifier(null),
     );
 
     assert.deepStrictEqual(await service.stageRecipients('broadcast-1'), ['message-1', 'message-2']);
@@ -72,11 +84,12 @@ describe('BroadcastDeliveryService', () => {
     assert.equal(JSON.stringify(eventCalls).includes('recipientCount'), true);
   });
 
-  it('delivers text broadcasts via the notification fanout (no direct Telegram send)', async () => {
+  it('delivers text broadcasts via the reiwa bot and persists the returned message id', async () => {
     const fetchCalls: unknown[] = [];
     const messageUpdates: unknown[] = [];
     const broadcastUpdates: unknown[] = [];
     const createCalls: Array<{ skipTelegram?: boolean }> = [];
+    const notifyCalls: unknown[] = [];
     const service = new BroadcastDeliveryService(
       {
         broadcast: {
@@ -117,6 +130,8 @@ describe('BroadcastDeliveryService', () => {
           return 'evt';
         },
       } as never,
+      { getDecryptedBotToken: async () => null } as never,
+      botNotifier(777, notifyCalls),
     );
 
     await withFetch(async (input, init) => {
@@ -129,15 +144,17 @@ describe('BroadcastDeliveryService', () => {
       });
     });
 
-    // Text broadcasts go through the reiwa bot via the fanout — no direct
-    // api.telegram.org call from rezeis-admin, and skipTelegram is false so the
-    // fanout itself sends the Telegram message.
+    // Text goes through the reiwa bot (botNotifier), not a direct
+    // api.telegram.org call. The feed create skips the fanout's Telegram leg.
     assert.equal(fetchCalls.length, 0);
-    assert.equal(createCalls[0]?.skipTelegram, false);
+    assert.equal(createCalls[0]?.skipTelegram, true);
+    assert.equal(notifyCalls.length, 1);
     const messageUpdate = messageUpdates[0] as {
-      readonly data: { readonly status: BroadcastMessageStatus };
+      readonly data: { readonly status: BroadcastMessageStatus; readonly telegramMessageId: bigint | null };
     };
     assert.equal(messageUpdate.data.status, BroadcastMessageStatus.SENT);
+    // The bot-returned message id is persisted for later edit/delete.
+    assert.equal(messageUpdate.data.telegramMessageId, 777n);
     assert.equal(JSON.stringify(broadcastUpdates).includes(BroadcastStatus.COMPLETED), true);
   });
 
@@ -183,6 +200,8 @@ describe('BroadcastDeliveryService', () => {
           return 'evt';
         },
       } as never,
+      { getDecryptedBotToken: async () => null } as never,
+      botNotifier(888),
     );
 
     await withFetch(async (input, init) => {
@@ -195,7 +214,7 @@ describe('BroadcastDeliveryService', () => {
       });
     });
 
-    // No direct Telegram call (no token), but the fanout delivered it.
+    // No direct Telegram call (no token), but the reiwa bot delivered it.
     assert.equal(fetchCalls.length, 0);
     assert.equal(createCalls.length, 1);
     const update = messageUpdates[0] as { readonly data: { readonly status: BroadcastMessageStatus } };
@@ -235,6 +254,8 @@ describe('BroadcastDeliveryService', () => {
       // Feed write fails too, so the message is FAILED with the (sanitized)
       // media Telegram error rather than SENT via the feed fallback.
       { create: async () => { throw new Error('feed down'); } } as never,
+      { getDecryptedBotToken: async () => null } as never,
+      botNotifier(null),
     );
 
     await withFetch(async () => {
@@ -258,6 +279,7 @@ describe('BroadcastDeliveryService', () => {
     const messageUpdates: unknown[] = [];
     const createCalls: Array<{ userId: string; skipTelegram?: boolean }> = [];
     const fetchCalls: unknown[] = [];
+    const notifyCalls: unknown[] = [];
     const service = new BroadcastDeliveryService(
       {
         broadcast: {
@@ -297,6 +319,8 @@ describe('BroadcastDeliveryService', () => {
           return 'evt-1';
         },
       } as never,
+      { getDecryptedBotToken: async () => null } as never,
+      botNotifier(999, notifyCalls),
     );
 
     await withFetch(
@@ -312,12 +336,13 @@ describe('BroadcastDeliveryService', () => {
       },
     );
 
-    // No Telegram call for a web-only user.
+    // No Telegram at all for a web-only user — neither a direct call nor the
+    // reiwa bot notify (the user has no telegramId).
     assert.equal(fetchCalls.length, 0);
-    // Cabinet feed + web-push + (text) reiwa-Telegram via the fanout.
+    assert.equal(notifyCalls.length, 0);
     assert.equal(createCalls.length, 1);
     assert.equal(createCalls[0]?.userId, 'web-user-1');
-    assert.equal(createCalls[0]?.skipTelegram, false);
+    assert.equal(createCalls[0]?.skipTelegram, true);
     // Message marked SENT via the feed channel.
     const update = messageUpdates[0] as { readonly data: { readonly status: BroadcastMessageStatus } };
     assert.equal(update.data.status, BroadcastMessageStatus.SENT);

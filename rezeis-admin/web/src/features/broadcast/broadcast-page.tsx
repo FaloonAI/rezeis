@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Plus, Megaphone, Send, XCircle, Trash2, Loader2, RefreshCw, Upload, FileImage, FileVideo, X } from 'lucide-react'
+import { Plus, Megaphone, Send, XCircle, Trash2, Loader2, RefreshCw, Upload, FileImage, FileVideo, X, Pencil } from 'lucide-react'
 import { useForm, type FieldErrors, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
@@ -37,6 +37,7 @@ import {
   type BroadcastFormDraft,
   type BroadcastFormValidationMessages,
 } from './broadcast-form-schema'
+import { EmojiPicker } from './emoji-picker'
 
 const AUDIENCES = [
   { value: 'ALL', labelKey: 'broadcastPage.audiences.ALL' },
@@ -68,6 +69,7 @@ export default function BroadcastPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
 
   const { data, isLoading, refetch } = useQuery<ReadonlyArray<BroadcastRow>>({
     queryKey: adminQueryKeys.broadcast.all,
@@ -197,6 +199,13 @@ export default function BroadcastPage() {
                             <XCircle className="h-3.5 w-3.5" />
                           </Button>
                         )}
+                        {b.status === 'COMPLETED' && (
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground"
+                            aria-label={t('broadcastPage.editBroadcast')}
+                            onClick={() => setEditId(b.id)}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                         {['COMPLETED', 'CANCELED', 'FAILED'].includes(b.status) && (
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
@@ -253,6 +262,19 @@ export default function BroadcastPage() {
           <CreateBroadcastForm onClose={() => setShowCreate(false)} />
         </DialogContent>
       </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={editId !== null} onOpenChange={(open) => { if (!open) setEditId(null) }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t('broadcastPage.edit.title')}</DialogTitle>
+            <DialogDescription>{t('broadcastPage.edit.description')}</DialogDescription>
+          </DialogHeader>
+          {editId !== null && (
+            <EditBroadcastForm broadcastId={editId} onClose={() => setEditId(null)} />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -302,6 +324,24 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
   const [uploaded, setUploaded] = useState<UploadedMedia | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textRef = useRef<HTMLTextAreaElement>(null)
+
+  function insertAtCaret(emoji: string): void {
+    const el = textRef.current
+    if (!el) {
+      setText((prev) => prev + emoji)
+      return
+    }
+    const start = el.selectionStart ?? text.length
+    const end = el.selectionEnd ?? text.length
+    const next = text.slice(0, start) + emoji + text.slice(end)
+    setText(next)
+    requestAnimationFrame(() => {
+      el.focus()
+      const caret = start + emoji.length
+      el.setSelectionRange(caret, caret)
+    })
+  }
 
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -408,15 +448,21 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
 
       <div className="space-y-2">
         <Label htmlFor="broadcast-message-text">{t('broadcastPage.form.text')}</Label>
-        <Textarea
-          id="broadcast-message-text"
-          placeholder={t('broadcastPage.form.textPlaceholder')}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={5}
-          className="resize-none"
-          aria-invalid={!!formErrors.text}
-        />
+        <div className="relative">
+          <Textarea
+            id="broadcast-message-text"
+            ref={textRef}
+            placeholder={t('broadcastPage.form.textPlaceholder')}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={5}
+            className="resize-none pr-10"
+            aria-invalid={!!formErrors.text}
+          />
+          <div className="absolute right-1.5 top-1.5">
+            <EmojiPicker onSelect={insertAtCaret} ariaLabel={t('broadcastPage.emoji.trigger')} />
+          </div>
+        </div>
         <p className="text-xs text-muted-foreground">
           {t('broadcastPage.form.charCount', { count: text.length })}
         </p>
@@ -598,6 +644,103 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
 function FieldError({ message }: { readonly message?: string }) {
   if (!message) return null
   return <p className="text-xs font-medium text-destructive" role="alert">{message}</p>
+}
+
+// ── Edit form ───────────────────────────────────────────────────────────────
+
+interface BroadcastDetail {
+  readonly id: string
+  readonly payload: {
+    readonly text: string | null
+    readonly parseMode: 'HTML' | 'MarkdownV2' | null
+  }
+}
+
+function EditBroadcastForm({ broadcastId, onClose }: { broadcastId: string; onClose: () => void }) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const textRef = useRef<HTMLTextAreaElement>(null)
+  const [text, setText] = useState('')
+  const [loaded, setLoaded] = useState(false)
+
+  const { data, isLoading } = useQuery<BroadcastDetail>({
+    queryKey: adminQueryKeys.broadcast.detail(broadcastId),
+    queryFn: async ({ signal }) =>
+      (await api.get<BroadcastDetail>(`/admin/broadcast/${encodeURIComponent(broadcastId)}`, { signal })).data,
+  })
+
+  if (data && !loaded) {
+    setText(data.payload.text ?? '')
+    setLoaded(true)
+  }
+
+  function insertAtCaret(emoji: string): void {
+    const el = textRef.current
+    if (!el) {
+      setText((prev) => prev + emoji)
+      return
+    }
+    const start = el.selectionStart ?? text.length
+    const end = el.selectionEnd ?? text.length
+    setText(text.slice(0, start) + emoji + text.slice(end))
+    requestAnimationFrame(() => {
+      el.focus()
+      const caret = start + emoji.length
+      el.setSelectionRange(caret, caret)
+    })
+  }
+
+  const editMutation = useMutation({
+    mutationFn: () =>
+      api.post(`/admin/broadcast/${encodeURIComponent(broadcastId)}/edit`, {
+        text,
+        parseMode: data?.payload.parseMode ?? null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: adminQueryKeys.broadcast.all })
+      toast.success(t('broadcastPage.edit.saved'))
+      onClose()
+    },
+    onError: (err) => toast.error(getErrorMessage(err, t('broadcastPage.edit.saveFailed'))),
+  })
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="broadcast-edit-text">{t('broadcastPage.form.text')}</Label>
+        {isLoading ? (
+          <Skeleton className="h-28 w-full" />
+        ) : (
+          <div className="relative">
+            <Textarea
+              id="broadcast-edit-text"
+              ref={textRef}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={5}
+              className="resize-none pr-10"
+              placeholder={t('broadcastPage.form.textPlaceholder')}
+            />
+            <div className="absolute right-1.5 top-1.5">
+              <EmojiPicker onSelect={insertAtCaret} ariaLabel={t('broadcastPage.emoji.trigger')} />
+            </div>
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">{t('broadcastPage.edit.hint')}</p>
+      </div>
+      <div className="flex gap-3 justify-end">
+        <Button type="button" variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
+        <Button
+          type="button"
+          disabled={editMutation.isPending || isLoading || text.trim().length === 0}
+          onClick={() => editMutation.mutate()}
+        >
+          {editMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Pencil className="h-4 w-4 mr-2" />}
+          {t('broadcastPage.edit.save')}
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 function flattenHookFormErrors(errors: FieldErrors<BroadcastFormDraft>): Record<string, string> {

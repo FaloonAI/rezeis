@@ -1,14 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { useForm, type Resolver } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
 import { Save, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,12 +13,6 @@ import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
-import {
-  createInitialNotificationJsonSettingsDraft,
-  createNotificationJsonSettingsSchema,
-  type NotificationJsonSettingsData,
-  type NotificationJsonSettingsDraft,
-} from './notification-json-settings-schema'
 
 const ACCESS_MODES = ['PUBLIC', 'INVITED', 'PURCHASE_BLOCKED', 'REG_BLOCKED', 'RESTRICTED'] as const
 const CURRENCIES = ['RUB', 'USD', 'EUR', 'XTR', 'USDT', 'TON'] as const
@@ -57,6 +48,7 @@ interface AdminSettings {
   readonly brandingSettings?: BrandingSettings
   readonly platformBranding?: BrandingSettings
   readonly multiSubscriptionSettings?: MultiSubscriptionSettings
+  readonly botTokenConfigured?: boolean
 }
 
 export default function SettingsPage() {
@@ -75,19 +67,12 @@ export default function SettingsPage() {
         <p className="text-muted-foreground">{t('settingsPage.subtitle')}</p>
       </div>
 
-      <Tabs defaultValue="platform">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="platform">{t('settingsPage.tabs.platform')}</TabsTrigger>
-          <TabsTrigger value="branding">{t('settingsPage.tabs.branding')}</TabsTrigger>
-          <TabsTrigger value="multi-sub">{t('settingsPage.tabs.multiSub')}</TabsTrigger>
-          <TabsTrigger value="notifications">{t('settingsPage.tabs.notifications')}</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="platform"><PlatformTab settings={settings} /></TabsContent>
-        <TabsContent value="branding"><BrandingTab settings={settings} /></TabsContent>
-        <TabsContent value="multi-sub"><MultiSubTab settings={settings} /></TabsContent>
-        <TabsContent value="notifications"><NotificationsTab settings={settings} /></TabsContent>
-      </Tabs>
+      <div className="space-y-6">
+        <PlatformTab settings={settings} />
+        <BrandingTab settings={settings} />
+        <MultiSubTab settings={settings} />
+        <BotTokenSection settings={settings} />
+      </div>
     </div>
   )
 }
@@ -248,71 +233,64 @@ export function PlatformTab({ settings }: { settings: AdminSettings | undefined 
   )
 }
 
-export function NotificationsTab({ settings }: { settings: AdminSettings | undefined }) {
+export function BotTokenSection({ settings }: { settings: AdminSettings | undefined }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const notificationJsonSchema = useMemo(
-    () => createNotificationJsonSettingsSchema({ invalidJson: t('settingsPage.notifications.invalidJson') }),
-    [t],
-  )
-  const form = useForm<NotificationJsonSettingsDraft, unknown, NotificationJsonSettingsData>({
-    resolver: zodResolver(notificationJsonSchema) as Resolver<
-      NotificationJsonSettingsDraft,
-      unknown,
-      NotificationJsonSettingsData
-    >,
-    defaultValues: createInitialNotificationJsonSettingsDraft(settings),
-    mode: 'onSubmit',
-    reValidateMode: 'onBlur',
-  })
+  const configured = settings?.botTokenConfigured ?? false
+  const [botToken, setBotToken] = useState('')
 
   const mutation = useMutation({
-    mutationFn: (data: NotificationJsonSettingsData) =>
-      api.patch('/admin/settings/notifications', data),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] }); toast.success(t('settingsPage.notifications.saved')) },
-    onError: () => toast.error(t('settingsPage.notifications.saveFailed')),
+    mutationFn: (token: string) => api.patch('/admin/settings/platform', { botToken: token }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] })
+      setBotToken('')
+      toast.success(t('settingsPage.botToken.saved'))
+    },
+    onError: () => toast.error(t('settingsPage.botToken.saveFailed')),
   })
 
   return (
-    <Card className="mt-4">
+    <Card>
       <CardHeader>
-        <CardTitle>{t('settingsPage.notifications.title')}</CardTitle>
-        <CardDescription>{t('settingsPage.notifications.description')}</CardDescription>
+        <CardTitle>{t('settingsPage.botToken.title')}</CardTitle>
+        <CardDescription>{t('settingsPage.botToken.description')}</CardDescription>
       </CardHeader>
-      <CardContent>
-        <form className="space-y-4" onSubmit={form.handleSubmit((values) => mutation.mutate(values))}>
-          <div className="space-y-2">
-            <Label htmlFor="userNotificationsJson">{t('settingsPage.notifications.userNotifications')}</Label>
-            <textarea
-              id="userNotificationsJson"
-              className="w-full h-32 font-mono text-xs border rounded-md p-3 bg-muted/30"
-              aria-invalid={!!form.formState.errors.userNotificationsJson}
-              {...form.register('userNotificationsJson')}
-            />
-            <FieldError message={form.formState.errors.userNotificationsJson?.message} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="systemNotificationsJson">{t('settingsPage.notifications.systemNotifications')}</Label>
-            <textarea
-              id="systemNotificationsJson"
-              className="w-full h-32 font-mono text-xs border rounded-md p-3 bg-muted/30"
-              aria-invalid={!!form.formState.errors.systemNotificationsJson}
-              {...form.register('systemNotificationsJson')}
-            />
-            <FieldError message={form.formState.errors.systemNotificationsJson?.message} />
-          </div>
-          <Button type="submit" disabled={mutation.isPending}>
+      <CardContent className="space-y-4">
+        <div className="rounded-lg border p-3 text-sm">
+          {configured
+            ? t('settingsPage.botToken.statusConfigured')
+            : t('settingsPage.botToken.statusMissing')}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="settings-bot-token">{t('settingsPage.botToken.field')}</Label>
+          <Input
+            id="settings-bot-token"
+            type="password"
+            autoComplete="off"
+            value={botToken}
+            onChange={(e) => setBotToken(e.target.value)}
+            placeholder={t('settingsPage.botToken.placeholder')}
+          />
+          <p className="text-xs text-muted-foreground">{t('settingsPage.botToken.hint')}</p>
+        </div>
+        <div className="flex gap-2">
+          <Button onClick={() => mutation.mutate(botToken.trim())} disabled={mutation.isPending || botToken.trim().length === 0}>
             {mutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-            {t('settingsPage.notifications.saveButton')}
+            {t('settingsPage.botToken.saveButton')}
           </Button>
-        </form>
+          {configured && (
+            <Button
+              variant="outline"
+              onClick={() => mutation.mutate('')}
+              disabled={mutation.isPending}
+            >
+              {t('settingsPage.botToken.clearButton')}
+            </Button>
+          )}
+        </div>
       </CardContent>
     </Card>
   )
-}
-
-function FieldError({ message }: { readonly message?: string }) {
-  return message ? <p className="text-sm text-destructive">{message}</p> : null
 }
 
 

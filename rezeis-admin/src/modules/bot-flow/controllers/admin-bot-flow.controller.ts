@@ -217,6 +217,18 @@ export class AdminBotFlowController {
     return this.flowService.publish(id);
   }
 
+  @Get(':id/standard-blocks')
+  @ApiOperation({ summary: 'List the bot standard built-in blocks, annotated present/absent' })
+  public listStandardBlocks(@Param('id') id: string) {
+    return this.flowService.getStandardBlocks(id);
+  }
+
+  @Post(':id/standard-blocks')
+  @ApiOperation({ summary: 'Restore any missing standard built-in screens into the draft' })
+  public ensureStandardBlocks(@Param('id') id: string) {
+    return this.flowService.ensureStandardBlocks(id);
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a draft flow' })
   public deleteFlow(@Param('id') id: string) {

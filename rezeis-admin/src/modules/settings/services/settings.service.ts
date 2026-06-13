@@ -1,10 +1,12 @@
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
-import { Inject, Injectable, BadRequestException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { Inject, Injectable, BadRequestException, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma, Settings } from '@prisma/client';
 import { ConfigType } from '@nestjs/config';
 
+import { appConfig } from '../../../common/config/app.config';
 import { paymentsConfig } from '../../../common/config/payments.config';
+import { decryptTotpSecret, encryptTotpSecret } from '../../two-factor/utils/secret-cipher';
 import { ReiwaCacheInvalidatorService } from '../../bot-config/services/reiwa-cache-invalidator.service';
 import {
   PaymentOpsAlertSettingsInterface,
@@ -147,9 +149,13 @@ const DEFAULT_INTERNAL_PLATFORM_POLICY: InternalPlatformPolicyInterface = {
  */
 @Injectable()
 export class SettingsService {
+  private readonly logger = new Logger(SettingsService.name);
+
   public constructor(
     private readonly prismaService: PrismaService,
     private readonly iconUploadService: IconUploadService,
+    @Inject(appConfig.KEY)
+    private readonly applicationConfiguration: ConfigType<typeof appConfig>,
     @Optional()
     private readonly httpService?: HttpService,
     @Inject(paymentsConfig.KEY)
@@ -358,6 +364,24 @@ export class SettingsService {
             patch: input.updatePlatformSettingsDto.platformBranding,
           }) as Prisma.InputJsonValue;
         }
+        // Admin bot token is stored AES-256-GCM-encrypted inside the existing
+        // `systemNotifications` JSON column (no schema migration). An empty
+        // string clears it; a non-empty value is encrypted with the platform
+        // crypt key. The plaintext never leaves this method.
+        if (input.updatePlatformSettingsDto.botToken !== undefined) {
+          const nextSystemNotifications = readJsonObject(existingSettings.systemNotifications);
+          const rawToken = (input.updatePlatformSettingsDto.botToken ?? '').trim();
+          if (rawToken.length === 0) {
+            delete nextSystemNotifications.botTokenEnc;
+          } else {
+            const cryptKey = this.applicationConfiguration.cryptKey;
+            if (!cryptKey) {
+              throw new BadRequestException('REZEIS_CRYPT_KEY is required to store a bot token');
+            }
+            nextSystemNotifications.botTokenEnc = encryptTotpSecret(rawToken, cryptKey);
+          }
+          data.systemNotifications = nextSystemNotifications as Prisma.InputJsonValue;
+        }
         const updatedSettings: Settings = await transactionClient.settings.update({
           where: { id: existingSettings.id },
           data,
@@ -414,9 +438,11 @@ export class SettingsService {
     readonly platformBranding: PlatformBrandingInterface;
     readonly paymentOpsAlerts: PaymentOpsAlertSettingsInterface;
     readonly multiSubscriptionSettings: Record<string, unknown>;
+    readonly botTokenConfigured: boolean;
   }> {
     const settings = await this.getOrCreateSettingsRecord(this.prismaService);
     const platform = mapPlatformSettings(settings);
+    const systemNotifications = readJsonObject(settings.systemNotifications);
     return {
       // Flat platform fields — consumed directly by the settings SPA tabs.
       accessMode: platform.accessMode,
@@ -427,13 +453,40 @@ export class SettingsService {
       channelLink: platform.channelLink,
       channelId: platform.channelId,
       userNotifications: readJsonObject(settings.userNotifications),
-      systemNotifications: readJsonObject(settings.systemNotifications),
+      systemNotifications,
       platform,
       branding: readBrandingSettings(settings.brandingSettings),
       platformBranding: readPlatformBranding(settings.platformPolicy),
       paymentOpsAlerts: readPaymentOpsAlertSettings(settings.systemNotifications),
       multiSubscriptionSettings: readJsonObject(settings.multiSubscriptionSettings),
+      // Only a presence flag — the encrypted token is never sent to the SPA.
+      botTokenConfigured: typeof systemNotifications.botTokenEnc === 'string'
+        && systemNotifications.botTokenEnc.length > 0,
     };
+  }
+
+  /**
+   * Returns the decrypted admin bot token stored in settings, or null when no
+   * token is configured. Decryption failures are logged and treated as "no
+   * token" so callers can fall back to the environment variable. Consumed by
+   * the broadcast delivery service for direct media sends.
+   */
+  public async getDecryptedBotToken(): Promise<string | null> {
+    const settings = await this.getSettingsRecord(this.prismaService);
+    if (settings === null) return null;
+    const systemNotifications = readJsonObject(settings.systemNotifications);
+    const enc = systemNotifications.botTokenEnc;
+    if (typeof enc !== 'string' || enc.length === 0) return null;
+    const cryptKey = this.applicationConfiguration.cryptKey;
+    if (!cryptKey) return null;
+    try {
+      return decryptTotpSecret(enc, cryptKey);
+    } catch (err: unknown) {
+      this.logger.warn(
+        `Failed to decrypt stored bot token: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
   }
 
   /**
@@ -842,6 +895,11 @@ function buildSettingsUpdateChanges(
     // update transaction (see updatePlatformSettings). Here we only record it
     // for the audit field list.
     updatedFields.push('platformBranding');
+  }
+  if (hasOwnField(updatePlatformSettingsDto, 'botToken')) {
+    // Encrypted + merged into systemNotifications inside the transaction.
+    // Recorded here only so the no-op guard and audit log see the change.
+    updatedFields.push('botToken');
   }
   return {
     updatedFields,

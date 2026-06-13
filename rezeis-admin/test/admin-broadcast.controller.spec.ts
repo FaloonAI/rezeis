@@ -117,6 +117,9 @@ describe('AdminBroadcastController', () => {
         updateStatus: async (broadcastId: string, status: BroadcastStatus) => {
           calls.push(['status', broadcastId, status]);
         },
+        updateBroadcastContent: async (input: unknown) => {
+          calls.push(['updateContent', input]);
+        },
       } as never,
       {} as never,
       {
@@ -164,7 +167,7 @@ describe('AdminBroadcastController', () => {
     assert.deepStrictEqual(await controller.editBroadcast('completed-1', editDto, admin), {
       batches: 1,
       totalMessages: 2,
-      message: 'Edit enqueued',
+      message: 'Broadcast updated',
     });
     assert.deepStrictEqual(await controller.deleteBroadcastMessages('completed-1', admin), {
       batches: 1,
@@ -183,6 +186,7 @@ describe('AdminBroadcastController', () => {
       ['cancelQueue', 'processing-1'],
       ['status', 'processing-1', BroadcastStatus.CANCELED],
       ['get', 'completed-1'],
+      ['updateContent', { broadcastId: 'completed-1', text: 'Updated text', parseMode: 'HTML' }],
       ['sentIds', 'completed-1'],
       [
         'enqueueEdit',

@@ -247,22 +247,23 @@ export default function BotFlowPage() {
     },
   })
 
-  const refreshBotMutation = useMutation({
-    mutationFn: async (): Promise<{ ok: boolean }> => {
-      const { data } = await api.post<{ ok: boolean }>(
-        '/admin/bot-config/refresh-bot',
+  const fetchBlocksMutation = useMutation({
+    mutationFn: async (): Promise<{ added: number }> => {
+      const { data } = await api.post<{ added: number }>(
+        `/admin/bot-flows/${flow?.id}/standard-blocks`,
       )
       return data
     },
     onSuccess: (data) => {
-      if (data.ok) {
-        toast.success(t('botStudio.toolbar.refreshBotSuccess'))
+      queryClient.invalidateQueries({ queryKey: ['bot-flow'] })
+      if (data.added > 0) {
+        toast.success(t('botStudio.toolbar.fetchBlocksAdded', { count: data.added }))
       } else {
-        toast.error(t('botStudio.toolbar.refreshBotUnreachable'))
+        toast.success(t('botStudio.toolbar.fetchBlocksNone'))
       }
     },
     onError: () => {
-      toast.error(t('botStudio.toolbar.refreshBotError'))
+      toast.error(t('botStudio.toolbar.fetchBlocksError'))
     },
   })
 
@@ -437,18 +438,18 @@ export default function BotFlowPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => refreshBotMutation.mutate()}
-            disabled={refreshBotMutation.isPending}
-            title={t('botStudio.toolbar.refreshBotHint')}
-            aria-label={t('botStudio.toolbar.refreshBotAria')}
+            onClick={() => fetchBlocksMutation.mutate()}
+            disabled={fetchBlocksMutation.isPending || !flow}
+            title={t('botStudio.toolbar.fetchBlocksHint')}
+            aria-label={t('botStudio.toolbar.fetchBlocksAria')}
           >
             <RefreshCw
               className={`mr-1.5 h-3.5 w-3.5 ${
-                refreshBotMutation.isPending ? 'animate-spin' : ''
+                fetchBlocksMutation.isPending ? 'animate-spin' : ''
               }`}
               aria-hidden
             />
-            {t('botStudio.toolbar.refreshBot')}
+            {t('botStudio.toolbar.fetchBlocks')}
           </Button>
           <Button variant="outline" size="sm" onClick={() => setEmojisOpen(true)}>
             <Smile className="mr-1.5 h-3.5 w-3.5" aria-hidden />

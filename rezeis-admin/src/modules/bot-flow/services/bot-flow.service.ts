@@ -7,6 +7,47 @@ type FlowWithScreens = Prisma.BotFlowGetPayload<{
   include: { screens: { include: { buttons: true } } };
 }>;
 
+/**
+ * The bot's standard built-in screens. Single source of truth shared by the
+ * first-open seed and the "Fetch all blocks" restore action. `shortId`s are
+ * the stable keys the bot's callback handlers (help / rules / invite) resolve.
+ */
+const STANDARD_SCREEN_SEEDS: ReadonlyArray<{
+  readonly shortId: string;
+  readonly name: string;
+  readonly textRu: string;
+  readonly textEn: string;
+  readonly positionX: number;
+  readonly positionY: number;
+}> = [
+  {
+    shortId: 'sc_help',
+    name: 'help',
+    textRu: '🆘 Поддержка\n\nНажмите кнопку ниже — мы ответим в личных сообщениях.',
+    textEn: '🆘 Support\n\nTap the button below — we reply in DMs.',
+    positionX: 480,
+    positionY: 60,
+  },
+  {
+    shortId: 'sc_rules',
+    name: 'rules',
+    textRu: '📜 Правила сервиса\n\nНажмите кнопку ниже чтобы открыть полный текст. Если что-то не понятно — напишите в поддержку.',
+    textEn: '📜 Service rules\n\nTap the button below to open the full text. If anything is unclear, message support.',
+    positionX: 480,
+    positionY: 280,
+  },
+  {
+    shortId: 'sc_invite',
+    name: 'invite',
+    textRu:
+      '🔗 Реферальная программа\n\nПоделитесь ссылкой с друзьями — за каждого, кто оформит подписку, вы получите бонус.\n\nВаша ссылка:\n{{link}}',
+    textEn:
+      '🔗 Referral program\n\nShare this link with your friends — for every one who subscribes, you earn a bonus.\n\nYour link:\n{{link}}',
+    positionX: 480,
+    positionY: 500,
+  },
+];
+
 @Injectable()
 export class BotFlowService {
   public constructor(private readonly prisma: PrismaService) {}
@@ -153,42 +194,7 @@ export class BotFlowService {
    * variables rendered when they don't customise.
    */
   private async seedDefaultScreens(flowId: string): Promise<void> {
-    const seeds: ReadonlyArray<{
-      readonly shortId: string;
-      readonly name: string;
-      readonly textRu: string;
-      readonly textEn: string;
-      readonly positionX: number;
-      readonly positionY: number;
-    }> = [
-      {
-        shortId: 'sc_help',
-        name: 'help',
-        textRu: '🆘 Поддержка\n\nНажмите кнопку ниже — мы ответим в личных сообщениях.',
-        textEn: '🆘 Support\n\nTap the button below — we reply in DMs.',
-        positionX: 480,
-        positionY: 60,
-      },
-      {
-        shortId: 'sc_rules',
-        name: 'rules',
-        textRu: '📜 Правила сервиса\n\nНажмите кнопку ниже чтобы открыть полный текст. Если что-то не понятно — напишите в поддержку.',
-        textEn: '📜 Service rules\n\nTap the button below to open the full text. If anything is unclear, message support.',
-        positionX: 480,
-        positionY: 280,
-      },
-      {
-        shortId: 'sc_invite',
-        name: 'invite',
-        textRu:
-          '🔗 Реферальная программа\n\nПоделитесь ссылкой с друзьями — за каждого, кто оформит подписку, вы получите бонус.\n\nВаша ссылка:\n{{link}}',
-        textEn:
-          '🔗 Referral program\n\nShare this link with your friends — for every one who subscribes, you earn a bonus.\n\nYour link:\n{{link}}',
-        positionX: 480,
-        positionY: 500,
-      },
-    ];
-    for (const seed of seeds) {
+    for (const seed of STANDARD_SCREEN_SEEDS) {
       try {
         await this.prisma.botFlowScreen.create({
           data: {
@@ -255,6 +261,63 @@ export class BotFlowService {
     return flow;
   }
 
+  /**
+   * The bot's standard built-in blocks (help / rules / invite) annotated with
+   * whether each already exists as a screen in the given flow. Powers the
+   * "Fetch all blocks" dialog so the operator can see and restore any standard
+   * screen they removed. These blocks are defined here (rezeis owns the bot's
+   * built-in screen contract); the Telegram bot token cannot enumerate them.
+   */
+  public async getStandardBlocks(
+    flowId: string,
+  ): Promise<ReadonlyArray<{ key: string; name: string; present: boolean }>> {
+    const flow = await this.getById(flowId);
+    const present = new Set(flow.screens.map((s) => s.shortId));
+    return STANDARD_SCREEN_SEEDS.map((seed) => ({
+      key: seed.shortId,
+      name: seed.name,
+      present: present.has(seed.shortId),
+    }));
+  }
+
+  /**
+   * Ensure all standard built-in screens exist in the draft flow. Creates only
+   * the missing ones (matched by `shortId`); never overwrites an operator-edited
+   * screen. Returns the number of screens newly created.
+   */
+  public async ensureStandardBlocks(flowId: string): Promise<{ added: number }> {
+    const flow = await this.prisma.botFlow.findUnique({
+      where: { id: flowId },
+      include: { screens: { select: { shortId: true } } },
+    });
+    if (!flow) throw new NotFoundException('Flow not found');
+    if (flow.status !== BotFlowStatus.DRAFT) {
+      throw new BadRequestException('Can only edit draft flows');
+    }
+    const present = new Set(flow.screens.map((s) => s.shortId));
+    let added = 0;
+    for (const seed of STANDARD_SCREEN_SEEDS) {
+      if (present.has(seed.shortId)) continue;
+      try {
+        await this.prisma.botFlowScreen.create({
+          data: {
+            flowId,
+            shortId: seed.shortId,
+            name: seed.name,
+            textRu: seed.textRu,
+            textEn: seed.textEn,
+            positionX: seed.positionX,
+            positionY: seed.positionY,
+          },
+        });
+        added += 1;
+      } catch {
+        // Race on (flowId, shortId) unique constraint → another writer added it.
+      }
+    }
+    return { added };
+  }
+
   /** Save layout data (viewport, positions are on screens). */
   public async saveLayout(id: string, layoutData: unknown): Promise<BotFlow> {
     const flow = await this.prisma.botFlow.findUnique({ where: { id } });
@@ -276,12 +339,15 @@ export class BotFlowService {
       throw new BadRequestException('Only draft flows can be published');
     }
 
-    // Validate: must have at least one root screen
-    const rootCount = await this.prisma.botFlowScreen.count({
-      where: { flowId: id, isRoot: true },
+    // Validate: must have at least one screen. (We intentionally do NOT
+    // require an `isRoot` screen — the bot resolves screens by shortId via
+    // callbacks / by name for built-in overrides, so `isRoot` is advisory
+    // only and must not block publishing a flow of sub-screens.)
+    const screenCount = await this.prisma.botFlowScreen.count({
+      where: { flowId: id },
     });
-    if (rootCount === 0) {
-      throw new BadRequestException('Flow must have at least one root (start) screen');
+    if (screenCount === 0) {
+      throw new BadRequestException('Flow must have at least one screen');
     }
 
     // Archive previous published version of the same flow name

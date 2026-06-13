@@ -56,14 +56,15 @@ export class BotNotifierClient {
     readonly text: string;
     readonly parseMode?: 'MarkdownV2' | 'HTML';
     readonly buttons?: ReadonlyArray<NotifyButton>;
-  }): Promise<void> {
-    await this.deliver('reiwa.user.notify', {
+  }): Promise<number | null> {
+    const { messageId } = await this.deliver('reiwa.user.notify', {
       eventId: input.eventId,
       telegramId: input.telegramId,
       text: input.text,
       parseMode: input.parseMode,
       buttons: input.buttons,
     });
+    return messageId;
   }
 
   /**
@@ -88,8 +89,11 @@ export class BotNotifierClient {
     });
   }
 
-  private async deliver(event: string, metadata: Record<string, unknown>): Promise<void> {
-    if (this.endpoint === null || this.secret === null) return;
+  private async deliver(
+    event: string,
+    metadata: Record<string, unknown>,
+  ): Promise<{ messageId: number | null }> {
+    if (this.endpoint === null || this.secret === null) return { messageId: null };
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), BotNotifierClient.TIMEOUT_MS);
     try {
@@ -116,11 +120,20 @@ export class BotNotifierClient {
         this.logger.warn(
           `Bot notify ${event} returned ${response.status} ${response.statusText}`,
         );
+        return { messageId: null };
       }
+      if (response.status === 204) return { messageId: null };
+      const json = (await response.json().catch(() => null)) as
+        | { messageId?: unknown }
+        | null;
+      const messageId =
+        json !== null && typeof json.messageId === 'number' ? json.messageId : null;
+      return { messageId };
     } catch (err: unknown) {
       this.logger.warn(
         `Bot notify ${event} threw: ${err instanceof Error ? err.message : String(err)}`,
       );
+      return { messageId: null };
     } finally {
       clearTimeout(timeout);
     }

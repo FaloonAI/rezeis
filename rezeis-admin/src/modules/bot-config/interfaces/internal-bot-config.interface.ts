@@ -92,12 +92,26 @@ export interface InternalBotConfigFeaturesInterface {
 }
 
 /**
- * Map of `EMOJI_KEY → custom_emoji_id` used by reiwa to inject premium
- * emoji into bot copy as `MessageEntity[]`. Operators manage these via
- * `admin/bot-config/emojis`. When an emoji has no `tgEmojiId` it is
- * omitted from this map (reiwa falls back to the unicode glyph).
+ * Per-key emoji entry consumed by reiwa: the unicode glyph (always rendered)
+ * plus the optional Telegram Premium `custom_emoji_id` overlaid on top of it
+ * as a `MessageEntity`. Mirrors reiwa's `BotEmojiEntry` shape exactly — reiwa
+ * reads `botEmojis[key].unicode` / `.tgEmojiId`, so the payload MUST send
+ * objects (not bare id strings) for operator overrides + premium to apply.
  */
-export type InternalBotEmojiMap = Readonly<Record<string, string>>;
+export interface InternalBotEmojiEntry {
+  readonly unicode: string;
+  readonly tgEmojiId: string | null;
+}
+
+/**
+ * Map of `EMOJI_KEY → { unicode, tgEmojiId }` used by reiwa to render bot copy
+ * and inject premium custom-emoji entities. Operators manage these via
+ * `admin/bot-config/emojis`.
+ */
+export type InternalBotEmojiMap = Readonly<Record<string, InternalBotEmojiEntry>>;
+
+/** Flat `EMOJI_KEY → custom_emoji_id` map (premium ids only). */
+export type InternalCustomEmojiIdMap = Readonly<Record<string, string>>;
 
 /**
  * Map of `text_key → translated_value` for arbitrary copy strings. Reiwa
@@ -166,7 +180,7 @@ export interface InternalBotConfigInterface {
    * separate so we can diverge if the operator marks emojis as
    * "button-only" / "text-only" in a future bot-config UI revision.
    */
-  readonly menuTextCustomEmojiIds: InternalBotEmojiMap;
+  readonly menuTextCustomEmojiIds: InternalCustomEmojiIdMap;
   readonly translations: InternalBotTextMap;
   /**
    * Operator-managed dynamic screens. Empty when no flow is

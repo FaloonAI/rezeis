@@ -3,7 +3,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
 import { AuthModule } from '../auth/auth.module';
+import { CustomEmojiModule } from '../custom-emoji/custom-emoji.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { SettingsModule } from '../settings/settings.module';
 import { BROADCAST_DELIVERY_QUEUE } from './broadcast.constants';
 import { BroadcastProcessor } from './broadcast.processor';
 import { AdminBroadcastController } from './controllers/admin-broadcast.controller';
@@ -17,6 +19,8 @@ import { BroadcastService } from './services/broadcast.service';
     AuthModule,
     ConfigModule,
     NotificationsModule,
+    SettingsModule,
+    CustomEmojiModule,
     BullModule.registerQueue({ name: BROADCAST_DELIVERY_QUEUE }),
   ],
   controllers: [AdminBroadcastController],

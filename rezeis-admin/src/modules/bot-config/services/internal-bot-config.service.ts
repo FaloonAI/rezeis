@@ -25,6 +25,7 @@ import {
   InternalBotConfigScreenInterface,
   InternalBotConfigVisualInterface,
   InternalBotEmojiMap,
+  InternalCustomEmojiIdMap,
   InternalBotTextMap,
 } from '../interfaces/internal-bot-config.interface';
 import { BotButtonsService } from './bot-buttons.service';
@@ -101,7 +102,7 @@ export class InternalBotConfigService implements OnApplicationBootstrap {
       this.botFlowService.getActive(DEFAULT_FLOW_NAME),
     ]);
 
-    const emojiMap = mapEmojiCustomIds(emojis);
+    const emojiMap = withDefaultPremiumIds(mapEmojiEntries(emojis));
     const textMap = mapTexts(texts);
 
     return {
@@ -116,7 +117,7 @@ export class InternalBotConfigService implements OnApplicationBootstrap {
       },
       features: DEFAULT_FEATURES,
       botEmojis: emojiMap,
-      menuTextCustomEmojiIds: emojiMap,
+      menuTextCustomEmojiIds: toCustomEmojiIdMap(emojiMap),
       translations: textMap,
       screens: mapFlowScreens(activeFlow),
       screensVersion: activeFlow
@@ -423,14 +424,52 @@ function mapButtonStyle(
   }
 }
 
-function mapEmojiCustomIds(emojis: readonly BotEmoji[]): InternalBotEmojiMap {
-  const map: Record<string, string> = {};
+function mapEmojiEntries(emojis: readonly BotEmoji[]): InternalBotEmojiMap {
+  const map: Record<string, { unicode: string; tgEmojiId: string | null }> = {};
   for (const emoji of emojis) {
-    if (emoji.tgEmojiId !== null && emoji.tgEmojiId.length > 0) {
-      map[emoji.key] = emoji.tgEmojiId;
-    }
+    map[emoji.key] = {
+      unicode: emoji.unicode ?? '',
+      tgEmojiId: emoji.tgEmojiId !== null && emoji.tgEmojiId.length > 0 ? emoji.tgEmojiId : null,
+    };
   }
   return map;
+}
+
+/**
+ * Canonical default premium custom-emoji ids by semantic key, derived from
+ * {@link DEFAULT_EMOJIS}. reiwa no longer bakes these in (single source =
+ * rezeis), so we merge them into the payload here: an operator-configured
+ * `tgEmojiId` always wins, and keys the operator never set (or cleared on an
+ * instance whose `BotEmoji` rows predate the tgEmojiId defaults) still get the
+ * sensible premium glyph instead of degrading to plain unicode.
+ */
+function withDefaultPremiumIds(map: InternalBotEmojiMap): InternalBotEmojiMap {
+  const merged: Record<string, { unicode: string; tgEmojiId: string | null }> = {};
+  for (const [key, entry] of Object.entries(map)) {
+    merged[key] = { unicode: entry.unicode, tgEmojiId: entry.tgEmojiId };
+  }
+  for (const seed of DEFAULT_EMOJIS) {
+    if (!seed.tgEmojiId) continue;
+    const existing = merged[seed.key];
+    if (existing === undefined) {
+      merged[seed.key] = { unicode: seed.unicode, tgEmojiId: seed.tgEmojiId };
+    } else if (existing.tgEmojiId === null) {
+      merged[seed.key] = {
+        unicode: existing.unicode.length > 0 ? existing.unicode : seed.unicode,
+        tgEmojiId: seed.tgEmojiId,
+      };
+    }
+  }
+  return merged;
+}
+
+/** Flatten the emoji map to a `key → custom_emoji_id` map (premium ids only). */
+function toCustomEmojiIdMap(map: InternalBotEmojiMap): InternalCustomEmojiIdMap {
+  const out: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(map)) {
+    if (entry.tgEmojiId !== null && entry.tgEmojiId.length > 0) out[key] = entry.tgEmojiId;
+  }
+  return out;
 }
 
 function mapTexts(texts: readonly BotText[]): InternalBotTextMap {
@@ -505,12 +544,11 @@ interface DefaultEmojiSeed {
 /**
  * Canonical reiwa-side emoji slots surfaced to the admin "Эмодзи" editor.
  *
- * Kept in lockstep with reiwa's `DEFAULT_PREMIUM_IDS` (mini-profile icons —
- * 👤 📱 📈 📅) and `DEFAULT_UNICODE` (status / traffic activity glyphs).
- * Operators tweak unicode and `tgEmojiId` per row in the admin UI; reiwa
- * falls back to its baked-in defaults for any key the operator hasn't
- * configured. The seed is additive — once a row exists the operator's
- * value wins forever.
+ * This is now the SINGLE source of truth for the bot's semantic premium
+ * emoji (mini-profile icons 👤 📱 📈 📅) and status / traffic unicode glyphs —
+ * reiwa no longer carries any baked-in ids. The seed is additive (each row is
+ * inserted only when its key is missing), so operator edits win forever and a
+ * cleared `tgEmojiId` correctly degrades the bot to the unicode glyph.
  */
 const DEFAULT_EMOJIS: readonly DefaultEmojiSeed[] = [
   // Mini-profile (greeting summary)
@@ -594,6 +632,31 @@ const DEFAULT_TEXTS: readonly DefaultTextSeed[] = [
     value: '❌ Вы ещё не подписаны на канал. Подпишитесь и попробуйте снова.',
   },
   { key: 'channel.verified', value: '✅ Подписка подтверждена!' },
+  // Referral / Partner hub (bot "Пригласить" button). Editable so operators
+  // can localize / rebrand the program copy without a redeploy.
+  { key: 'referral.hub.title', value: '🔗 Реферальная программа' },
+  {
+    key: 'referral.hub.description',
+    value:
+      'Приглашайте друзей по своей ссылке — за каждого, кто оформит подписку, вы получаете баллы. Баллы можно обменять в кабинете.',
+  },
+  { key: 'referral.hub.stat_invited', value: '👥 Приглашено: {{count}}' },
+  { key: 'referral.hub.stat_qualified', value: '✅ Оформили подписку: {{count}}' },
+  { key: 'referral.hub.stat_pending', value: '⏳ В ожидании: {{count}}' },
+  { key: 'referral.hub.stat_points', value: '⭐ Баллов: {{count}}' },
+  { key: 'referral.hub.link_label', value: '🔗 Ваша реферальная ссылка:' },
+  { key: 'referral.hub.open_cabinet', value: '👤 Профиль в кабинете' },
+  { key: 'referral.hub.open_exchange', value: '💱 Обменять баллы' },
+  { key: 'partner.hub.title', value: '🤝 Партнёрская программа' },
+  {
+    key: 'partner.hub.description',
+    value:
+      'Вы участник партнёрской программы. Получайте вознаграждение за приглашённых пользователей. Вывод средств — в кабинете.',
+  },
+  { key: 'partner.hub.stat_balance', value: '💰 Баланс: {{amount}}' },
+  { key: 'partner.hub.stat_earned', value: '📈 Всего заработано: {{amount}}' },
+  { key: 'partner.hub.stat_referred', value: '👥 Рефералов: {{count}}' },
+  { key: 'partner.hub.open_cabinet', value: '🤝 Партнёрский кабинет' },
 ];
 
 type FlowWithScreens = BotFlow & {

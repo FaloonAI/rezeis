@@ -153,4 +153,14 @@ export class PlatformBrandingDto {
   @ValidateNested()
   @Type(() => PlatformBrandingDto)
   public platformBranding?: PlatformBrandingDto;
+
+  /**
+   * Admin bot token used for direct media broadcast delivery. Stored
+   * AES-256-GCM-encrypted; an empty string clears it. Never echoed back.
+   */
+  @IsOptional()
+  @ValidateIf((_object: object, value: unknown): boolean => value !== null)
+  @IsString()
+  @MaxLength(256)
+  public botToken?: string | null;
 }

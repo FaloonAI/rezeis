@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import {
   Broadcast,
   BroadcastAudience,
@@ -94,6 +94,92 @@ export class BroadcastService {
       where: { id: broadcastId },
       data: { status },
     });
+  }
+
+  /**
+   * Permanently delete a broadcast and all of its message rows. A broadcast
+   * that is currently PROCESSING cannot be deleted (cancel it first) to avoid
+   * orphaning in-flight delivery jobs.
+   */
+  public async deleteBroadcast(broadcastId: string): Promise<void> {
+    const broadcast = await this.prismaService.broadcast.findUnique({
+      where: { id: broadcastId },
+      select: { id: true, status: true },
+    });
+    if (broadcast === null) {
+      throw new NotFoundException('Broadcast not found');
+    }
+    if (broadcast.status === BroadcastStatus.PROCESSING) {
+      throw new BadRequestException(
+        'Cannot delete a broadcast while it is processing — cancel it first',
+      );
+    }
+    await this.prismaService.$transaction(async (tx) => {
+      // Cabinet-feed events created by the fanout are keyed by broadcastId in
+      // their JSON payload — drop them too, otherwise a deleted broadcast keeps
+      // hanging in the user's notification feed.
+      await tx.userNotificationEvent.deleteMany({
+        where: {
+          type: 'broadcast',
+          payload: { path: ['broadcastId'], equals: broadcastId },
+        },
+      });
+      await tx.broadcastMessage.deleteMany({ where: { broadcastId } });
+      await tx.broadcast.delete({ where: { id: broadcastId } });
+    });
+  }
+
+  /**
+   * Update the text/parse-mode of a broadcast that has already been sent.
+   * Besides updating the stored broadcast payload, this rewrites the
+   * cabinet-feed notification events created for this broadcast so web/Telegram
+   * users see the corrected text in their in-app feed. (Telegram message edits
+   * are handled separately by the delivery worker via `enqueueEdit`.)
+   */
+  public async updateBroadcastContent(input: {
+    readonly broadcastId: string;
+    readonly text: string;
+    readonly parseMode: 'HTML' | 'MarkdownV2' | null;
+  }): Promise<void> {
+    const broadcast = await this.prismaService.broadcast.findUnique({
+      where: { id: input.broadcastId },
+      select: { id: true, payload: true },
+    });
+    if (broadcast === null) {
+      throw new NotFoundException('Broadcast not found');
+    }
+
+    await this.prismaService.broadcast.update({
+      where: { id: input.broadcastId },
+      data: {
+        payload: mergePayload(broadcast.payload, {
+          text: input.text,
+          parseMode: input.parseMode,
+        }),
+      },
+    });
+
+    // Rewrite the cabinet-feed events created by the fanout for this broadcast.
+    const events = await this.prismaService.userNotificationEvent.findMany({
+      where: {
+        type: 'broadcast',
+        payload: { path: ['broadcastId'], equals: input.broadcastId },
+      },
+      select: { id: true, payload: true },
+    });
+    for (const event of events) {
+      const base =
+        event.payload !== null &&
+        typeof event.payload === 'object' &&
+        !Array.isArray(event.payload)
+          ? { ...(event.payload as Record<string, unknown>) }
+          : {};
+      base.text = input.text;
+      await this.prismaService.userNotificationEvent.update({
+        where: { id: event.id },
+        data: { payload: base as Prisma.InputJsonObject },
+      });
+    }
   }
 
   public async previewAudience(

@@ -1,10 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { BroadcastMessageStatus, BroadcastStatus, Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { SystemEventsService, EVENT_TYPES } from '../../../common/services/system-events.service';
 import { UserNotificationsService } from '../../notifications/services/user-notifications.service';
+import { BotNotifierClient } from '../../notifications/services/bot-notifier.client';
+import { SettingsService } from '../../settings/services/settings.service';
+import { CustomEmojiService } from '../../custom-emoji/services/custom-emoji.service';
 import { TELEGRAM_RATE_LIMIT_MS } from '../broadcast.constants';
 
 /**
@@ -23,6 +26,10 @@ export class BroadcastDeliveryService {
     private readonly configService: ConfigService,
     private readonly systemEventsService: SystemEventsService,
     private readonly userNotifications: UserNotificationsService,
+    private readonly settingsService: SettingsService,
+    private readonly botNotifier: BotNotifierClient,
+    @Optional()
+    private readonly customEmojiService?: CustomEmojiService,
   ) {}
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -99,8 +106,9 @@ export class BroadcastDeliveryService {
     // BOT_TOKEN is only needed for DIRECT media delivery (sendPhoto/sendVideo).
     // Text broadcasts are delivered via the reiwa bot (notification path), so a
     // missing token must NOT fail the whole batch — web-push + cabinet feed +
-    // text Telegram all still work.
-    const botToken = this.configService.get<string>('BOT_TOKEN') ?? null;
+    // text Telegram all still work. Prefer the panel-managed encrypted token,
+    // falling back to the env var.
+    const botToken = await this.getBotToken();
 
     const broadcast = await this.prismaService.broadcast.findUnique({
       where: { id: broadcastId },
@@ -131,6 +139,19 @@ export class BroadcastDeliveryService {
 
     const hasMedia = mediaFileId !== null && (mediaType === 'photo' || mediaType === 'video');
 
+    // Telegram-bound text. Custom-emoji `:slug:` shortcodes become Telegram
+    // premium custom-emoji via `<tg-emoji>` HTML tags when sent with parse_mode
+    // HTML (text broadcasts always are; media captions only when the operator
+    // chose HTML) — Telegram shows the fallback glyph for bots without the
+    // capability. Otherwise we fall back to the plain glyph. The cabinet feed
+    // keeps the raw `:slug:` text (rendered as inline images).
+    const useHtmlEmoji = hasMedia ? parseMode === 'HTML' : true;
+    const telegramText = this.customEmojiService
+      ? useHtmlEmoji
+        ? await this.customEmojiService.substituteTelegramHtml(text)
+        : await this.customEmojiService.substituteFallbacks(text)
+      : text;
+
     const messages = await this.prismaService.broadcastMessage.findMany({
       where: { id: { in: messageIds }, status: BroadcastMessageStatus.PENDING },
       select: { id: true, userId: true },
@@ -151,18 +172,19 @@ export class BroadcastDeliveryService {
       }
 
       // Deliver via the notification fanout: cabinet feed (always) + web-push
-      // (always) + Telegram. For TEXT broadcasts the fanout also sends the
-      // Telegram message through the reiwa bot (no rezeis-admin BOT_TOKEN
-      // needed). For MEDIA broadcasts we skip the fanout's Telegram and send
-      // the photo/video directly below (the notify path is text-only).
+      // (always). The fanout's Telegram leg is skipped here — for TEXT we send
+      // the Telegram message ourselves right below so we can capture the
+      // returned message id (needed for later edit/delete within Telegram's
+      // 48h window). For MEDIA we send the photo/video directly further down.
       let feedOk = false;
+      let eventId: string | null = null;
       try {
-        await this.userNotifications.create({
+        eventId = await this.userNotifications.create({
           userId: message.userId,
           type: 'broadcast',
           payload: { broadcastId, text },
-          preRenderedText: text || ' ',
-          skipTelegram: hasMedia,
+          preRenderedText: telegramText || ' ',
+          skipTelegram: true,
         });
         feedOk = true;
       } catch (err: unknown) {
@@ -177,11 +199,13 @@ export class BroadcastDeliveryService {
       let mediaOk = false;
       let mediaMessageId: number | undefined;
       let mediaError: string | null = null;
+      // Text Telegram message id captured from the reiwa bot fanout.
+      let textMessageId: number | null = null;
       if (hasMedia && user.telegramId !== null) {
         if (botToken) {
           const result = await this.sendTelegramMessage(botToken, {
             chatId: user.telegramId.toString(),
-            text,
+            text: telegramText,
             mediaType: mediaType ?? 'none',
             mediaFileId,
             parseMode,
@@ -193,9 +217,16 @@ export class BroadcastDeliveryService {
         } else {
           mediaError = 'BOT_TOKEN not configured for media delivery';
         }
-      } else if (!hasMedia && user.telegramId !== null) {
-        // Text Telegram is delivered async by the reiwa fanout; pace the loop
-        // lightly so we don't burst the notify webhook.
+      } else if (!hasMedia && user.telegramId !== null && eventId !== null) {
+        // Text Telegram via the reiwa bot. Reuse the cabinet event id as the
+        // notify idempotency key, and persist the returned message id so the
+        // broadcast can be edited/deleted in Telegram later.
+        textMessageId = await this.botNotifier.notifyUser({
+          eventId,
+          telegramId: user.telegramId.toString(),
+          text: telegramText || ' ',
+          parseMode: 'HTML',
+        });
         await sleep(TELEGRAM_RATE_LIMIT_MS);
       }
 
@@ -203,11 +234,17 @@ export class BroadcastDeliveryService {
       // guaranteed in-app surface (and, for text, carries web-push + Telegram);
       // or the direct media Telegram send succeeded.
       if (feedOk || mediaOk) {
+        const telegramMessageId =
+          mediaMessageId !== undefined
+            ? BigInt(mediaMessageId)
+            : textMessageId !== null
+              ? BigInt(textMessageId)
+              : null;
         await this.prismaService.broadcastMessage.update({
           where: { id: message.id },
           data: {
             status: BroadcastMessageStatus.SENT,
-            telegramMessageId: mediaMessageId ? BigInt(mediaMessageId) : null,
+            telegramMessageId,
             sentAt: new Date(),
           },
         });
@@ -236,9 +273,8 @@ export class BroadcastDeliveryService {
     newText: string,
     parseMode: string | null,
   ): Promise<{ edited: number; failed: number }> {
-    const botToken = this.getBotToken();
+    const botToken = await this.getBotToken();
     if (!botToken) return { edited: 0, failed: messageIds.length };
-
     // Determine if this is a media broadcast (use editMessageCaption)
     const broadcast = await this.prismaService.broadcast.findUnique({
       where: { id: broadcastId },
@@ -246,6 +282,15 @@ export class BroadcastDeliveryService {
     });
     const payload = broadcast?.payload as Record<string, unknown> | null;
     const isMedia = payload?.mediaType === 'photo' || payload?.mediaType === 'video';
+
+    // Telegram can't render our custom-emoji images — substitute `:slug:` just
+    // like the initial delivery: premium `<tg-emoji>` tags under parse_mode
+    // HTML, otherwise the plain fallback glyph.
+    const telegramText = this.customEmojiService
+      ? parseMode === 'HTML'
+        ? await this.customEmojiService.substituteTelegramHtml(newText)
+        : await this.customEmojiService.substituteFallbacks(newText)
+      : newText;
 
     const messages = await this.prismaService.broadcastMessage.findMany({
       where: { id: { in: messageIds }, broadcastId, status: 'SENT', telegramMessageId: { not: null } },
@@ -272,10 +317,10 @@ export class BroadcastDeliveryService {
         message_id: Number(message.telegramMessageId),
       };
       if (isMedia) {
-        body.caption = newText;
+        body.caption = telegramText;
         if (parseMode) body.parse_mode = parseMode;
       } else {
-        body.text = newText;
+        body.text = telegramText;
         if (parseMode) body.parse_mode = parseMode;
       }
 
@@ -337,7 +382,7 @@ export class BroadcastDeliveryService {
     broadcastId: string,
     messageIds: string[],
   ): Promise<{ deleted: number; failed: number }> {
-    const botToken = this.getBotToken();
+    const botToken = await this.getBotToken();
     if (!botToken) return { deleted: 0, failed: messageIds.length };
 
     const messages = await this.prismaService.broadcastMessage.findMany({
@@ -478,13 +523,13 @@ export class BroadcastDeliveryService {
   //  PRIVATE HELPERS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  private getBotToken(): string | null {
-    const token = this.configService.get<string>('BOT_TOKEN');
-    if (!token) {
-      this.logger.error('BOT_TOKEN not configured');
-      return null;
-    }
-    return token;
+  private async getBotToken(): Promise<string | null> {
+    // Prefer the panel-managed (encrypted) token; fall back to the env var.
+    // Returns null silently — each caller decides how to handle a missing
+    // token (text broadcasts tolerate it; media/edit/delete report it).
+    const stored = await this.settingsService.getDecryptedBotToken();
+    if (stored) return stored;
+    return this.configService.get<string>('BOT_TOKEN') ?? null;
   }
 
   private async failBatch(messageIds: string[], reason: string): Promise<void> {
