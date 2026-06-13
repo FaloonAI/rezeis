@@ -1,4 +1,34 @@
-﻿# Rezeis Admin v0.9.5.1
+﻿# Rezeis Admin v0.9.5.2
+
+Релиз про установку и эксплуатацию: быстрый деплой в стиле Remnawave, единый
+reverse proxy и понятная сеть.
+
+### Установка / Docker
+- **Чистая установка готовым образом в `/opt/rezeis`** — без исходников.
+  Прод `docker-compose.yml` ссылается ТОЛЬКО на `image: ghcr.io/dizzzable/rezeis:latest`
+  (без `build:`), поэтому установка = два ``curl`` + ``docker compose up -d``,
+  обновление = ``docker compose pull && docker compose up -d``.
+- **Локальная сборка из исходников** вынесена в оверлей
+  ``docker-compose.build.yml`` (``docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build``).
+
+### Reverse proxy
+- **`deploy/proxies/caddy-combined`** — один Caddy для rezeis + reiwa на одном
+  VPS (``PANEL_DOMAIN → rezeis:8000``, ``APP_DOMAIN → reiwa:5000``), авто-TLS
+  Let's Encrypt. Закрывает кейс «нет прокси для обоих сервисов на одной машине».
+
+### Сеть
+- **`remnawave-network` задокументирована как общая внешняя шина** reiwa ↔ rezeis
+  (+ Remnawave, если рядом). Добавлен шаг ``docker network create remnawave-network``
+  и пояснение сценариев co-located / remote. Удалять сеть на одном VPS нельзя —
+  иначе reiwa теряет связь с rezeis.
+
+### Документация
+- README обоих проектов переписаны под установку в ``/opt`` (Remnawave-стиль),
+  актуализированы версия/бейджи (`0.9.5.2`).
+
+---
+
+# Rezeis Admin v0.9.5.1
 
 Патч-релиз с мелкими фиксами деплоя, конфигурации и документации поверх `0.9.5`.
 
