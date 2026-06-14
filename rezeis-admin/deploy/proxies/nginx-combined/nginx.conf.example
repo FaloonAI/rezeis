@@ -33,6 +33,10 @@ server {
     ssl_certificate     "/etc/nginx/ssl/fullchain.pem";
     ssl_certificate_key "/etc/nginx/ssl/privkey.key";
 
+    # Загрузки в админке (баннер бота до 8 МБ, импорт бэкапов). Дефолт 1 МБ
+    # вызывал 413 на загрузке баннера до того, как запрос доходил до rezeis.
+    client_max_body_size 16m;
+
     # Переменная → nginx резолвит rezeis по запросу (не падает на старте).
     set $rezeis_upstream rezeis:8000;
 

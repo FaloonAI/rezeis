@@ -16,6 +16,11 @@ server {
     listen [::]:443 ssl reuseport;
     http2 on;
 
+    # Загрузки в админке (баннер бота до 8 МБ, импорт бэкапов и т.п.). Дефолт
+    # nginx — 1 МБ, из-за чего загрузка баннера падала с 413 Request Entity
+    # Too Large ещё до того, как запрос доходил до приложения.
+    client_max_body_size 16m;
+
     # SSE — отключаем буферизацию и держим долгие соединения
     location ~ ^/api/(admin/events/|internal/user/[^/]+/realtime/) {
         proxy_http_version 1.1;

@@ -1,4 +1,15 @@
-﻿# Rezeis Admin v0.9.5.7
+﻿# Rezeis Admin v0.9.5.8
+
+Фикс загрузки баннера бота (413) в примерах reverse-proxy.
+
+### Reverse proxy / загрузки
+- **`client_max_body_size 16m`** добавлен в server-блоки админки во всех nginx/angie примерах (`deploy/proxies/nginx`, `nginx-combined`, `angie-combined`). Дефолт nginx — 1 МБ, из-за чего загрузка баннера бота (до 8 МБ) и импорт бэкапов падали с `413 Request Entity Too Large` ещё до того, как запрос доходил до приложения. Caddy/Traefik лимита по размеру тела по умолчанию не имеют — правка им не нужна.
+
+Применение на существующей установке: добавьте `client_max_body_size 16m;` в server-блок вашего nginx/angie и перезагрузите прокси (`docker exec rezeis-nginx nginx -s reload`).
+
+---
+
+# Rezeis Admin v0.9.5.7
 
 Онбординг web-кабинета: обязательная привязка логина/пароля и серверная часть пробного периода.
 
