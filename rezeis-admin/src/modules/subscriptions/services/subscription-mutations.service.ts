@@ -8,6 +8,7 @@ import { PlanAvailability, Prisma, SubscriptionStatus } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { readTrialSettings } from '../../plans/utils/trial-settings.util';
+import { ProfileSyncQueueService } from '../../profile-sync/profile-sync-queue.service';
 
 interface ToggleStatusInput {
   readonly subscriptionId: string;
@@ -36,7 +37,10 @@ interface GrantTrialInput {
 export class SubscriptionMutationsService {
   private readonly logger = new Logger(SubscriptionMutationsService.name);
 
-  public constructor(private readonly prismaService: PrismaService) {}
+  public constructor(
+    private readonly prismaService: PrismaService,
+    private readonly profileSyncQueueService: ProfileSyncQueueService,
+  ) {}
 
   /**
    * Toggles a subscription between ACTIVE and DISABLED. Donor parity:
@@ -179,20 +183,37 @@ export class SubscriptionMutationsService {
         update: { planId: input.planId, grantedAt: now },
       });
       // Enqueue profile sync job so the worker creates the Remnawave profile
-      await tx.profileSyncJob.create({
+      const syncJob = await tx.profileSyncJob.create({
         data: {
           subscriptionId: subscription.id,
           action: 'CREATE',
           status: 'PENDING',
           payload: { source: 'TRIAL_GRANT' },
         },
+        select: { id: true },
       });
-      return subscription;
+      return { subscription, syncJobId: syncJob.id };
     });
 
+    // Dispatch the sync job to BullMQ immediately so the Remnawave profile is
+    // provisioned within seconds — matching the paid-purchase path. Without
+    // this the row sat PENDING until the 5-minute `sweepAndRecover` cron, so a
+    // freshly-activated trial showed the raw subscription id (no profile name,
+    // traffic or devices) on the cabinet card until the sweep ran. Best-effort:
+    // the cron remains the backstop if the enqueue itself fails.
+    try {
+      await this.profileSyncQueueService.enqueue(result.syncJobId);
+    } catch (err: unknown) {
+      this.logger.warn(
+        `Trial profile-sync enqueue failed for subscription ${result.subscription.id} (cron will retry): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
     this.logger.log(
-      `Trial granted to user ${input.userId}: subscription ${result.id}, plan ${plan.name}, ${input.durationDays}d`,
+      `Trial granted to user ${input.userId}: subscription ${result.subscription.id}, plan ${plan.name}, ${input.durationDays}d`,
     );
-    return { subscriptionId: result.id };
+    return { subscriptionId: result.subscription.id };
   }
 }
