@@ -62,6 +62,14 @@ export interface InternalBotConfigButtonInterface {
 
 export interface InternalBotConfigVisualInterface {
   readonly welcomeMessage: string;
+  /**
+   * Optional English welcome message. Sourced from the
+   * `bot.welcome_message@en` sibling row (managed via the bot-text
+   * editor's "English version" toggle). `null` when the operator has not
+   * provided an EN greeting — reiwa then serves the base `welcomeMessage`
+   * to EN users.
+   */
+  readonly welcomeMessageEn: string | null;
   readonly botDescription: string;
   readonly supportUsername: string;
   readonly channelUsername: string;

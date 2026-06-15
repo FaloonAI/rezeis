@@ -198,7 +198,10 @@ function TextEditDialog({ text, open, onOpenChange }: TextEditDialogProps): JSX.
 
   const [value, setValue] = useState('')
   const [visible, setVisible] = useState(true)
+  const [enEnabled, setEnEnabled] = useState(false)
+  const [valueEn, setValueEn] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const enTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   function insertAtCaret(emoji: string): void {
     const el = textareaRef.current
@@ -217,11 +220,31 @@ function TextEditDialog({ text, open, onOpenChange }: TextEditDialogProps): JSX.
     })
   }
 
+  function insertAtCaretEn(emoji: string): void {
+    const el = enTextareaRef.current
+    if (!el) {
+      setValueEn((prev) => prev + emoji)
+      return
+    }
+    const start = el.selectionStart ?? valueEn.length
+    const end = el.selectionEnd ?? valueEn.length
+    const next = valueEn.slice(0, start) + emoji + valueEn.slice(end)
+    setValueEn(next)
+    requestAnimationFrame(() => {
+      el.focus()
+      const caret = start + emoji.length
+      el.setSelectionRange(caret, caret)
+    })
+  }
+
     /* eslint-disable react-hooks/set-state-in-effect */
     useEffect(() => {
     if (text !== null && open) {
       setValue(text.value)
       setVisible(text.visible)
+      const en = text.valueEn ?? ''
+      setValueEn(en)
+      setEnEnabled(en.length > 0)
     }
   }, [text, open])
     /* eslint-enable react-hooks/set-state-in-effect */
@@ -249,7 +272,10 @@ function TextEditDialog({ text, open, onOpenChange }: TextEditDialogProps): JSX.
 
   function submit(): void {
     if (text === null) return
-    updateMutation.mutate({ id: text.id, payload: { value, visible } })
+    updateMutation.mutate({
+      id: text.id,
+      payload: { value, visible, valueEn: enEnabled ? valueEn : null },
+    })
   }
 
   return (
@@ -284,6 +310,49 @@ function TextEditDialog({ text, open, onOpenChange }: TextEditDialogProps): JSX.
             <p className="text-xs text-muted-foreground">
               {value.length}/8000
             </p>
+          </div>
+
+          <div className="space-y-3 rounded-lg border p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="bc-text-en-toggle" className="font-medium">
+                  {t('botConfigPage.texts.fields.enToggle')}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('botConfigPage.texts.fields.enToggleHint')}
+                </p>
+              </div>
+              <Switch
+                id="bc-text-en-toggle"
+                checked={enEnabled}
+                onCheckedChange={setEnEnabled}
+              />
+            </div>
+            {enEnabled && (
+              <div className="space-y-1.5">
+                <Label htmlFor="bc-text-value-en">
+                  {t('botConfigPage.texts.fields.enValue')}
+                </Label>
+                <div className="relative">
+                  <Textarea
+                    id="bc-text-value-en"
+                    ref={enTextareaRef}
+                    value={valueEn}
+                    onChange={(e) => setValueEn(e.target.value)}
+                    maxLength={8000}
+                    rows={8}
+                    className="font-mono text-sm pr-10"
+                  />
+                  <div className="absolute right-1.5 top-1.5">
+                    <EmojiPicker
+                      onSelect={insertAtCaretEn}
+                      ariaLabel={t('broadcastPage.emoji.trigger')}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">{valueEn.length}/8000</p>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between rounded-lg border p-3">
@@ -334,7 +403,10 @@ function TextCreateDialog({ open, onOpenChange }: TextCreateDialogProps): JSX.El
   const [key, setKey] = useState('')
   const [value, setValue] = useState('')
   const [visible, setVisible] = useState(true)
+  const [enEnabled, setEnEnabled] = useState(false)
+  const [valueEn, setValueEn] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const enTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   function insertAtCaret(emoji: string): void {
     const el = textareaRef.current
@@ -353,12 +425,31 @@ function TextCreateDialog({ open, onOpenChange }: TextCreateDialogProps): JSX.El
     })
   }
 
+  function insertAtCaretEn(emoji: string): void {
+    const el = enTextareaRef.current
+    if (!el) {
+      setValueEn((prev) => prev + emoji)
+      return
+    }
+    const start = el.selectionStart ?? valueEn.length
+    const end = el.selectionEnd ?? valueEn.length
+    const next = valueEn.slice(0, start) + emoji + valueEn.slice(end)
+    setValueEn(next)
+    requestAnimationFrame(() => {
+      el.focus()
+      const caret = start + emoji.length
+      el.setSelectionRange(caret, caret)
+    })
+  }
+
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (open) {
       setKey('')
       setValue('')
       setVisible(true)
+      setEnEnabled(false)
+      setValueEn('')
     }
   }, [open])
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -374,7 +465,12 @@ function TextCreateDialog({ open, onOpenChange }: TextCreateDialogProps): JSX.El
   })
 
   function submit(): void {
-    createMutation.mutate({ key: key.trim(), value, visible })
+    createMutation.mutate({
+      key: key.trim(),
+      value,
+      visible,
+      valueEn: enEnabled ? valueEn : null,
+    })
   }
 
   const canSubmit =
@@ -422,6 +518,49 @@ function TextCreateDialog({ open, onOpenChange }: TextCreateDialogProps): JSX.El
               </div>
             </div>
             <p className="text-xs text-muted-foreground">{value.length}/8000</p>
+          </div>
+
+          <div className="space-y-3 rounded-lg border p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="bc-new-text-en-toggle" className="font-medium">
+                  {t('botConfigPage.texts.fields.enToggle')}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('botConfigPage.texts.fields.enToggleHint')}
+                </p>
+              </div>
+              <Switch
+                id="bc-new-text-en-toggle"
+                checked={enEnabled}
+                onCheckedChange={setEnEnabled}
+              />
+            </div>
+            {enEnabled && (
+              <div className="space-y-1.5">
+                <Label htmlFor="bc-new-text-value-en">
+                  {t('botConfigPage.texts.fields.enValue')}
+                </Label>
+                <div className="relative">
+                  <Textarea
+                    id="bc-new-text-value-en"
+                    ref={enTextareaRef}
+                    value={valueEn}
+                    onChange={(e) => setValueEn(e.target.value)}
+                    maxLength={8000}
+                    rows={8}
+                    className="font-mono text-sm pr-10"
+                  />
+                  <div className="absolute right-1.5 top-1.5">
+                    <EmojiPicker
+                      onSelect={insertAtCaretEn}
+                      ariaLabel={t('broadcastPage.emoji.trigger')}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">{valueEn.length}/8000</p>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between rounded-lg border p-3">

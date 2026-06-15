@@ -109,6 +109,7 @@ export class InternalBotConfigService implements OnApplicationBootstrap {
       buttons: buttons.map(mapButton),
       visual: {
         welcomeMessage: readWelcomeMessage(textMap),
+        welcomeMessageEn: readWelcomeMessageEn(textMap),
         botDescription: DEFAULT_VISUAL.botDescription,
         supportUsername: DEFAULT_VISUAL.supportUsername,
         channelUsername: DEFAULT_VISUAL.channelUsername,
@@ -261,6 +262,13 @@ export class InternalBotConfigService implements OnApplicationBootstrap {
 const BANNER_URL_KEY = 'bot.banner_url';
 const WELCOME_MESSAGE_KEY = 'bot.welcome_message';
 const SUBSCRIPTION_INFO_FORMAT_KEY = 'bot.subscription_info_format';
+
+/**
+ * Reserved suffix for the per-text English sibling row, mirrored from
+ * {@link BotTextsService}. `mapTexts` rewrites `<key>@en` rows into
+ * `<key>.en` translation entries.
+ */
+const EN_KEY_SUFFIX = '@en';
 
 type SubscriptionInfoFormat = InternalBotConfigVisualInterface['subscriptionInfoFormat'];
 
@@ -475,7 +483,16 @@ function toCustomEmojiIdMap(map: InternalBotEmojiMap): InternalCustomEmojiIdMap 
 function mapTexts(texts: readonly BotText[]): InternalBotTextMap {
   const map: Record<string, string> = {};
   for (const text of texts) {
-    map[text.key] = text.value;
+    if (text.key.endsWith(EN_KEY_SUFFIX)) {
+      // Project the English sibling `<key>@en` as `<key>.en` so reiwa's
+      // translator dispatches it into the EN pack via its existing
+      // `<i18n key>.<lang>` suffix convention — no reiwa resolver change
+      // needed, and already-deployed bots pick it up.
+      const baseKey = text.key.slice(0, -EN_KEY_SUFFIX.length);
+      map[`${baseKey}.en`] = text.value;
+    } else {
+      map[text.key] = text.value;
+    }
   }
   return map;
 }
@@ -501,6 +518,20 @@ function readWelcomeMessage(textMap: InternalBotTextMap): string {
 }
 
 /**
+ * Resolve the operator-managed English welcome message from the
+ * `bot.welcome_message@en` sibling (projected to `bot.welcome_message.en`
+ * by {@link mapTexts}). `null` when no EN override exists — reiwa then
+ * keeps serving the base (RU) greeting to EN users.
+ */
+function readWelcomeMessageEn(textMap: InternalBotTextMap): string | null {
+  const raw = textMap[`${WELCOME_MESSAGE_KEY}.en`];
+  if (typeof raw === 'string' && raw.trim().length > 0) {
+    return raw;
+  }
+  return null;
+}
+
+/**
  * Resolve the operator-managed `subscriptionInfoFormat`. Accepts
  * `full | compact | minimal` (case-insensitive); anything else falls
  * back to `full` so a typo doesn't break the greeting layout.
@@ -520,6 +551,7 @@ function readSubscriptionInfoFormat(
 
 const DEFAULT_VISUAL: Omit<InternalBotConfigVisualInterface, 'bannerUrl'> = {
   welcomeMessage: 'Привет, {{firstName}}! 👋\n\nДобро пожаловать в Rezeis VPN.',
+  welcomeMessageEn: null,
   botDescription: 'Быстрый и надёжный VPN',
   supportUsername: '',
   channelUsername: '',

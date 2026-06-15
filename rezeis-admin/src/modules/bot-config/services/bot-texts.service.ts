@@ -7,6 +7,11 @@ interface CreateTextInput {
   readonly key: string;
   readonly value: string;
   readonly visible?: boolean;
+  /**
+   * Optional English translation for this text. Persisted as a sibling
+   * `<key>@en` row (no migration). `null` / empty → no EN override.
+   */
+  readonly valueEn?: string | null;
 }
 
 interface UpdateTextInput {
@@ -14,9 +19,32 @@ interface UpdateTextInput {
   readonly key?: string;
   readonly value?: string;
   readonly visible?: boolean;
+  /**
+   * When provided, upserts (non-empty) or deletes (empty/null) the
+   * `<key>@en` sibling row. `undefined` leaves the EN sibling untouched.
+   */
+  readonly valueEn?: string | null;
 }
 
+/** A base bot text with its English sibling value attached (`null` when absent). */
+export type BotTextWithEn = BotText & { readonly valueEn: string | null };
+
 const TEXT_KEY_REGEX = /^[a-z0-9._-]+$/i;
+
+/**
+ * Reserved suffix for the per-text English sibling row. `@` is not a
+ * valid operator key character (see {@link TEXT_KEY_REGEX}), so operators
+ * can never create a base key ending in `@en` — the namespace stays clean
+ * and EN siblings are always managed through their base row's editor.
+ */
+const EN_KEY_SUFFIX = '@en';
+
+/** Trim an EN value; empty string → `null` (means "no EN override"). */
+function normalizeEnValue(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? value : null;
+}
 
 @Injectable()
 export class BotTextsService {
@@ -24,6 +52,24 @@ export class BotTextsService {
 
   public listAll(): Promise<BotText[]> {
     return this.prismaService.botText.findMany({ orderBy: { key: 'asc' } });
+  }
+
+  /**
+   * List for the admin table: excludes the `<key>@en` sibling rows
+   * (Req 3.3 — they are never standalone editable rows) and attaches
+   * each base row's English value as `valueEn` (`null` when absent).
+   */
+  public async listForAdmin(): Promise<BotTextWithEn[]> {
+    const rows = await this.prismaService.botText.findMany({ orderBy: { key: 'asc' } });
+    const enByBaseKey = new Map<string, string>();
+    for (const row of rows) {
+      if (row.key.endsWith(EN_KEY_SUFFIX)) {
+        enByBaseKey.set(row.key.slice(0, -EN_KEY_SUFFIX.length), row.value);
+      }
+    }
+    return rows
+      .filter((row) => !row.key.endsWith(EN_KEY_SUFFIX))
+      .map((row) => ({ ...row, valueEn: enByBaseKey.get(row.key) ?? null }));
   }
 
   public async create(input: CreateTextInput): Promise<BotText> {
@@ -34,12 +80,21 @@ export class BotTextsService {
     if (existing !== null) {
       throw new BadRequestException(`Text with key "${input.key}" already exists`);
     }
-    return this.prismaService.botText.create({
-      data: {
-        key: input.key,
-        value: input.value,
-        visible: input.visible ?? true,
-      },
+    const enValue = normalizeEnValue(input.valueEn);
+    return this.prismaService.$transaction(async (tx) => {
+      const base = await tx.botText.create({
+        data: {
+          key: input.key,
+          value: input.value,
+          visible: input.visible ?? true,
+        },
+      });
+      if (enValue !== null) {
+        await tx.botText.create({
+          data: { key: `${input.key}${EN_KEY_SUFFIX}`, value: enValue, visible: base.visible },
+        });
+      }
+      return base;
     });
   }
 
@@ -48,16 +103,39 @@ export class BotTextsService {
     if (existing === null) {
       throw new NotFoundException('Bot text not found');
     }
-    const data: Prisma.BotTextUpdateInput = {};
-    if (input.key !== undefined) {
-      if (!TEXT_KEY_REGEX.test(input.key)) {
-        throw new BadRequestException('key must be alphanumeric (._- allowed)');
-      }
-      data.key = input.key;
+    if (input.key !== undefined && !TEXT_KEY_REGEX.test(input.key)) {
+      throw new BadRequestException('key must be alphanumeric (._- allowed)');
     }
+    const baseKey = input.key ?? existing.key;
+    const data: Prisma.BotTextUpdateInput = {};
+    if (input.key !== undefined) data.key = input.key;
     if (input.value !== undefined) data.value = input.value;
     if (input.visible !== undefined) data.visible = input.visible;
-    return this.prismaService.botText.update({ where: { id: input.id }, data });
+
+    return this.prismaService.$transaction(async (tx) => {
+      const base = await tx.botText.update({ where: { id: input.id }, data });
+      // The EN sibling is touched only when `valueEn` is part of the payload
+      // (Req 1.3/1.4). The pair stays consistent because both writes share
+      // this transaction.
+      if (input.valueEn !== undefined) {
+        const oldEnKey = `${existing.key}${EN_KEY_SUFFIX}`;
+        const enKey = `${baseKey}${EN_KEY_SUFFIX}`;
+        if (oldEnKey !== enKey) {
+          await tx.botText.deleteMany({ where: { key: oldEnKey } });
+        }
+        const enValue = normalizeEnValue(input.valueEn);
+        if (enValue !== null) {
+          await tx.botText.upsert({
+            where: { key: enKey },
+            create: { key: enKey, value: enValue, visible: base.visible },
+            update: { value: enValue },
+          });
+        } else {
+          await tx.botText.deleteMany({ where: { key: enKey } });
+        }
+      }
+      return base;
+    });
   }
 
   /**
@@ -89,6 +167,10 @@ export class BotTextsService {
     if (existing === null) {
       throw new NotFoundException('Bot text not found');
     }
-    await this.prismaService.botText.delete({ where: { id } });
+    await this.prismaService.$transaction(async (tx) => {
+      await tx.botText.delete({ where: { id } });
+      // Drop the EN sibling alongside its base so deletes don't orphan it.
+      await tx.botText.deleteMany({ where: { key: `${existing.key}${EN_KEY_SUFFIX}` } });
+    });
   }
 }

@@ -8,6 +8,7 @@ import {
   IsString,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { BotButtonAction, BotButtonStyle } from '@prisma/client';
 
@@ -187,6 +188,12 @@ export class CreateBotTextDto {
   @IsOptional()
   @IsBoolean()
   public readonly visible?: boolean;
+
+  @IsOptional()
+  @ValidateIf((_o, value) => value !== null)
+  @IsString()
+  @MaxLength(8_000)
+  public readonly valueEn?: string | null;
 }
 
 export class UpdateBotTextDto {
@@ -203,4 +210,10 @@ export class UpdateBotTextDto {
   @IsOptional()
   @IsBoolean()
   public readonly visible?: boolean;
+
+  @IsOptional()
+  @ValidateIf((_o, value) => value !== null)
+  @IsString()
+  @MaxLength(8_000)
+  public readonly valueEn?: string | null;
 }

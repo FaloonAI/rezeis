@@ -160,7 +160,7 @@ export class AdminBotConfigController {
   @Get('texts')
   @ApiOperation({ summary: 'List all bot copy entries' })
   public listTexts() {
-    return this.botTextsService.listAll();
+    return this.botTextsService.listForAdmin();
   }
 
   @Post('texts')
@@ -171,6 +171,7 @@ export class AdminBotConfigController {
       key: body.key,
       value: body.value,
       visible: body.visible,
+      valueEn: body.valueEn,
     });
   }
 
@@ -183,6 +184,7 @@ export class AdminBotConfigController {
       key: body.key,
       value: body.value,
       visible: body.visible,
+      valueEn: body.valueEn,
     });
   }
 

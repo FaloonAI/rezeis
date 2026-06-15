@@ -3178,6 +3178,9 @@ export const en = {
         value: 'Value',
         visible: 'Use in bot',
         visibleHint: 'When off — reiwa falls back to the bundled translation default',
+        enToggle: 'English version',
+        enToggleHint: 'Add an English translation — users with English locale will see it. Paste the already-translated text.',
+        enValue: 'Value (EN)',
       },
       toasts: {
         created: 'Text created',

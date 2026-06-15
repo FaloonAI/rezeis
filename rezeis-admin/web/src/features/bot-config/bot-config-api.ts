@@ -100,6 +100,8 @@ export const botTextSchema = z.object({
   key: z.string(),
   value: z.string(),
   visible: z.boolean(),
+  /** English sibling value (`<key>@en` row); null when no EN override. */
+  valueEn: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })
@@ -109,6 +111,7 @@ export const createBotTextSchema = z.object({
   key: z.string().min(1).max(160).regex(/^[a-z0-9._-]+$/i, 'invalid format'),
   value: z.string().min(1).max(8_000),
   visible: z.boolean().optional(),
+  valueEn: z.string().max(8_000).nullable().optional(),
 })
 export type CreateBotTextPayload = z.infer<typeof createBotTextSchema>
 
@@ -116,6 +119,7 @@ export const updateBotTextSchema = z.object({
   key: z.string().min(1).max(160).regex(/^[a-z0-9._-]+$/i, 'invalid format').optional(),
   value: z.string().min(1).max(8_000).optional(),
   visible: z.boolean().optional(),
+  valueEn: z.string().max(8_000).nullable().optional(),
 })
 export type UpdateBotTextPayload = z.infer<typeof updateBotTextSchema>
 
