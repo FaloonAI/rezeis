@@ -3,6 +3,7 @@ import {
   ArchivedPlanRenewMode,
   Currency,
   PaymentGatewayType,
+  PlanAvailability,
   Prisma,
   PurchaseChannel,
   PurchaseType,
@@ -58,6 +59,10 @@ const TRIAL_UPGRADE_REQUIRED: SubscriptionQuoteWarningInterface = {
 const TRIAL_ALREADY_USED: SubscriptionQuoteWarningInterface = {
   code: 'TRIAL_ALREADY_USED',
   message: 'The user has already used a trial subscription.',
+};
+const TRIAL_FREE_NOT_RENEWABLE: SubscriptionQuoteWarningInterface = {
+  code: 'TRIAL_FREE_NOT_RENEWABLE',
+  message: 'A free trial cannot be renewed — upgrade to a paid plan instead.',
 };
 const SUBSCRIPTION_LIMIT_REACHED: SubscriptionQuoteWarningInterface = {
   code: 'SUBSCRIPTION_LIMIT_REACHED',
@@ -408,6 +413,15 @@ export class SubscriptionQuoteService {
         plans: await this.getTransitionPlans(sourcePlan.upgradeToPlanIds),
         warnings: [UPGRADE_RESETS_EXPIRY],
       };
+    }
+    // A free trial is a one-time grant — it cannot be renewed. The user must
+    // upgrade to a paid plan instead (UPGRADE stays available when the trial
+    // has `upgradeToPlanIds` configured). Paid trials remain renewable.
+    if (
+      sourcePlan.availability === PlanAvailability.TRIAL &&
+      readTrialSettings(sourcePlan.trialSettings).free
+    ) {
+      return { plans: [], warnings: [TRIAL_FREE_NOT_RENEWABLE] };
     }
     if (!sourcePlan.isArchived) {
       return { plans: [sourcePlan], warnings: [] };

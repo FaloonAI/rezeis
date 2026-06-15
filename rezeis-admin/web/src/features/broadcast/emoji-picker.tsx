@@ -106,6 +106,54 @@ const EMOJI_GROUPS: ReadonlyArray<{ readonly id: string; readonly items: readonl
       { c: '🔗', k: 'link' },
     ],
   },
+  {
+    id: 'objects',
+    items: [
+      { c: '📱', k: 'phone mobile device' },
+      { c: '💻', k: 'laptop computer' },
+      { c: '🖥️', k: 'desktop monitor' },
+      { c: '🔒', k: 'lock secure private' },
+      { c: '🔓', k: 'unlock open' },
+      { c: '🔑', k: 'key' },
+      { c: '🛡️', k: 'shield protect vpn' },
+      { c: '🌐', k: 'globe world web internet' },
+      { c: '📡', k: 'satellite signal' },
+      { c: '⚙️', k: 'gear settings' },
+      { c: '🔧', k: 'wrench tool fix' },
+      { c: '📈', k: 'chart up growth' },
+      { c: '📉', k: 'chart down' },
+      { c: '📊', k: 'bar chart stats' },
+      { c: '🗂️', k: 'folder files' },
+      { c: '📅', k: 'calendar date' },
+      { c: '⏰', k: 'alarm clock time' },
+      { c: '🕐', k: 'clock time' },
+      { c: '💳', k: 'card payment credit' },
+      { c: '🧾', k: 'receipt invoice' },
+      { c: '📦', k: 'box package' },
+      { c: '✉️', k: 'email envelope mail' },
+      { c: '📨', k: 'incoming mail' },
+      { c: '🔋', k: 'battery' },
+    ],
+  },
+  {
+    id: 'nature-food',
+    items: [
+      { c: '🌍', k: 'earth globe' },
+      { c: '🌙', k: 'moon night' },
+      { c: '☀️', k: 'sun' },
+      { c: '🌈', k: 'rainbow' },
+      { c: '🍀', k: 'clover luck' },
+      { c: '🌸', k: 'flower blossom' },
+      { c: '🔥', k: 'fire' },
+      { c: '❄️', k: 'snow cold' },
+      { c: '💧', k: 'drop water' },
+      { c: '🍕', k: 'pizza food' },
+      { c: '☕', k: 'coffee' },
+      { c: '🍺', k: 'beer' },
+      { c: '🎂', k: 'cake birthday' },
+      { c: '🍿', k: 'popcorn' },
+    ],
+  },
 ]
 
 const ALL_EMOJIS: readonly EmojiEntry[] = EMOJI_GROUPS.flatMap((g) => g.items)
@@ -194,7 +242,10 @@ export function EmojiPicker({
               aria-label={t('broadcastPage.emoji.search')}
               className="h-8 mb-2 text-xs"
             />
-            <div className="grid grid-cols-8 gap-1 max-h-52 overflow-y-auto overflow-x-hidden">
+            <div
+              className="grid grid-cols-8 gap-1 max-h-52 overflow-y-auto overflow-x-hidden overscroll-contain"
+              onWheelCapture={(e) => e.stopPropagation()}
+            >
               {filtered.map((e) => (
                 <button
                   type="button"
@@ -217,7 +268,10 @@ export function EmojiPicker({
             </div>
           </>
         ) : (
-          <div className="max-h-60 space-y-3 overflow-y-auto overflow-x-hidden">
+          <div
+            className="max-h-60 space-y-3 overflow-y-auto overflow-x-hidden overscroll-contain"
+            onWheelCapture={(e) => e.stopPropagation()}
+          >
             {packs?.map((pack) => (
               <div key={pack.id} className="space-y-1">
                 <p className="text-[11px] font-medium text-muted-foreground">{pack.name}</p>

@@ -47,6 +47,13 @@ export interface BrandingFormValidationMessages {
 
 const HEX_PATTERN = /^#([0-9a-fA-F]{3,8})$/
 const DATA_IMAGE_BASE64_PATTERN = /^data:image\/[a-z0-9+.-]+;base64,[A-Za-z0-9+/=]+$/i
+/**
+ * Max length for image-bearing fields (`logoUrl`, `cardLogoUrl`,
+ * `cardPattern`). Generous enough to hold an inline `data:image` base64
+ * logo (~512 KB string ≈ a ~384 KB image) — the previous 8 KB cap rejected
+ * almost every real PNG/SVG data URI with a bare "Invalid input".
+ */
+const IMAGE_URL_MAX = 524288
 
 const DEFAULT_BRANDING_DRAFT: BrandingFormDraft = {
   brandName: 'Reiwa',
@@ -80,7 +87,7 @@ export function createBrandingFormSchema(messages: BrandingFormValidationMessage
       bgPrimary: z.string().regex(HEX_PATTERN, messages.hexInvalid),
       bgSecondary: z.string().regex(HEX_PATTERN, messages.hexInvalid),
       cardGradient: z.string().trim().min(1).max(512),
-      cardPattern: optionalNullableString(8192),
+      cardPattern: optionalNullableString(IMAGE_URL_MAX),
       cardLogo: z.enum(CARD_LOGO_PRESETS),
       cardLogoUrl: optionalImageUrl(messages.imageUrlInvalid),
       cardEffect: z.string().max(32),
@@ -123,7 +130,7 @@ export function createInitialBrandingDraft(input?: Partial<BrandingFormDraft> | 
 }
 
 function optionalImageUrl(message: string) {
-  return optionalNullableString(8192)
+  return optionalNullableString(IMAGE_URL_MAX)
     .refine((value) => value === null || isAllowedImageUrl(value), { message })
 }
 

@@ -6,12 +6,13 @@
  * row `bot.banner_url` is editable from here as well — operators set
  * the banner URL by editing this very key, no separate field.
  */
-import { useEffect, useMemo, useState, type JSX } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Eye, EyeOff, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { EmojiPicker } from '@/features/broadcast/emoji-picker'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -197,6 +198,24 @@ function TextEditDialog({ text, open, onOpenChange }: TextEditDialogProps): JSX.
 
   const [value, setValue] = useState('')
   const [visible, setVisible] = useState(true)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  function insertAtCaret(emoji: string): void {
+    const el = textareaRef.current
+    if (!el) {
+      setValue((prev) => prev + emoji)
+      return
+    }
+    const start = el.selectionStart ?? value.length
+    const end = el.selectionEnd ?? value.length
+    const next = value.slice(0, start) + emoji + value.slice(end)
+    setValue(next)
+    requestAnimationFrame(() => {
+      el.focus()
+      const caret = start + emoji.length
+      el.setSelectionRange(caret, caret)
+    })
+  }
 
     /* eslint-disable react-hooks/set-state-in-effect */
     useEffect(() => {
@@ -248,14 +267,20 @@ function TextEditDialog({ text, open, onOpenChange }: TextEditDialogProps): JSX.
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="bc-text-value">{t('botConfigPage.texts.fields.value')}</Label>
-            <Textarea
-              id="bc-text-value"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              maxLength={8000}
-              rows={10}
-              className="font-mono text-sm"
-            />
+            <div className="relative">
+              <Textarea
+                id="bc-text-value"
+                ref={textareaRef}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                maxLength={8000}
+                rows={10}
+                className="font-mono text-sm pr-10"
+              />
+              <div className="absolute right-1.5 top-1.5">
+                <EmojiPicker onSelect={insertAtCaret} ariaLabel={t('broadcastPage.emoji.trigger')} />
+              </div>
+            </div>
             <p className="text-xs text-muted-foreground">
               {value.length}/8000
             </p>
@@ -309,7 +334,25 @@ function TextCreateDialog({ open, onOpenChange }: TextCreateDialogProps): JSX.El
   const [key, setKey] = useState('')
   const [value, setValue] = useState('')
   const [visible, setVisible] = useState(true)
-  
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  function insertAtCaret(emoji: string): void {
+    const el = textareaRef.current
+    if (!el) {
+      setValue((prev) => prev + emoji)
+      return
+    }
+    const start = el.selectionStart ?? value.length
+    const end = el.selectionEnd ?? value.length
+    const next = value.slice(0, start) + emoji + value.slice(end)
+    setValue(next)
+    requestAnimationFrame(() => {
+      el.focus()
+      const caret = start + emoji.length
+      el.setSelectionRange(caret, caret)
+    })
+  }
+
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (open) {
@@ -364,14 +407,20 @@ function TextCreateDialog({ open, onOpenChange }: TextCreateDialogProps): JSX.El
 
           <div className="space-y-1.5">
             <Label htmlFor="bc-new-text-value">{t('botConfigPage.texts.fields.value')}</Label>
-            <Textarea
-              id="bc-new-text-value"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              maxLength={8000}
-              rows={10}
-              className="font-mono text-sm"
-            />
+            <div className="relative">
+              <Textarea
+                id="bc-new-text-value"
+                ref={textareaRef}
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                maxLength={8000}
+                rows={10}
+                className="font-mono text-sm pr-10"
+              />
+              <div className="absolute right-1.5 top-1.5">
+                <EmojiPicker onSelect={insertAtCaret} ariaLabel={t('broadcastPage.emoji.trigger')} />
+              </div>
+            </div>
             <p className="text-xs text-muted-foreground">{value.length}/8000</p>
           </div>
 

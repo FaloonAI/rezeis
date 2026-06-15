@@ -92,7 +92,7 @@ export class UpdateBrandingSettingsDto {
   @IsOptional()
   @ValidateIf((_, value: unknown) => typeof value === 'string' && value.length > 0)
   @IsString()
-  @MaxLength(8192)
+  @MaxLength(524288)
   @Matches(/^(?:data:image\/[a-z0-9+.-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/.+)$/i, {
     message: 'logoUrl must be a data: URI or an http(s) URL',
   })
@@ -123,7 +123,7 @@ export class UpdateBrandingSettingsDto {
   @IsOptional()
   @ValidateIf((_, value: unknown) => typeof value === 'string' && value.length > 0)
   @IsString()
-  @MaxLength(8192)
+  @MaxLength(524288)
   public cardPattern?: string | null;
 
   @IsOptional()
@@ -133,7 +133,7 @@ export class UpdateBrandingSettingsDto {
   @IsOptional()
   @ValidateIf((_, value: unknown) => typeof value === 'string' && value.length > 0)
   @IsString()
-  @MaxLength(8192)
+  @MaxLength(524288)
   @Matches(/^(?:data:image\/[a-z0-9+.-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/.+)$/i, {
     message: 'cardLogoUrl must be a data: URI or an http(s) URL',
   })

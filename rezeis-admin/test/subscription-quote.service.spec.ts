@@ -57,10 +57,66 @@ describe('SubscriptionQuoteService', () => {
     assert.equal(actualPolicy.actions.NEW, false);
     assert.equal(actualPolicy.actions.UPGRADE, true);
     assert.deepStrictEqual(actualPolicy.warnings.map((warning) => warning.code), [
+      'TRIAL_FREE_NOT_RENEWABLE',
       'UPGRADE_RESETS_EXPIRY',
       'TRIAL_UPGRADE_REQUIRED',
       'TRIAL_ALREADY_USED',
     ]);
+  });
+
+  it('blocks RENEW for a free trial source and steers the user to upgrade', async () => {
+    const service = createService({
+      user: createUser({ maxSubscriptions: 2 }),
+      subscriptions: [createSubscription({ id: 'trial-sub', isTrial: true, planId: 'trial-plan' })],
+      plans: [
+        createPlan({
+          id: 'trial-plan',
+          availability: PlanAvailability.TRIAL,
+          upgradeToPlanIds: ['paid-plan'],
+          trialSettings: { free: true },
+        }),
+        createPlan({ id: 'paid-plan', availability: PlanAvailability.ALL }),
+      ],
+    });
+
+    const actualPolicy = await service.getActionPolicy({
+      userId: 'user-1',
+      subscriptionId: 'trial-sub',
+      channel: PurchaseChannel.WEB,
+    });
+
+    assert.equal(actualPolicy.actions.RENEW, false);
+    assert.equal(actualPolicy.actions.UPGRADE, true);
+    assert.equal(
+      actualPolicy.warnings.some((warning) => warning.code === 'TRIAL_FREE_NOT_RENEWABLE'),
+      true,
+    );
+  });
+
+  it('keeps RENEW available for a paid trial source', async () => {
+    const service = createService({
+      user: createUser({ maxSubscriptions: 2 }),
+      subscriptions: [createSubscription({ id: 'paid-trial-sub', isTrial: true, planId: 'paid-trial-plan' })],
+      plans: [
+        createPlan({
+          id: 'paid-trial-plan',
+          availability: PlanAvailability.TRIAL,
+          trialSettings: { free: false },
+        }),
+      ],
+    });
+
+    const actualPolicy = await service.getActionPolicy({
+      userId: 'user-1',
+      subscriptionId: 'paid-trial-sub',
+      channel: PurchaseChannel.WEB,
+    });
+
+    assert.equal(actualPolicy.actions.RENEW, true);
+    assert.equal(
+      actualPolicy.warnings.some((warning) => warning.code === 'TRIAL_FREE_NOT_RENEWABLE'),
+      false,
+    );
   });
 
   it('blocks trial when a local trial grant exists even without an active trial subscription', async () => {
@@ -287,6 +343,7 @@ function createPlan(input: {
   readonly archivedRenewMode?: 'SELF_RENEW' | 'REPLACE_ON_RENEW';
   readonly replacementPlanIds?: readonly string[];
   readonly upgradeToPlanIds?: readonly string[];
+  readonly trialSettings?: Record<string, unknown>;
 }): Record<string, unknown> {
   return {
     id: input.id,
@@ -307,6 +364,7 @@ function createPlan(input: {
     upgradeToPlanIds: [...(input.upgradeToPlanIds ?? [])],
     replacementPlanIds: [...(input.replacementPlanIds ?? [])],
     allowedUserIds: [],
+    trialSettings: input.trialSettings ?? {},
     createdAt: new Date('2026-04-19T12:00:00.000Z'),
     updatedAt: new Date('2026-04-19T12:00:00.000Z'),
     durations: [
