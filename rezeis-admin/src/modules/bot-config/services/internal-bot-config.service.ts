@@ -17,6 +17,8 @@ import {
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { getProcessRole } from '../../../common/runtime/process-role.util';
 import { BotFlowService } from '../../bot-flow/services/bot-flow.service';
+import { CustomEmojiService } from '../../custom-emoji/services/custom-emoji.service';
+import { CustomEmojiPackInterface } from '../../custom-emoji/interfaces/custom-emoji-pack.interface';
 import {
   InternalBotConfigButtonInterface,
   InternalBotConfigFeaturesInterface,
@@ -26,6 +28,7 @@ import {
   InternalBotConfigVisualInterface,
   InternalBotEmojiMap,
   InternalCustomEmojiIdMap,
+  InternalCustomEmojiMap,
   InternalBotTextMap,
 } from '../interfaces/internal-bot-config.interface';
 import { BotButtonsService } from './bot-buttons.service';
@@ -67,6 +70,7 @@ export class InternalBotConfigService implements OnApplicationBootstrap {
     private readonly botEmojisService: BotEmojisService,
     private readonly botTextsService: BotTextsService,
     private readonly botFlowService: BotFlowService,
+    private readonly customEmojiService: CustomEmojiService,
   ) {}
 
   /**
@@ -101,15 +105,26 @@ export class InternalBotConfigService implements OnApplicationBootstrap {
       // exists — reiwa falls back to its built-in sub-menus.
       this.botFlowService.getActive(DEFAULT_FLOW_NAME),
     ]);
+    // Custom-emoji packs are best-effort: a read failure shouldn't blank
+    // the whole bot-config payload, so resolve to [] on error.
+    const customEmojiPacks = await this.customEmojiService
+      .listPacks()
+      .catch(() => []);
 
     const emojiMap = withDefaultPremiumIds(mapEmojiEntries(emojis));
+    // Full map (every row) — used by config-style readers (banner URL,
+    // subscription format) whose rows are intentionally `visible:false`.
     const textMap = mapTexts(texts);
+    // Copy-override map — excludes rows the operator hid (`visible:false`)
+    // and their `@en` siblings, so a disabled text falls back to the
+    // built-in i18n default on reiwa instead of still being served.
+    const visibleTextMap = mapTexts(visibleCopyTexts(texts));
 
     return {
       buttons: buttons.map(mapButton),
       visual: {
-        welcomeMessage: readWelcomeMessage(textMap),
-        welcomeMessageEn: readWelcomeMessageEn(textMap),
+        welcomeMessage: readWelcomeMessage(visibleTextMap),
+        welcomeMessageEn: readWelcomeMessageEn(visibleTextMap),
         botDescription: DEFAULT_VISUAL.botDescription,
         supportUsername: DEFAULT_VISUAL.supportUsername,
         channelUsername: DEFAULT_VISUAL.channelUsername,
@@ -119,7 +134,8 @@ export class InternalBotConfigService implements OnApplicationBootstrap {
       features: DEFAULT_FEATURES,
       botEmojis: emojiMap,
       menuTextCustomEmojiIds: toCustomEmojiIdMap(emojiMap),
-      translations: textMap,
+      translations: visibleTextMap,
+      customEmojis: mapCustomEmojis(customEmojiPacks),
       screens: mapFlowScreens(activeFlow),
       screensVersion: activeFlow
         ? `${activeFlow.id}:${activeFlow.version}:${activeFlow.status}`
@@ -478,6 +494,42 @@ function toCustomEmojiIdMap(map: InternalBotEmojiMap): InternalCustomEmojiIdMap 
     if (entry.tgEmojiId !== null && entry.tgEmojiId.length > 0) out[key] = entry.tgEmojiId;
   }
   return out;
+}
+
+/**
+ * Project operator custom-emoji packs into a `slug → { id, fallback }` map
+ * for bot copy. `id` is the Telegram `custom_emoji_id` (premium render);
+ * `fallback` is the unicode glyph reiwa shows when premium can't render.
+ */
+function mapCustomEmojis(packs: readonly CustomEmojiPackInterface[]): InternalCustomEmojiMap {
+  const map: Record<string, { id: string | null; fallback: string | null }> = {};
+  for (const pack of packs) {
+    for (const emoji of pack.emojis) {
+      map[emoji.slug] = { id: emoji.customEmojiId, fallback: emoji.fallback };
+    }
+  }
+  return map;
+}
+
+/**
+ * Drop hidden copy rows so disabled texts fall back to the built-in i18n
+ * default on reiwa. A base row with `visible:false` removes both itself and
+ * its `<key>@en` sibling (Property: a hidden base disables both locales).
+ */
+function visibleCopyTexts(texts: readonly BotText[]): BotText[] {
+  const hiddenBaseKeys = new Set<string>();
+  for (const text of texts) {
+    if (!text.key.endsWith(EN_KEY_SUFFIX) && text.visible === false) {
+      hiddenBaseKeys.add(text.key);
+    }
+  }
+  return texts.filter((text) => {
+    if (text.visible === false) return false;
+    const baseKey = text.key.endsWith(EN_KEY_SUFFIX)
+      ? text.key.slice(0, -EN_KEY_SUFFIX.length)
+      : text.key;
+    return !hiddenBaseKeys.has(baseKey);
+  });
 }
 
 function mapTexts(texts: readonly BotText[]): InternalBotTextMap {

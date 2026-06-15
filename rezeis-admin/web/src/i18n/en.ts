@@ -597,6 +597,13 @@ export const en = {
       saveFailed: 'Failed to save',
     },
   },
+  emojiPicker: {
+    trigger: 'Insert emoji',
+    search: 'Search emoji',
+    empty: 'Nothing found',
+    standard: 'Standard',
+    custom: 'Custom',
+  },
   referralSettingsPage: {
     title: 'Referral Program Settings',
     subtitle: 'Configure referral rewards, invite limits, and points exchange',
@@ -3181,6 +3188,7 @@ export const en = {
         enToggle: 'English version',
         enToggleHint: 'Add an English translation — users with English locale will see it. Paste the already-translated text.',
         enValue: 'Value (EN)',
+        preview: 'Preview',
       },
       toasts: {
         created: 'Text created',

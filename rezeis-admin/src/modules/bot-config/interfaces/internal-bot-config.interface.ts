@@ -122,6 +122,21 @@ export type InternalBotEmojiMap = Readonly<Record<string, InternalBotEmojiEntry>
 export type InternalCustomEmojiIdMap = Readonly<Record<string, string>>;
 
 /**
+ * Operator custom-emoji library (imported packs) projected for bot copy.
+ * Keyed by `slug` (the `:slug:` shortcode operators insert in texts). Each
+ * entry carries the Telegram `custom_emoji_id` (when the pack was imported
+ * from a Telegram emoji set — renders as a premium animated emoji) and a
+ * `fallback` unicode glyph (shown when premium can't render). reiwa replaces
+ * `:slug:` tokens in welcome / screen copy with the fallback glyph plus a
+ * custom-emoji entity when `id` is present.
+ */
+export interface InternalCustomEmojiEntry {
+  readonly id: string | null;
+  readonly fallback: string | null;
+}
+export type InternalCustomEmojiMap = Readonly<Record<string, InternalCustomEmojiEntry>>;
+
+/**
  * Map of `text_key → translated_value` for arbitrary copy strings. Reiwa
  * consumes this as a fallback translation table — `setTranslations(...)`
  * in `bot/i18n.ts` handles per-locale suffixes (e.g. `welcome.title.en`).
@@ -190,6 +205,11 @@ export interface InternalBotConfigInterface {
    */
   readonly menuTextCustomEmojiIds: InternalCustomEmojiIdMap;
   readonly translations: InternalBotTextMap;
+  /**
+   * Operator custom-emoji library (`:slug:` shortcodes → id/fallback).
+   * Empty when no packs are configured. Additive — older reiwa ignores it.
+   */
+  readonly customEmojis: InternalCustomEmojiMap;
   /**
    * Operator-managed dynamic screens. Empty when no flow is
    * published — reiwa then falls back to its built-in sub-menus.

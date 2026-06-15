@@ -13,6 +13,7 @@ import { Eye, EyeOff, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { EmojiPicker } from '@/features/broadcast/emoji-picker'
+import { api } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -186,6 +187,62 @@ function truncate(value: string, max: number): string {
   return `${value.slice(0, max)}…`
 }
 
+interface CustomEmojiPackLite {
+  readonly id: string
+  readonly emojis: readonly { readonly slug: string; readonly imageUrl: string }[]
+}
+
+const CUSTOM_EMOJI_TOKEN = /(:[a-z0-9_]+:)/g
+
+/**
+ * Live preview that renders `:slug:` custom-emoji tokens as their pack image
+ * (so operators see the emoji, not the shortcode). Shown only when the value
+ * actually contains a token. Plain text / unicode renders as-is.
+ */
+function CustomEmojiPreview({ value }: { readonly value: string }): JSX.Element | null {
+  const { t } = useTranslation()
+  const { data: packs } = useQuery<ReadonlyArray<CustomEmojiPackLite>>({
+    queryKey: ['admin', 'custom-emoji', 'packs'],
+    queryFn: async () =>
+      (await api.get<ReadonlyArray<CustomEmojiPackLite>>('/admin/custom-emoji/packs')).data,
+    staleTime: 60_000,
+  })
+  const slugMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const pack of packs ?? []) {
+      for (const emoji of pack.emojis) map.set(emoji.slug, emoji.imageUrl)
+    }
+    return map
+  }, [packs])
+
+  if (!/:[a-z0-9_]+:/.test(value)) return null
+  const parts = value.split(CUSTOM_EMOJI_TOKEN)
+  return (
+    <div className="rounded-lg border bg-muted/30 p-2 text-sm whitespace-pre-wrap">
+      <p className="mb-1 text-[11px] text-muted-foreground">
+        {t('botConfigPage.texts.fields.preview')}
+      </p>
+      <span>
+        {parts.map((part, i) => {
+          const match = /^:([a-z0-9_]+):$/.exec(part)
+          const url = match ? slugMap.get(match[1]) : undefined
+          if (match && url !== undefined) {
+            return (
+              <img
+                key={`${i}-${part}`}
+                src={url}
+                alt={part}
+                className="inline-block h-5 w-5 align-text-bottom object-contain"
+              />
+            )
+          }
+          return <span key={`${i}-${part}`}>{part}</span>
+        })}
+      </span>
+    </div>
+  )
+}
+
 interface TextEditDialogProps {
   readonly text: BotText | null
   readonly open: boolean
@@ -304,12 +361,13 @@ function TextEditDialog({ text, open, onOpenChange }: TextEditDialogProps): JSX.
                 className="font-mono text-sm pr-10"
               />
               <div className="absolute right-1.5 top-1.5">
-                <EmojiPicker onSelect={insertAtCaret} ariaLabel={t('broadcastPage.emoji.trigger')} />
+                <EmojiPicker onSelect={insertAtCaret} ariaLabel={t('emojiPicker.trigger')} />
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
               {value.length}/8000
             </p>
+            <CustomEmojiPreview value={value} />
           </div>
 
           <div className="space-y-3 rounded-lg border p-3">
@@ -346,11 +404,12 @@ function TextEditDialog({ text, open, onOpenChange }: TextEditDialogProps): JSX.
                   <div className="absolute right-1.5 top-1.5">
                     <EmojiPicker
                       onSelect={insertAtCaretEn}
-                      ariaLabel={t('broadcastPage.emoji.trigger')}
+                      ariaLabel={t('emojiPicker.trigger')}
                     />
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">{valueEn.length}/8000</p>
+                <CustomEmojiPreview value={valueEn} />
               </div>
             )}
           </div>
@@ -514,10 +573,11 @@ function TextCreateDialog({ open, onOpenChange }: TextCreateDialogProps): JSX.El
                 className="font-mono text-sm pr-10"
               />
               <div className="absolute right-1.5 top-1.5">
-                <EmojiPicker onSelect={insertAtCaret} ariaLabel={t('broadcastPage.emoji.trigger')} />
+                <EmojiPicker onSelect={insertAtCaret} ariaLabel={t('emojiPicker.trigger')} />
               </div>
             </div>
             <p className="text-xs text-muted-foreground">{value.length}/8000</p>
+            <CustomEmojiPreview value={value} />
           </div>
 
           <div className="space-y-3 rounded-lg border p-3">
@@ -554,11 +614,12 @@ function TextCreateDialog({ open, onOpenChange }: TextCreateDialogProps): JSX.El
                   <div className="absolute right-1.5 top-1.5">
                     <EmojiPicker
                       onSelect={insertAtCaretEn}
-                      ariaLabel={t('broadcastPage.emoji.trigger')}
+                      ariaLabel={t('emojiPicker.trigger')}
                     />
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">{valueEn.length}/8000</p>
+                <CustomEmojiPreview value={valueEn} />
               </div>
             )}
           </div>
