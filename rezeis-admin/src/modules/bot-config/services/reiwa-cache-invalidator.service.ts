@@ -61,8 +61,21 @@ export class ReiwaCacheInvalidatorService {
     return this.dispatch('reiwa.platform.policy_invalidated', { reason });
   }
 
+  /**
+   * Notify reiwa that branding / appearance settings changed so the reiwa
+   * edge drops its cached `public-config` (palette, backgrounds, card +
+   * app effects, icons). The next cabinet fetch then returns the fresh
+   * theme without waiting for the HTTP cache TTL (~60s). Best-effort.
+   */
+  public async invalidateBranding(reason: string): Promise<boolean> {
+    return this.dispatch('reiwa.branding.invalidate', { reason });
+  }
+
   private async dispatch(
-    event: 'reiwa.bot.invalidate' | 'reiwa.platform.policy_invalidated',
+    event:
+      | 'reiwa.bot.invalidate'
+      | 'reiwa.platform.policy_invalidated'
+      | 'reiwa.branding.invalidate',
     metadata: Record<string, unknown>,
   ): Promise<boolean> {
     if (this.endpoint === null || this.secret === null) return false;

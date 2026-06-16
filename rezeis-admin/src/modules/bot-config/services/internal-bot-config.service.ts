@@ -121,11 +121,16 @@ export class InternalBotConfigService implements OnApplicationBootstrap {
     // built-in i18n default on reiwa instead of still being served.
     const visibleTextMap = mapTexts(visibleCopyTexts(texts));
 
+    const welcomeRow = texts.find((row) => row.key === WELCOME_MESSAGE_KEY);
+    const welcomeEnRow = texts.find(
+      (row) => row.key === `${WELCOME_MESSAGE_KEY}${EN_KEY_SUFFIX}`,
+    );
+
     return {
       buttons: buttons.map(mapButton),
       visual: {
-        welcomeMessage: readWelcomeMessage(visibleTextMap),
-        welcomeMessageEn: readWelcomeMessageEn(visibleTextMap),
+        welcomeMessage: resolveWelcomeMessage(welcomeRow),
+        welcomeMessageEn: resolveWelcomeMessageEn(welcomeRow, welcomeEnRow),
         botDescription: DEFAULT_VISUAL.botDescription,
         supportUsername: DEFAULT_VISUAL.supportUsername,
         channelUsername: DEFAULT_VISUAL.channelUsername,
@@ -558,30 +563,30 @@ function readBannerUrl(textMap: InternalBotTextMap): string | null {
 }
 
 /**
- * Resolve the operator-managed welcome message. Falls back to the
- * built-in default when the key is missing or empty (so the bot never
- * greets users with a blank line if an operator clears the field).
+ * Resolve the operator-managed welcome greeting from its `BotText` row.
+ *   - row absent (never configured) → built-in default (fresh deploy).
+ *   - row hidden (`visible === false`) → empty string: the operator
+ *     explicitly suppressed the greeting (reiwa renders no greeting line
+ *     rather than reverting to the built-in default).
+ *   - row shown → exactly the operator's value.
  */
-function readWelcomeMessage(textMap: InternalBotTextMap): string {
-  const raw = textMap[WELCOME_MESSAGE_KEY];
-  if (typeof raw === 'string' && raw.trim().length > 0) {
-    return raw;
-  }
-  return DEFAULT_VISUAL.welcomeMessage;
+function resolveWelcomeMessage(row: BotText | undefined): string {
+  if (row === undefined) return DEFAULT_VISUAL.welcomeMessage;
+  if (row.visible === false) return '';
+  return row.value;
 }
 
 /**
- * Resolve the operator-managed English welcome message from the
- * `bot.welcome_message@en` sibling (projected to `bot.welcome_message.en`
- * by {@link mapTexts}). `null` when no EN override exists — reiwa then
- * keeps serving the base (RU) greeting to EN users.
+ * Resolve the English welcome override. A hidden base row suppresses EN too
+ * (the whole greeting is off). Otherwise use the `@en` sibling when non-empty.
  */
-function readWelcomeMessageEn(textMap: InternalBotTextMap): string | null {
-  const raw = textMap[`${WELCOME_MESSAGE_KEY}.en`];
-  if (typeof raw === 'string' && raw.trim().length > 0) {
-    return raw;
-  }
-  return null;
+function resolveWelcomeMessageEn(
+  baseRow: BotText | undefined,
+  enRow: BotText | undefined,
+): string | null {
+  if (baseRow !== undefined && baseRow.visible === false) return null;
+  if (enRow === undefined) return null;
+  return enRow.value.trim().length > 0 ? enRow.value : null;
 }
 
 /**

@@ -12,6 +12,7 @@ vi.mock('./branding-preview', () => ({
 
 vi.mock('./card-effect-section', () => ({
   CardEffectSection: () => <div data-testid="card-effect-section" />,
+  CardEffectPicker: () => <div data-testid="card-effect-picker" />,
 }))
 
 describe('WebReiwaPage branding URL validation', () => {

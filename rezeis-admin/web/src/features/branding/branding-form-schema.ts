@@ -21,10 +21,17 @@ export interface BrandingFormDraft {
   readonly cardEffectOpacity: number
   readonly cardEffectsByIndex?: readonly BrandingCardEffectSlotDraft[]
   readonly bgEffect: (typeof BRANDING_BG_EFFECTS)[number]
+  readonly appBackground?: BrandingAppBackgroundDraft
   readonly iconColorMode: (typeof BRANDING_ICON_COLOR_MODES)[number]
   readonly iconColors?: Record<string, string>
   readonly borderRadius: string
   readonly fontFamily: string
+}
+
+export interface BrandingAppBackgroundDraft {
+  readonly effect: string
+  readonly props: Record<string, unknown>
+  readonly opacity: number
 }
 
 export interface BrandingCardEffectSlotDraft {
@@ -71,6 +78,7 @@ const DEFAULT_BRANDING_DRAFT: BrandingFormDraft = {
   cardEffectOpacity: 1,
   cardEffectsByIndex: [],
   bgEffect: 'AURORA',
+  appBackground: { effect: 'NONE', props: {}, opacity: 1 },
   iconColorMode: 'default',
   iconColors: {},
   borderRadius: 'rounded-2xl',
@@ -103,6 +111,13 @@ export function createBrandingFormSchema(messages: BrandingFormValidationMessage
         )
         .optional(),
       bgEffect: z.enum(BRANDING_BG_EFFECTS),
+      appBackground: z
+        .object({
+          effect: z.string().max(32),
+          props: z.record(z.string(), z.unknown()),
+          opacity: z.number().min(0.05).max(1),
+        })
+        .optional(),
       iconColorMode: z.enum(BRANDING_ICON_COLOR_MODES),
       iconColors: z.record(z.string(), z.string()).optional(),
       borderRadius: z.string().trim().min(1).max(64),
@@ -112,6 +127,7 @@ export function createBrandingFormSchema(messages: BrandingFormValidationMessage
       ...values,
       cardEffectsByIndex: values.cardEffectsByIndex ?? [],
       cardEffectProps: values.cardEffectProps ?? {},
+      appBackground: values.appBackground ?? { effect: 'NONE', props: {}, opacity: 1 },
       iconColors: values.iconColors ?? {},
     }))
 }
@@ -125,7 +141,24 @@ export function createInitialBrandingDraft(input?: Partial<BrandingFormDraft> | 
     cardLogoUrl: normalizeDraftNullableString(input?.cardLogoUrl),
     cardEffectProps: isPlainRecord(input?.cardEffectProps) ? input.cardEffectProps : {},
     cardEffectsByIndex: Array.isArray(input?.cardEffectsByIndex) ? input.cardEffectsByIndex : [],
+    appBackground: normalizeAppBackgroundDraft(input?.appBackground),
     iconColors: isPlainRecord(input?.iconColors) ? input.iconColors : {},
+  }
+}
+
+function normalizeAppBackgroundDraft(
+  value: BrandingAppBackgroundDraft | undefined,
+): BrandingAppBackgroundDraft {
+  if (typeof value !== 'object' || value === null) {
+    return { effect: 'NONE', props: {}, opacity: 1 }
+  }
+  return {
+    effect: typeof value.effect === 'string' ? value.effect : 'NONE',
+    props: isPlainRecordUnknown(value.props) ? value.props : {},
+    opacity:
+      typeof value.opacity === 'number' && Number.isFinite(value.opacity)
+        ? Math.min(Math.max(value.opacity, 0.05), 1)
+        : 1,
   }
 }
 
@@ -163,5 +196,9 @@ function normalizeDraftNullableString(value: string | null | undefined): string 
 }
 
 function isPlainRecord(value: unknown): value is Record<string, string> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isPlainRecordUnknown(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

@@ -115,6 +115,19 @@ export interface CardEffectSlot {
 }
 
 /**
+ * Site-wide app background — an animated effect rendered BEHIND the whole
+ * cabinet (not just the subscription card). Reuses the same `CardEffect`
+ * registry as the card effect. `effect: 'NONE'` → plain `bgPrimary` colour
+ * (no WebGL layer). Mounted once at the cabinet shell, so it costs at most a
+ * single WebGL context regardless of how many cards are on screen.
+ */
+export interface AppBackgroundSettings {
+  readonly effect: CardEffect;
+  readonly props: Record<string, unknown>;
+  readonly opacity: number;
+}
+
+/**
  * Remnawave profile-naming template. Profiles are named
  * `<prefix><separator><login><separator><suffixBase>[<separator>N]`, e.g.
  * `rz_john_sub`, `rz_john_sub_1`. Persisted inside `Settings.brandingSettings`
@@ -187,6 +200,14 @@ export interface BrandingSettingsInterface {
   readonly bgEffect: BgEffect;
 
   /**
+   * Site-wide animated app background (reuses the card-effect registry).
+   * `effect: 'NONE'` → plain `bgPrimary` colour. Takes precedence over the
+   * legacy preset `bgEffect` when its effect is non-`NONE`. Additive: an older
+   * reiwa build that doesn't know this field renders the existing background.
+   */
+  readonly appBackground: AppBackgroundSettings;
+
+  /**
    * Colouring strategy for the cabinet's menu/section icons.
    * `default` keeps each icon's own accent, `theme` paints them all in the
    * brand primary, `custom` uses per-icon colours from `iconColors`.
@@ -226,6 +247,7 @@ export const DEFAULT_BRANDING: BrandingSettingsInterface = {
   cardEffectOpacity: 1,
   cardEffectsByIndex: [],
   bgEffect: 'NONE',
+  appBackground: { effect: 'NONE', props: {}, opacity: 1 },
   iconColorMode: 'default',
   iconColors: {},
   borderRadius: 'rounded-2xl',

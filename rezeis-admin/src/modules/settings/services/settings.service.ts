@@ -336,6 +336,14 @@ export class SettingsService {
         return updated;
       },
     );
+    // Best-effort: tell reiwa to drop its cached public-config so the cabinet
+    // picks up the new theme without waiting for the HTTP cache TTL. Never
+    // blocks / fails the save (Property 2).
+    if (this.reiwaCacheInvalidator !== undefined) {
+      void this.reiwaCacheInvalidator.invalidateBranding(
+        `branding.${updatedFields.join(',')}`,
+      );
+    }
     return readBrandingSettings(settings.brandingSettings);
   }
 
@@ -1019,6 +1027,7 @@ function extractUpdatedBrandingFields(
     'cardEffectOpacity',
     'cardEffectsByIndex',
     'bgEffect',
+    'appBackground',
     'iconColorMode',
     'iconColors',
     'borderRadius',

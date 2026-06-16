@@ -2575,6 +2575,10 @@ export const en = {
         removeSlot: 'Remove',
         addSlot: 'Add slot',
       },
+      appBackground: {
+        title: 'App Background',
+        description: 'An animated background behind the whole cabinet (not just the card). "None" keeps the plain background colour. Rendered once, so it stays light on the device.',
+      },
       effects: {
         title: 'Effects & Typography',
         description: 'Corner radius and font.',
@@ -3184,7 +3188,7 @@ export const en = {
         keyHint: 'Letters, digits, dots, underscores, and dashes.',
         value: 'Value',
         visible: 'Use in bot',
-        visibleHint: 'When off — reiwa falls back to the bundled translation default',
+        visibleHint: 'When off — the text is hidden in the bot (the greeting is not shown; system strings fall back to the built-in copy)',
         enToggle: 'English version',
         enToggleHint: 'Add an English translation — users with English locale will see it. Paste the already-translated text.',
         enValue: 'Value (EN)',

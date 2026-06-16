@@ -250,6 +250,7 @@ describe('SettingsController', () => {
       cardEffectOpacity: 0.25,
       cardEffectsByIndex: [],
       bgEffect: 'NONE',
+      appBackground: { effect: 'NONE', props: {}, opacity: 1 },
       iconColorMode: 'default',
       iconColors: {},
       borderRadius: '1rem',

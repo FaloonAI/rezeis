@@ -8,6 +8,7 @@
  */
 
 import {
+  AppBackgroundSettings,
   BG_EFFECTS,
   BgEffect,
   BrandingSettingsInterface,
@@ -21,7 +22,6 @@ import {
   IconColorMode,
   ProfileNamingSettings,
 } from '../interfaces/branding-settings.interface';
-
 /** Hex colour validation: 3, 4, 6 or 8 hex chars after a leading `#`. */
 const HEX_PATTERN = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 
@@ -43,6 +43,7 @@ export function readBrandingSettings(value: unknown): BrandingSettingsInterface 
     cardEffectOpacity: readClampedNumber(record, 'cardEffectOpacity', 0.05, 1, DEFAULT_BRANDING.cardEffectOpacity),
     cardEffectsByIndex: readCardEffectSlots(record, 'cardEffectsByIndex'),
     bgEffect: readBgEffect(record, DEFAULT_BRANDING.bgEffect),
+    appBackground: readAppBackground(record),
     iconColorMode: readIconColorMode(record, DEFAULT_BRANDING.iconColorMode),
     iconColors: readHexMap(record, 'iconColors'),
     borderRadius: readString(record, 'borderRadius', DEFAULT_BRANDING.borderRadius),
@@ -188,6 +189,29 @@ function readCardEffectSlots(
     });
   }
   return out;
+}
+
+/**
+ * Reads the site-wide app background block. Normalizes the effect id against
+ * the registry (unknown → `NONE`), clamps opacity, and treats props as a
+ * loose JSON object. Absent/invalid → `{ effect: 'NONE', props: {}, opacity: 1 }`.
+ */
+function readAppBackground(record: Record<string, unknown>): AppBackgroundSettings {
+  const value = record['appBackground'];
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return DEFAULT_BRANDING.appBackground;
+  }
+  const slot = value as Record<string, unknown>;
+  const effect = slot['effect'];
+  const validEffect =
+    typeof effect === 'string' && (CARD_EFFECTS as readonly string[]).includes(effect)
+      ? (effect as CardEffect)
+      : 'NONE';
+  return {
+    effect: validEffect,
+    props: readJsonRecord(slot, 'props'),
+    opacity: readClampedNumber(slot, 'opacity', 0.05, 1, 1),
+  };
 }
 
 function readIconColorMode(

@@ -48,6 +48,25 @@ export class CardEffectSlotDto {
 }
 
 /**
+ * Site-wide app background block (`appBackground`). Reuses the card-effect
+ * registry; `effect: 'NONE'` → plain colour background.
+ */
+export class AppBackgroundDto {
+  @IsIn(CARD_EFFECTS as readonly string[])
+  public effect!: CardEffect;
+
+  @IsOptional()
+  @IsObject()
+  public props?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0.05)
+  @Max(1)
+  public opacity?: number;
+}
+
+/**
  * Patch payload for `PATCH /admin/settings/branding`.
  *
  * Every field is optional so the admin UI can submit incremental changes.
@@ -162,6 +181,11 @@ export class UpdateBrandingSettingsDto {
   @IsOptional()
   @IsIn(BG_EFFECTS as readonly string[])
   public bgEffect?: BgEffect;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AppBackgroundDto)
+  public appBackground?: AppBackgroundDto;
 
   @IsOptional()
   @IsIn(ICON_COLOR_MODES as readonly string[])
