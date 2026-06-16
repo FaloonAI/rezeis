@@ -49,8 +49,6 @@ async function bootstrapWorker(): Promise<void> {
     process.env.RUID_PROCESS_ROLE = 'worker';
   }
 
-  printRezeisBanner('worker');
-
   const logger = new Logger('WorkerBootstrap');
   logger.log(`Process role: ${getProcessRole()}`);
 
@@ -59,6 +57,8 @@ async function bootstrapWorker(): Promise<void> {
 
   applicationContext.enableShutdownHooks();
   logger.log('Worker context started; HTTP listener intentionally not bound');
+  // Success banner — printed once the worker context is fully up.
+  printRezeisBanner('worker');
 
   await createShutdownPromise(logger);
   await applicationContext.close();

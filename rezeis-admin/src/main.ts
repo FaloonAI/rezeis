@@ -24,7 +24,6 @@ import { SystemLogsService } from './modules/system-logs/services/system-logs.se
 configureBigIntJsonSerialization();
 
 async function bootstrap(): Promise<void> {
-  printRezeisBanner('api');
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
     rawBody: true,
@@ -93,6 +92,8 @@ async function bootstrap(): Promise<void> {
   }
 
   await app.listen(port, host);
+  // Success banner — printed only once the HTTP listener is actually bound.
+  printRezeisBanner('api');
 }
 
 function resolveUploadsRoot(): string {
