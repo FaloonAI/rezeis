@@ -46,6 +46,20 @@ export class RemnawaveWebhookService {
   }
 
   /**
+   * Logs a rejected webhook so operators can tell, from the logs, WHY the
+   * Activity Feed stays empty: either no signature header arrived (panel not
+   * configured / wrong URL) or the secret mismatches (`REMNAWAVE_WEBHOOK_SECRET`
+   * ≠ the panel's `WEBHOOK_SECRET_HEADER`).
+   */
+  public logRejectedSignature(hadSignature: boolean, sourceIp: string | null): void {
+    this.logger.warn(
+      hadSignature
+        ? `Remnawave webhook rejected: signature mismatch (check REMNAWAVE_WEBHOOK_SECRET matches the panel's WEBHOOK_SECRET_HEADER). sourceIp=${sourceIp ?? 'unknown'}`
+        : `Remnawave webhook rejected: missing X-Remnawave-Signature header (a webhook secret is configured but the panel sent none). sourceIp=${sourceIp ?? 'unknown'}`,
+    );
+  }
+
+  /**
    * Processes and stores an incoming webhook event.
    */
   public async handleEvent(

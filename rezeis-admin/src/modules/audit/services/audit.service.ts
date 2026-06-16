@@ -47,6 +47,44 @@ const FACET_LIMIT = 100;
 export class AuditService {
   public constructor(private readonly prismaService: PrismaService) {}
 
+  /**
+   * Render recent events as a downloadable plain-text report. Covers panel
+   * (rezeis) events AND reiwa-reported errors (persisted as `event.reiwa.*`),
+   * so a single .txt captures everything from both services. `systemOnly`
+   * restricts to the SystemEventsService stream (`action` starts with
+   * `event.`); otherwise the full audit log is exported. Capped to bound the
+   * response. Read-only.
+   */
+  public async exportEventsTxt(input: {
+    readonly systemOnly: boolean;
+    readonly kind?: string;
+    readonly max?: number;
+  }): Promise<string> {
+    const max = Math.min(Math.max(input.max ?? 5000, 1), 20000);
+    const where: Prisma.AdminAuditLogWhereInput = {};
+    if (input.kind !== undefined && input.kind.length > 0) {
+      where.action = input.kind;
+    } else if (input.systemOnly) {
+      where.action = { startsWith: 'event.' };
+    }
+    const rows = await this.prismaService.adminAuditLog.findMany({
+      where,
+      include: AUDIT_EVENT_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+      take: max,
+    });
+    const header = [
+      '# Rezeis events export',
+      `# generated: ${new Date().toISOString()}`,
+      `# scope: ${input.systemOnly ? 'system-events' : 'all-audit'}`,
+      `# count: ${rows.length}`,
+      '',
+      '',
+    ].join('\n');
+    const body = rows.map((row) => formatEventTxtLine(mapAuditEventV2(row))).join('\n');
+    return `${header}${body}\n`;
+  }
+
   // ── Legacy contract ────────────────────────────────────────────────────
 
   public async listEvents(
@@ -236,4 +274,34 @@ function normalizeMetadata(value: Prisma.JsonValue): Record<string, unknown> {
     return {};
   }
   return value as Record<string, unknown>;
+}
+
+/**
+ * Render one event as a single plain-text line for the .txt export:
+ *   [ISO time] [SEVERITY] [CATEGORY] kind | message | actor:<ip> | {payload}
+ * Severity/category/message come from the SystemEventsService payload; for
+ * plain admin-action audit rows they're absent and rendered as "-".
+ */
+function formatEventTxtLine(event: AuditEventV2Interface): string {
+  const payload = event.payload ?? {};
+  const severity =
+    typeof payload['severity'] === 'string' ? (payload['severity'] as string) : '-';
+  const category =
+    typeof payload['category'] === 'string' ? (payload['category'] as string) : '-';
+  const message =
+    typeof payload['message'] === 'string' ? (payload['message'] as string) : '';
+  const actor = event.actorId ?? (event.actorIp === 'system' ? 'system' : event.actorIp ?? '-');
+  const target = event.targetType !== null ? ` target:${event.targetType}/${event.targetId ?? ''}` : '';
+  let payloadJson = '';
+  try {
+    payloadJson = JSON.stringify(payload);
+  } catch {
+    payloadJson = '{}';
+  }
+  return (
+    `[${event.createdAt}] [${severity}] [${category}] ${event.kind}` +
+    ` | ${message}` +
+    ` | actor:${actor}${target}` +
+    ` | ${payloadJson}`
+  );
 }

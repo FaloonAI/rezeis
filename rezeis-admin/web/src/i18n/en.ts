@@ -3235,6 +3235,7 @@ export const en = {
     tabs: {
       audit: 'Log',
       systemEvents: 'System events',
+      userEvents: 'User events',
       systemLogs: 'System logs',
     },
     error: {
@@ -3292,6 +3293,20 @@ export const en = {
       filters: {
         severityPlaceholder: 'Severity',
         allSeverities: 'All severities',
+      },
+      exportTxt: 'Download .txt',
+    },
+    userEvents: {
+      title: 'User events',
+      subtitle: 'User notifications (subscription expiry, referrals, partner payouts, manual messages)',
+      empty: 'No user events found.',
+      columns: {
+        user: 'User',
+        status: 'Status',
+      },
+      status: {
+        read: 'Read',
+        unread: 'Unread',
       },
     },
   },

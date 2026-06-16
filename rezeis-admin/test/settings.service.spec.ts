@@ -357,6 +357,7 @@ describe('SettingsService', () => {
       topics: { USER: null, PAYMENT: 9 },
       mirrorUserNotifications: true,
       devChatId: null,
+      errorReports: { mode: 'manual', telegramTxt: true },
     });
   });
 

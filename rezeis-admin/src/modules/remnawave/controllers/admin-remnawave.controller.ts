@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, RawBodyRequest, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
@@ -273,19 +273,26 @@ export class RemnawaveWebhookController {
 
   @Post()
   public async handleWebhook(
-    @Req() req: Request,
+    @Req() req: RawBodyRequest<Request>,
     @Body() body: Record<string, unknown>,
   ): Promise<{ ok: boolean }> {
     // Remnawave signs the payload with HMAC-SHA256 over the JSON body and
-    // sends it in `X-Remnawave-Signature` (+ `X-Remnawave-Timestamp`), per the
-    // official backend-contract. Older/custom senders used `x-webhook-secret`,
-    // so we accept that as a fallback for backward compatibility.
+    // sends it in `X-Remnawave-Signature`, per the official backend-contract.
+    // Older/custom senders used `x-webhook-secret`, so we accept that as a
+    // fallback for backward compatibility.
     const signature =
       (req.headers['x-remnawave-signature'] as string | undefined) ??
       (req.headers['x-webhook-secret'] as string | undefined);
-    const rawBody = JSON.stringify(body);
+    // Verify over the EXACT bytes Remnawave signed. Re-serialising the parsed
+    // body (`JSON.stringify(body)`) can reorder keys / change spacing /
+    // escaping, so the recomputed HMAC would never match and every event would
+    // be silently dropped — which is exactly the "feed stays empty" symptom.
+    // `rawBody` is populated by Nest (`rawBody: true` in main.ts).
+    const rawBody =
+      req.rawBody !== undefined ? req.rawBody.toString('utf8') : JSON.stringify(body);
 
     if (!this.webhookService.validateSignature(rawBody, signature)) {
+      this.webhookService.logRejectedSignature(Boolean(signature), req.ip ?? null);
       return { ok: false };
     }
 

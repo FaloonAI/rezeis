@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsIn,
   IsInt,
   IsObject,
   IsOptional,
@@ -7,6 +8,10 @@ import {
   MaxLength,
   ValidateIf,
 } from 'class-validator';
+
+/** Error-report generation modes (see ErrorReportsConfig). */
+export const ERROR_REPORT_MODES = ['off', 'manual', 'auto'] as const;
+export type ErrorReportMode = (typeof ERROR_REPORT_MODES)[number];
 
 /**
  * Patch payload for `PATCH /admin/settings/system-notifications/telegram`.
@@ -66,6 +71,25 @@ export class UpdateTelegramDeliveryDto {
   @IsString()
   @MaxLength(64)
   public readonly devChatId?: string | null;
+
+  /**
+   * Error-report generation mode (independent of delivery routing):
+   *   - `off`    — only the on-demand bulk export exists.
+   *   - `manual` — per-error `.txt` is downloadable from the Events page.
+   *   - `auto`   — the server also writes a `.txt` artifact for every new
+   *                ERROR event into the on-disk archive.
+   */
+  @IsOptional()
+  @IsIn(ERROR_REPORT_MODES)
+  public readonly errorReportMode?: ErrorReportMode;
+
+  /**
+   * When true, ERROR events delivered to Telegram (operator chat, dev DM, or
+   * dev-fallback) carry the formatted `.txt` report as an attached document.
+   */
+  @IsOptional()
+  @IsBoolean()
+  public readonly errorReportTelegramTxt?: boolean;
 }
 
 /**

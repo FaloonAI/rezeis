@@ -34,6 +34,17 @@ import { webhookConfig } from '../config/webhook.config';
 import { buildWebhookSignature } from '../http/webhook-signature.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../../modules/realtime/realtime.gateway';
+import { resolveTelegramDeliveryTarget } from './telegram-delivery-target.util';
+import {
+  buildErrorReportFilename,
+  formatErrorEventCardHtml,
+  formatErrorReportTxt,
+  getRezeisBuildInfo,
+  isErrorEvent,
+  type ErrorReportEvent,
+} from './error-report.util';
+import { resolveErrorReportsDir, writeErrorReport } from './error-report-archive.util';
+import { BotNotifierClient } from '../../modules/notifications/services/bot-notifier.client';
 
 // ── Event Types ─────────────────────────────────────────────────────────────
 
@@ -183,6 +194,15 @@ export class SystemEventsService {
   private realtimeGateway: RealtimeGateway | null = null;
   private realtimeGatewayResolved = false;
 
+  /**
+   * Lazily-resolved reiwa bot notifier — same `ModuleRef` escape hatch as the
+   * realtime gateway to avoid a hard module cycle. Used for the automatic
+   * dev-fallback (`reiwa.dev.notify`): when no operator group/topic is
+   * configured, system events are routed to the reiwa bot's `BOT_DEV_ID`.
+   */
+  private botNotifier: BotNotifierClient | null = null;
+  private botNotifierResolved = false;
+
   public constructor(
     private readonly prismaService: PrismaService,
     @Inject(webhookConfig.KEY)
@@ -221,6 +241,11 @@ export class SystemEventsService {
     // 4. Deliver to Telegram group (async, non-blocking)
     this.deliverTelegram(enrichedEvent).catch((err) => {
       this.logger.error(`Telegram delivery failed for ${event.type}: ${(err as Error).message}`);
+    });
+
+    // 4b. Auto-archive ERROR reports to disk when mode=auto (async, non-blocking)
+    this.archiveErrorReport(enrichedEvent).catch((err) => {
+      this.logger.warn(`Error-report archive failed for ${event.type}: ${(err as Error).message}`);
     });
 
     // 5. Push over WebSocket to connected admin clients (sync — no I/O)
@@ -420,31 +445,47 @@ export class SystemEventsService {
     if (!this.httpService) return;
 
     const tgConfig = await this.loadTelegramConfig();
-    if (!tgConfig.botToken) return;
 
-    // Resolve the delivery target. The primary group/channel is used when
-    // delivery is enabled AND a chatId is set; otherwise we fall back to the
-    // operator's personal `devChatId` (the reiwa bot's dev user) so system
-    // events are never silently dropped just because group routing isn't
-    // configured (screen 6 "Доставка в Telegram").
-    const primaryActive = tgConfig.enabled && tgConfig.chatId !== null;
-    let targetChatId: string;
-    let topicId: number | null = null;
-    if (primaryActive && tgConfig.chatId !== null) {
-      // Filter: if events list is specified, only send matching events.
-      if (tgConfig.events.length > 0 && !tgConfig.events.includes(event.type)) return;
-      targetChatId = tgConfig.chatId;
-      // Resolve topic ID: per-category mapping → default → null (general chat)
-      topicId = tgConfig.topicMap[event.category] ?? tgConfig.defaultTopicId ?? null;
-    } else if (tgConfig.devChatId !== null) {
-      // Dev fallback: deliver every event to the operator's DM (no topic
-      // routing, no event filter — the firehose is intentional here).
-      targetChatId = tgConfig.devChatId;
-    } else {
+    const reportEvent = this.toErrorReportEvent(event);
+    const errorEvent = isErrorEvent(reportEvent);
+    const attachTxt =
+      errorEvent && tgConfig.errorReportTelegramTxt && tgConfig.errorReportMode !== 'off';
+
+    const resolved = resolveTelegramDeliveryTarget(tgConfig, event);
+    if (resolved === null) {
+      // No operator group AND no manual devChatId configured → automatic
+      // dev-fallback: route the event to the reiwa bot's BOT_DEV_ID via the
+      // internal channel (the bot knows its dev id; rezeis doesn't). The
+      // event filter is intentionally NOT applied — the dev firehose sees all.
+      await this.deliverToReiwaDev(event, { errorEvent, attachTxt, reportEvent });
       return;
     }
 
-    const html = this.formatTelegramMessage(event);
+    // Direct send (operator group or manual devChatId) needs a bot token —
+    // which on the standard split deployment lives in reiwa, NOT rezeis
+    // (rezeis has no BOT_TOKEN). When we can't reach the Bot API directly we
+    // must NOT silently drop a dev-fallback event: route it through the reiwa
+    // relay instead (its bot delivers to BOT_DEV_ID). This keeps the screen's
+    // promise true — "если доставка выключена или не указан Chat ID, события
+    // всё равно придут сюда в личку бота. Не потеряются."
+    if (!tgConfig.botToken) {
+      if (resolved.isDevFallback) {
+        await this.deliverToReiwaDev(event, { errorEvent, attachTxt, reportEvent });
+      } else {
+        this.logger.warn(
+          `Telegram delivery skipped for ${event.type}: operator chat configured but no bot token available (set telegram.botToken or BOT_TOKEN)`,
+        );
+      }
+      return;
+    }
+    const targetChatId = resolved.chatId;
+    const topicId = resolved.topicId;
+
+    // ERROR events get the richly-sectioned card; everything else keeps the
+    // generic event formatter.
+    const html = errorEvent
+      ? formatErrorEventCardHtml(reportEvent, getRezeisBuildInfo())
+      : this.formatTelegramMessage(event);
 
     const payload: Record<string, unknown> = {
       chat_id: targetChatId,
@@ -467,11 +508,144 @@ export class SystemEventsService {
     } catch (err) {
       this.logger.warn(`Telegram send failed: ${(err as Error).message}`);
     }
+
+    // Attach the .txt error report as a follow-up document when enabled.
+    if (attachTxt) {
+      await this.sendErrorReportDocument({
+        botToken: tgConfig.botToken,
+        chatId: targetChatId,
+        topicId,
+        reportEvent,
+      });
+    }
+  }
+
+  /** Map an emitted system event to the normalized error-report shape. */
+  private toErrorReportEvent(
+    event: SystemEventPayload & { timestamp: string },
+  ): ErrorReportEvent {
+    const meta = event.metadata ?? {};
+    return {
+      kind: `event.${event.type}`,
+      severity: event.severity,
+      category: event.category,
+      message: event.message,
+      timestamp: event.timestamp,
+      metadata: meta,
+      actor: typeof meta['adminId'] === 'string' ? (meta['adminId'] as string) : null,
+    };
+  }
+
+  /**
+   * Upload the formatted `.txt` error report as a Telegram document to the
+   * given chat/topic via the Bot API (`sendDocument`, multipart). Best-effort.
+   */
+  private async sendErrorReportDocument(input: {
+    readonly botToken: string;
+    readonly chatId: string;
+    readonly topicId: number | null;
+    readonly reportEvent: ErrorReportEvent;
+  }): Promise<void> {
+    try {
+      const txt = formatErrorReportTxt(input.reportEvent, getRezeisBuildInfo());
+      const filename = buildErrorReportFilename(input.reportEvent);
+      const form = new FormData();
+      form.append('chat_id', input.chatId);
+      if (input.topicId) form.append('message_thread_id', String(input.topicId));
+      form.append('document', new Blob([txt], { type: 'text/plain' }), filename);
+      const res = await fetch(
+        `https://api.telegram.org/bot${input.botToken}/sendDocument`,
+        { method: 'POST', body: form, signal: AbortSignal.timeout(10_000) },
+      );
+      if (!res.ok) {
+        this.logger.warn(`Telegram sendDocument returned ${res.status}`);
+      }
+    } catch (err) {
+      this.logger.warn(`Telegram sendDocument failed: ${(err as Error).message}`);
+    }
   }
 
   /**
    * Formats an event into a Telegram HTML message matching the altshop style.
    */
+  /**
+   * Lazily resolve the reiwa `BotNotifierClient` through `ModuleRef` (same
+   * cycle-avoidance escape hatch as the realtime gateway). Returns `null` when
+   * the notifications module isn't registered (e.g. minimal worker runtimes).
+   */
+  private resolveBotNotifier(): BotNotifierClient | null {
+    if (this.botNotifierResolved) return this.botNotifier;
+    this.botNotifierResolved = true;
+    try {
+      this.botNotifier = this.moduleRef?.get(BotNotifierClient, { strict: false }) ?? null;
+    } catch {
+      this.botNotifier = null;
+    }
+    return this.botNotifier;
+  }
+
+  /**
+   * Automatic dev-fallback: deliver the event card to the reiwa bot's
+   * `BOT_DEV_ID` over the internal channel. Best-effort and a no-op when the
+   * notifier isn't wired (no REIWA_URL / WEBHOOK_SECRET_HEADER) — the event
+   * still lives in the audit log + realtime stream.
+   */
+  private async deliverToReiwaDev(
+    event: SystemEventPayload & { timestamp: string },
+    opts: { readonly errorEvent: boolean; readonly attachTxt: boolean; readonly reportEvent: ErrorReportEvent },
+  ): Promise<void> {
+    const notifier = this.resolveBotNotifier();
+    if (notifier === null) return;
+    const html = opts.errorEvent
+      ? formatErrorEventCardHtml(opts.reportEvent, getRezeisBuildInfo())
+      : this.formatTelegramMessage(event);
+    try {
+      if (opts.attachTxt) {
+        // Single dev-DM message that mirrors the screenshot/operator layout:
+        // the full `.txt` report as a document, the sectioned error card as
+        // its caption, and a Close button (attached bot-side). The stack
+        // trace + raw payload live in the attached .txt, one tap away.
+        const txt = formatErrorReportTxt(opts.reportEvent, getRezeisBuildInfo());
+        await notifier.notifyDevDocument({
+          filename: buildErrorReportFilename(opts.reportEvent),
+          content: txt,
+          caption: html,
+          parseMode: 'HTML',
+        });
+      } else {
+        // Non-error events (or txt attachment disabled): inline card only.
+        await notifier.notifyDev({ text: html, parseMode: 'HTML' });
+      }
+    } catch (err) {
+      this.logger.warn(`Dev-fallback notify failed: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Auto-archive: when the operator selected the `auto` error-report mode,
+   * write the formatted `.txt` for every new ERROR event into the on-disk
+   * archive (`data/error-reports/<date>/`). Best-effort and bounded — never
+   * blocks the primary pipeline.
+   */
+  private async archiveErrorReport(
+    event: SystemEventPayload & { timestamp: string },
+  ): Promise<void> {
+    const reportEvent = this.toErrorReportEvent(event);
+    if (!isErrorEvent(reportEvent)) return;
+    const tgConfig = await this.loadTelegramConfig();
+    if (tgConfig.errorReportMode !== 'auto') return;
+    const txt = formatErrorReportTxt(reportEvent, getRezeisBuildInfo());
+    const result = await writeErrorReport({
+      baseDir: resolveErrorReportsDir(),
+      filename: buildErrorReportFilename(reportEvent),
+      content: txt,
+      timestamp: event.timestamp,
+    });
+    if (!result.written && result.reason !== 'rate-capped') {
+      this.logger.warn(`Error-report archive skipped: ${result.reason}`);
+    }
+  }
+
   private formatTelegramMessage(event: SystemEventPayload & { timestamp: string }): string {
     const hashtag = `#${eventTypeToHashtag(event.type)}`;
     const emoji = severityEmoji(event.severity);
@@ -596,12 +770,24 @@ export class SystemEventsService {
     defaultTopicId: number | null;
     events: string[];
     devChatId: string | null;
+    errorReportMode: 'off' | 'manual' | 'auto';
+    errorReportTelegramTxt: boolean;
   }> {
     const settings = await this.prismaService.settings.findFirst({
       select: { systemNotifications: true },
     });
     if (!settings) {
-      return { enabled: false, botToken: null, chatId: null, topicMap: {}, defaultTopicId: null, events: [], devChatId: null };
+      return {
+        enabled: false,
+        botToken: null,
+        chatId: null,
+        topicMap: {},
+        defaultTopicId: null,
+        events: [],
+        devChatId: null,
+        errorReportMode: 'manual',
+        errorReportTelegramTxt: true,
+      };
     }
     const json = settings.systemNotifications as Record<string, unknown>;
     const tg = (json?.telegram ?? {}) as Record<string, unknown>;
@@ -614,6 +800,9 @@ export class SystemEventsService {
       topicMap[key.toUpperCase()] = typeof value === 'number' ? value : null;
     }
 
+    const errorReports = (tg.errorReports ?? {}) as Record<string, unknown>;
+    const mode = errorReports.mode;
+
     return {
       enabled: tg.enabled === true,
       botToken: typeof tg.botToken === 'string' ? tg.botToken : (process.env.BOT_TOKEN ?? null),
@@ -622,6 +811,8 @@ export class SystemEventsService {
       defaultTopicId: typeof tg.topicId === 'number' ? tg.topicId : null,
       events: Array.isArray(tg.events) ? tg.events.filter((e): e is string => typeof e === 'string') : [],
       devChatId: typeof tg.devChatId === 'string' && tg.devChatId.length > 0 ? tg.devChatId : null,
+      errorReportMode: mode === 'off' || mode === 'auto' ? mode : 'manual',
+      errorReportTelegramTxt: errorReports.telegramTxt !== false,
     };
   }
 }

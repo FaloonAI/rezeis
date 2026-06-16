@@ -28,6 +28,7 @@ import { AddOnsModule } from './modules/add-ons/add-ons.module';
 import { AntiFraudModule } from './modules/anti-fraud/anti-fraud.module';
 import { ApiTokensModule } from './modules/api-tokens/api-tokens.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { SystemEventsIngestModule } from './modules/system-events-ingest/system-events-ingest.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { AutoRenewModule } from './modules/auto-renew/auto-renew.module';
 import { AutomationsModule } from './modules/automations/automations.module';
@@ -119,6 +120,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     AntiFraudModule,
     ApiTokensModule,
     AuditModule,
+    SystemEventsIngestModule,
     AutoRenewModule,
     AutomationsModule,
     BackupModule,

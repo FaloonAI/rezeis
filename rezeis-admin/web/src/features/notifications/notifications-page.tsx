@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useForm, type Resolver } from 'react-hook-form'
@@ -50,6 +50,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { EmojiPicker } from '@/features/broadcast/emoji-picker'
 import { FadeIn } from '@/lib/motion'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -157,6 +158,42 @@ function UserNotificationsTab() {
   const [editTemplate, setEditTemplate] = useState<NotificationTemplate | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [editBody, setEditBody] = useState('')
+  const titleRef = useRef<HTMLInputElement>(null)
+  const bodyRef = useRef<HTMLTextAreaElement>(null)
+
+  function insertIntoTitle(emoji: string): void {
+    const el = titleRef.current
+    if (!el) {
+      setEditTitle((prev) => prev + emoji)
+      return
+    }
+    const start = el.selectionStart ?? editTitle.length
+    const end = el.selectionEnd ?? editTitle.length
+    const next = editTitle.slice(0, start) + emoji + editTitle.slice(end)
+    setEditTitle(next)
+    requestAnimationFrame(() => {
+      el.focus()
+      const caret = start + emoji.length
+      el.setSelectionRange(caret, caret)
+    })
+  }
+
+  function insertIntoBody(emoji: string): void {
+    const el = bodyRef.current
+    if (!el) {
+      setEditBody((prev) => prev + emoji)
+      return
+    }
+    const start = el.selectionStart ?? editBody.length
+    const end = el.selectionEnd ?? editBody.length
+    const next = editBody.slice(0, start) + emoji + editBody.slice(end)
+    setEditBody(next)
+    requestAnimationFrame(() => {
+      el.focus()
+      const caret = start + emoji.length
+      el.setSelectionRange(caret, caret)
+    })
+  }
 
   const { data: settings, isLoading: settingsLoading } = useQuery({
     queryKey: adminQueryKeys.settings.all,
@@ -288,11 +325,31 @@ function UserNotificationsTab() {
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label>{t('notificationsPage.templates.titleLabel')}</Label>
-              <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+              <div className="relative">
+                <Input
+                  ref={titleRef}
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="pr-9"
+                />
+                <div className="absolute right-1 top-1/2 -translate-y-1/2">
+                  <EmojiPicker onSelect={insertIntoTitle} ariaLabel={t('notificationsPage.templates.titleLabel')} />
+                </div>
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label>{t('notificationsPage.templates.bodyLabel')}</Label>
-              <Textarea value={editBody} onChange={(e) => setEditBody(e.target.value)} className="font-mono text-xs min-h-32" />
+              <div className="relative">
+                <Textarea
+                  ref={bodyRef}
+                  value={editBody}
+                  onChange={(e) => setEditBody(e.target.value)}
+                  className="font-mono text-xs min-h-32 pr-9"
+                />
+                <div className="absolute right-1.5 top-1.5">
+                  <EmojiPicker onSelect={insertIntoBody} ariaLabel={t('notificationsPage.templates.bodyLabel')} />
+                </div>
+              </div>
               <p className="text-[10px] text-muted-foreground">
                 {t('notificationsPage.templates.bodyHint')}
               </p>

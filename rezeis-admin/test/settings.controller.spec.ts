@@ -108,6 +108,7 @@ function buildTelegramConfig(): TelegramDeliveryConfig {
     topics: { PAYMENT: 7 },
     mirrorUserNotifications: true,
     devChatId: null,
+    errorReports: { mode: 'manual', telegramTxt: true },
   };
 }
 
@@ -326,6 +327,8 @@ describe('SettingsController', () => {
       topics: telegramDto.topics,
       mirrorUserNotifications: telegramDto.mirrorUserNotifications,
       devChatId: telegramDto.devChatId,
+      errorReportMode: telegramDto.errorReportMode,
+      errorReportTelegramTxt: telegramDto.errorReportTelegramTxt,
     });
     assert.deepStrictEqual(calls[2], {
       currentAdmin,

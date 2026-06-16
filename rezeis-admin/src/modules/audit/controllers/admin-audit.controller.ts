@@ -1,5 +1,6 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Response } from 'express';
 
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
 import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
@@ -54,5 +55,25 @@ export class AdminAuditController {
   @ApiOperation({ summary: 'Distinct values for the audit filter dropdowns' })
   public facets(): Promise<AuditFacetsInterface> {
     return this.auditService.getFacets();
+  }
+
+  // ── Export ───────────────────────────────────────────────────────────────
+
+  @Get('export')
+  @RequirePermission('audit', 'view')
+  @ApiOperation({ summary: 'Download events as a plain-text (.txt) file' })
+  public async export(
+    @Query() query: ListAuditEventsV2QueryDto,
+    @Res() res: Response,
+  ): Promise<void> {
+    const txt = await this.auditService.exportEventsTxt({
+      systemOnly: query.systemOnly === 'true',
+      kind: query.kind,
+    });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const scope = query.systemOnly === 'true' ? 'system-events' : 'events';
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="rezeis-${scope}-${stamp}.txt"`);
+    res.send(txt);
   }
 }

@@ -65,6 +65,8 @@ interface UpdateTelegramDeliveryInput {
   readonly topics?: Record<string, number | null>;
   readonly mirrorUserNotifications?: boolean;
   readonly devChatId?: string | null;
+  readonly errorReportMode?: 'off' | 'manual' | 'auto';
+  readonly errorReportTelegramTxt?: boolean;
 }
 
 interface SendTelegramDeliveryTestInput {
@@ -609,6 +611,22 @@ export class SettingsService {
           updatedFields.push('devChatId');
         }
 
+        // Error-report config lives in a nested `errorReports` object so it
+        // round-trips alongside the rest of the telegram delivery settings.
+        if (input.errorReportMode !== undefined || input.errorReportTelegramTxt !== undefined) {
+          const previousErrorReports = readJsonObject(previousTelegram.errorReports);
+          const nextErrorReports: Record<string, unknown> = { ...previousErrorReports };
+          if (input.errorReportMode !== undefined) {
+            nextErrorReports.mode = input.errorReportMode;
+            updatedFields.push('errorReports.mode');
+          }
+          if (input.errorReportTelegramTxt !== undefined) {
+            nextErrorReports.telegramTxt = input.errorReportTelegramTxt;
+            updatedFields.push('errorReports.telegramTxt');
+          }
+          nextTelegram.errorReports = nextErrorReports;
+        }
+
         if (nextTelegram.enabled === true && (nextTelegram.chatId === null || nextTelegram.chatId === undefined)) {
           throw new BadRequestException('TELEGRAM_DELIVERY_CHAT_REQUIRED');
         }
@@ -1079,6 +1097,15 @@ export interface TelegramDeliveryConfig {
    * `null` = no fallback. Delivered directly via the shared `BOT_TOKEN`.
    */
   readonly devChatId: string | null;
+  /**
+   * Error-report generation config. `mode` controls whether per-error `.txt`
+   * artifacts are produced (`off` | `manual` | `auto`); `telegramTxt`
+   * controls whether ERROR Telegram deliveries attach the `.txt` document.
+   */
+  readonly errorReports: {
+    readonly mode: 'off' | 'manual' | 'auto';
+    readonly telegramTxt: boolean;
+  };
 }
 
 function readJsonObject(value: unknown): Record<string, unknown> {
@@ -1100,6 +1127,8 @@ function readTelegramDeliveryConfig(systemNotifications: unknown): TelegramDeliv
   const obj = readJsonObject(systemNotifications);
   const tg = readJsonObject(obj.telegram);
   const topics = readJsonObject(tg.topics);
+  const errorReports = readJsonObject(tg.errorReports);
+  const mode = errorReports.mode;
   const normalisedTopics: Record<string, number | null> = {};
   for (const [key, value] of Object.entries(topics)) {
     normalisedTopics[key.toUpperCase()] =
@@ -1112,6 +1141,10 @@ function readTelegramDeliveryConfig(systemNotifications: unknown): TelegramDeliv
     topics: normalisedTopics,
     mirrorUserNotifications: tg.mirrorUserNotifications === true,
     devChatId: typeof tg.devChatId === 'string' && tg.devChatId.length > 0 ? tg.devChatId : null,
+    errorReports: {
+      mode: mode === 'off' || mode === 'auto' ? mode : 'manual',
+      telegramTxt: errorReports.telegramTxt !== false,
+    },
   };
 }
 

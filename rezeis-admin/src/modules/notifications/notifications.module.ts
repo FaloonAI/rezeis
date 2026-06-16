@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { InternalPushModule } from '../push/internal-push.module';
 import { AdminNotificationTemplatesController } from './controllers/admin-notification-templates.controller';
+import { AdminUserNotificationEventsController } from './controllers/admin-user-notification-events.controller';
 import { BotNotifierClient } from './services/bot-notifier.client';
 import { NotificationTemplatesService } from './services/notification-templates.service';
 import { UserNotificationsService } from './services/user-notifications.service';
@@ -28,7 +29,7 @@ import { UserNotificationsService } from './services/user-notifications.service'
  */
 @Module({
   imports: [AuthModule, InternalPushModule],
-  controllers: [AdminNotificationTemplatesController],
+  controllers: [AdminNotificationTemplatesController, AdminUserNotificationEventsController],
   providers: [
     NotificationTemplatesService,
     BotNotifierClient,

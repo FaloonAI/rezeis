@@ -89,6 +89,44 @@ export class BotNotifierClient {
     });
   }
 
+  /**
+   * Deliver a system-event card to the bot's developer/operator
+   * (`BOT_DEV_ID`) — the automatic fallback used when no operator
+   * group/topic is configured. reiwa relays it to the bot, which knows
+   * its own dev id; rezeis never needs to. Best-effort, fire-and-forget.
+   */
+  public async notifyDev(input: {
+    readonly text: string;
+    readonly parseMode?: 'MarkdownV2' | 'HTML';
+  }): Promise<void> {
+    await this.deliver('reiwa.dev.notify', {
+      text: input.text,
+      parseMode: input.parseMode,
+    });
+  }
+
+  /**
+   * Deliver an `.txt` error report (e.g. `error_0.txt`) to the bot's
+   * developer/operator (`BOT_DEV_ID`) as a Telegram document, with the
+   * sectioned error card carried as the document caption. The dev-DM analogue
+   * of the operator group's error report. reiwa relays it to the bot (which
+   * knows its own dev id) and the bot attaches a Close button. Best-effort,
+   * fire-and-forget.
+   */
+  public async notifyDevDocument(input: {
+    readonly filename: string;
+    readonly content: string;
+    readonly caption?: string;
+    readonly parseMode?: 'MarkdownV2' | 'HTML';
+  }): Promise<void> {
+    await this.deliver('reiwa.dev.notify.document', {
+      filename: input.filename,
+      content: input.content,
+      caption: input.caption,
+      parseMode: input.parseMode,
+    });
+  }
+
   private async deliver(
     event: string,
     metadata: Record<string, unknown>,

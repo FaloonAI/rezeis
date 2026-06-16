@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { ClipboardList, AlertCircle, ChevronDown, Filter, ScrollText, X, Activity } from 'lucide-react';
+import { ClipboardList, AlertCircle, ChevronDown, Filter, ScrollText, X, Activity, Bell, Download } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatDateTime, cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -66,6 +66,23 @@ async function fetchFacets(signal?: AbortSignal): Promise<Facets> {
   return res.data;
 }
 
+/** Download events as a .txt file (system-only or full audit). */
+async function downloadEventsTxt(systemOnly: boolean): Promise<void> {
+  const res = await api.get('/admin/audit/export', {
+    params: systemOnly ? { systemOnly: 'true' } : {},
+    responseType: 'blob',
+  });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const url = URL.createObjectURL(res.data as Blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `rezeis-${systemOnly ? 'system-events' : 'events'}-${stamp}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 function kindVariant(kind: string): 'default' | 'destructive' | 'warning' | 'success' | 'secondary' {
   if (kind.includes('delete') || kind.includes('revoke') || kind.includes('ban')) return 'destructive';
   if (kind.includes('create') || kind.includes('grant') || kind.includes('activate')) return 'success';
@@ -103,6 +120,30 @@ function PayloadViewer({ payload }: { payload: Record<string, unknown> | null })
 
 const SystemLogsTab = lazy(() => import('@/features/system-logs/system-logs-page'))
 
+interface UserEvent {
+  id: string;
+  type: string;
+  userId: string;
+  telegramId: string | null;
+  userName: string | null;
+  payload: Record<string, unknown>;
+  readAt: string | null;
+  createdAt: string;
+}
+
+interface UserEventsResponse {
+  items: UserEvent[];
+  nextCursor: string | null;
+}
+
+async function fetchUserEvents(
+  params: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<UserEventsResponse> {
+  const res = await api.get<UserEventsResponse>('/admin/notifications/events', { params, signal });
+  return res.data;
+}
+
 export default function AuditPage() {
   const { t } = useTranslation()
   return (
@@ -127,6 +168,10 @@ export default function AuditPage() {
             <Activity className="h-3.5 w-3.5" />
             {t('auditPage.tabs.systemEvents')}
           </TabsTrigger>
+          <TabsTrigger value="user-events" className="gap-1.5">
+            <Bell className="h-3.5 w-3.5" />
+            {t('auditPage.tabs.userEvents')}
+          </TabsTrigger>
           <TabsTrigger value="system-logs" className="gap-1.5">
             <ScrollText className="h-3.5 w-3.5" />
             {t('auditPage.tabs.systemLogs')}
@@ -139,6 +184,10 @@ export default function AuditPage() {
 
         <TabsContent value="system-events" className="pt-2">
           <SystemEventsTab />
+        </TabsContent>
+
+        <TabsContent value="user-events" className="pt-2">
+          <UserEventsTab />
         </TabsContent>
 
         <TabsContent value="system-logs" className="pt-2">
@@ -477,21 +526,31 @@ function SystemEventsTab() {
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-muted-foreground" />
             <CardTitle className="text-base">{t('auditPage.filters.title')}</CardTitle>
-            <div className="ml-auto w-48">
-              <Select
-                value={severity || 'all'}
-                onValueChange={(v) => setSeverity(v === 'all' ? '' : v)}
+            <div className="ml-auto flex items-center gap-2">
+              <div className="w-48">
+                <Select
+                  value={severity || 'all'}
+                  onValueChange={(v) => setSeverity(v === 'all' ? '' : v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={t('auditPage.systemEvents.filters.severityPlaceholder')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t('auditPage.systemEvents.filters.allSeverities')}</SelectItem>
+                    <SelectItem value="INFO">{t('auditPage.systemEvents.severity.INFO')}</SelectItem>
+                    <SelectItem value="WARNING">{t('auditPage.systemEvents.severity.WARNING')}</SelectItem>
+                    <SelectItem value="ERROR">{t('auditPage.systemEvents.severity.ERROR')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void downloadEventsTxt(true)}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder={t('auditPage.systemEvents.filters.severityPlaceholder')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t('auditPage.systemEvents.filters.allSeverities')}</SelectItem>
-                  <SelectItem value="INFO">{t('auditPage.systemEvents.severity.INFO')}</SelectItem>
-                  <SelectItem value="WARNING">{t('auditPage.systemEvents.severity.WARNING')}</SelectItem>
-                  <SelectItem value="ERROR">{t('auditPage.systemEvents.severity.ERROR')}</SelectItem>
-                </SelectContent>
-              </Select>
+                <Download className="mr-1.5 h-4 w-4" />
+                {t('auditPage.systemEvents.exportTxt')}
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -562,6 +621,147 @@ function SystemEventsTab() {
                       </TableRow>
                     );
                   })}
+                </TableBody>
+              </Table>
+
+              <div className="flex items-center justify-between mt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePrevPage}
+                  disabled={cursors.length === 0}
+                >
+                  {t('auditPage.events.pagination.previous')}
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  {t('auditPage.events.pagination.page', { page: cursors.length + 1 })}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleNextPage}
+                  disabled={!data?.nextCursor}
+                >
+                  {t('auditPage.events.pagination.next')}
+                </Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/**
+ * User-events feed — recent `UserNotificationEvent` rows (subscription
+ * expiry, referral / partner payouts, operator pushes…). The user-facing
+ * counterpart to the system-events stream. Reads `/admin/notifications/events`.
+ */
+function UserEventsTab() {
+  const { t } = useTranslation();
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const [cursors, setCursors] = useState<string[]>([]);
+
+  const params: Record<string, string> = { limit: '50' };
+  if (cursor) params.cursor = cursor;
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['user-events', params],
+    queryFn: ({ signal }) => fetchUserEvents(params, signal),
+    placeholderData: keepPreviousData,
+    refetchInterval: 30_000,
+  });
+
+  function handleNextPage() {
+    if (data?.nextCursor) {
+      setCursors((prev) => [...prev, cursor ?? '']);
+      setCursor(data.nextCursor);
+    }
+  }
+
+  function handlePrevPage() {
+    const prev = cursors[cursors.length - 1];
+    setCursors((c) => c.slice(0, -1));
+    setCursor(prev || undefined);
+  }
+
+  if (error)
+    return (
+      <Alert variant="destructive">
+        <AlertCircle className="h-4 w-4" />
+        <AlertTitle>{t('auditPage.error.title')}</AlertTitle>
+        <AlertDescription>{t('auditPage.error.body')}</AlertDescription>
+      </Alert>
+    );
+
+  const items = data?.items ?? [];
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Bell className="h-5 w-5 text-muted-foreground" />
+            <CardTitle>{t('auditPage.userEvents.title')}</CardTitle>
+          </div>
+          <CardDescription>{t('auditPage.userEvents.subtitle')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : items.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
+              <Bell className="h-10 w-10 opacity-30" />
+              <p>{t('auditPage.userEvents.empty')}</p>
+            </div>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('auditPage.events.columns.time')}</TableHead>
+                    <TableHead>{t('auditPage.userEvents.columns.user')}</TableHead>
+                    <TableHead>{t('auditPage.events.columns.event')}</TableHead>
+                    <TableHead>{t('auditPage.userEvents.columns.status')}</TableHead>
+                    <TableHead>{t('auditPage.events.columns.payload')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((event) => (
+                    <TableRow key={event.id}>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        {formatDateTime(event.createdAt)}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        <span className="font-medium">{event.userName || '—'}</span>
+                        {event.telegramId ? (
+                          <span className="block font-mono text-[10px] text-muted-foreground">
+                            {event.telegramId}
+                          </span>
+                        ) : null}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className="font-mono text-xs">
+                          {event.type}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={event.readAt ? 'secondary' : 'success'} className="text-xs">
+                          {event.readAt
+                            ? t('auditPage.userEvents.status.read')
+                            : t('auditPage.userEvents.status.unread')}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <PayloadViewer payload={event.payload} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
 

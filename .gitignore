@@ -39,3 +39,6 @@ backup_full_*.tar
 stealthnet-backup-*.sql
 stealthnet-backup-*.sql.gz
 *.dump
+
+# Agent scratch / local tooling
+.claude/

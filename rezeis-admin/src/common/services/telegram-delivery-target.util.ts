@@ -1,0 +1,55 @@
+/**
+ * Pure resolver for the system-events Telegram delivery target.
+ *
+ * Delivery rules (screen "Доставка в Telegram"):
+ *   1. PRIMARY — when delivery is enabled AND a `chatId` is set, send to that
+ *      group/channel. Topic = per-category override → default topic → null
+ *      (general chat). An optional `events` allow-list filters which event
+ *      types are forwarded (empty = all).
+ *   2. DEV FALLBACK — when the primary group is NOT configured (disabled or no
+ *      `chatId`), every event is delivered to the operator's personal
+ *      `devChatId` DM via the SAME bot token (i.e. the reiwa bot), with no
+ *      topic routing and no event filter. A bot DM is visible only to that
+ *      dev/operator — matching "видны только для dev пользователя".
+ *   3. NONE — neither a primary chat nor a dev chat is configured → no Telegram
+ *      delivery (the event still persists to the audit log + realtime).
+ *
+ * Extracted as a pure function so the fallback contract is unit-testable and
+ * can't silently regress.
+ */
+export interface TelegramDeliveryConfigShape {
+  readonly enabled: boolean;
+  readonly chatId: string | null;
+  readonly devChatId: string | null;
+  readonly topicMap: Record<string, number | null>;
+  readonly defaultTopicId: number | null;
+  readonly events: readonly string[];
+}
+
+export interface TelegramDeliveryTarget {
+  readonly chatId: string;
+  readonly topicId: number | null;
+  /** `true` when this resolved via the dev-DM fallback (no primary chat). */
+  readonly isDevFallback: boolean;
+}
+
+export function resolveTelegramDeliveryTarget(
+  config: TelegramDeliveryConfigShape,
+  event: { readonly type: string; readonly category: string },
+): TelegramDeliveryTarget | null {
+  const primaryActive = config.enabled && config.chatId !== null;
+  if (primaryActive && config.chatId !== null) {
+    if (config.events.length > 0 && !config.events.includes(event.type)) {
+      return null;
+    }
+    return {
+      chatId: config.chatId,
+      topicId: config.topicMap[event.category] ?? config.defaultTopicId ?? null,
+      isDevFallback: false,
+    };
+  }
+  if (config.devChatId !== null) {
+    return { chatId: config.devChatId, topicId: null, isDevFallback: true };
+  }
+  return null;
+}

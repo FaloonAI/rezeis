@@ -219,6 +219,70 @@ export class UserNotificationsService {
   }
 
   /**
+   * Admin-facing recent user-notification events feed — powers the
+   * "Пользовательские события" tab of the Events page. Cursor-paginated
+   * (createdAt+id desc). Joins the owning user's telegramId + name for
+   * display. Read-only; never mutates.
+   */
+  public async listRecentEvents(input: {
+    readonly limit?: number;
+    readonly cursor?: string;
+  }): Promise<{
+    readonly items: ReadonlyArray<{
+      readonly id: string;
+      readonly type: string;
+      readonly userId: string;
+      readonly telegramId: string | null;
+      readonly userName: string | null;
+      readonly payload: Record<string, unknown>;
+      readonly readAt: string | null;
+      readonly createdAt: string;
+    }>;
+    readonly nextCursor: string | null;
+  }> {
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
+    let seek: Prisma.UserNotificationEventWhereInput = {};
+    if (input.cursor !== undefined && input.cursor.length > 0) {
+      const last = await this.prismaService.userNotificationEvent.findUnique({
+        where: { id: input.cursor },
+        select: { id: true, createdAt: true },
+      });
+      if (last !== null) {
+        seek = {
+          OR: [
+            { createdAt: { lt: last.createdAt } },
+            { createdAt: last.createdAt, id: { lt: last.id } },
+          ],
+        };
+      }
+    }
+    const rows = await this.prismaService.userNotificationEvent.findMany({
+      where: seek,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      include: { user: { select: { telegramId: true, name: true } } },
+    });
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    return {
+      items: page.map((e) => ({
+        id: e.id,
+        type: e.type,
+        userId: e.userId,
+        telegramId: e.user.telegramId !== null ? e.user.telegramId.toString() : null,
+        userName: e.user.name,
+        payload:
+          e.payload !== null && typeof e.payload === 'object' && !Array.isArray(e.payload)
+            ? (e.payload as Record<string, unknown>)
+            : {},
+        readAt: e.readAt?.toISOString() ?? null,
+        createdAt: e.createdAt.toISOString(),
+      })),
+      nextCursor: hasMore ? (page[page.length - 1]?.id ?? null) : null,
+    };
+  }
+
+  /**
    * Read the operator's `userNotifications` opt-out map from the
    * singleton `Settings` row. Empty object on any miss / parse failure
    * so the opt-out default (everything enabled) holds — a missing

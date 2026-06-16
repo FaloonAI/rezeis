@@ -143,6 +143,8 @@ export class SettingsController {
       topics: body.topics,
       mirrorUserNotifications: body.mirrorUserNotifications,
       devChatId: body.devChatId,
+      errorReportMode: body.errorReportMode,
+      errorReportTelegramTxt: body.errorReportTelegramTxt,
     });
   }
 
