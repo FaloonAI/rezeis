@@ -267,7 +267,11 @@ function PremiumPicker({
   })
 
   // Only emoji that carry a custom_emoji_id can be bound to a slot.
-  const bindablePacks = (Array.isArray(packs) ? packs : [])
+  // NB: `Array.isArray` narrows to `any[]`, which would strip PackLite typing
+  // (CI's tsconfig.app.json flags the resulting implicit-any), so re-assert the
+  // element type explicitly on the fallback.
+  const packList: ReadonlyArray<PackLite> = Array.isArray(packs) ? packs : []
+  const bindablePacks = packList
     .map((p) => ({ ...p, emojis: p.emojis.filter((e) => (e.customEmojiId ?? '').length > 0) }))
     .filter((p) => p.emojis.length > 0)
 
