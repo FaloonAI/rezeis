@@ -1142,6 +1142,7 @@ function extractUpdatedBrandingFields(
   const fields: Array<keyof UpdateBrandingSettingsDto> = [
     'brandName',
     'logoUrl',
+    'pwaIconUrl',
     'primary',
     'primaryFg',
     'bgPrimary',

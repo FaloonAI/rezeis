@@ -9,6 +9,7 @@ import { InternalPlatformPolicyController } from './controllers/internal-platfor
 import { SettingsController } from './controllers/settings.controller';
 import { AccessModeGuard } from './services/access-mode-guard.service';
 import { IconUploadService } from './services/icon-upload.service';
+import { BrandingAssetUploadService } from './services/branding-asset-upload.service';
 import { SettingsService } from './services/settings.service';
 
 /**
@@ -22,7 +23,7 @@ import { SettingsService } from './services/settings.service';
     InternalBrandingController,
     InternalEventsController,
   ],
-  providers: [SettingsService, IconUploadService, AccessModeGuard],
+  providers: [SettingsService, IconUploadService, BrandingAssetUploadService, AccessModeGuard],
   exports: [SettingsService, AccessModeGuard],
 })
 export class SettingsModule {}

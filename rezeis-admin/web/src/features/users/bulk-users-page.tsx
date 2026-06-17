@@ -169,6 +169,11 @@ export default function BulkUsersPage() {
               <p className="text-xs text-amber-800 dark:text-amber-300">
                 {t('bulkUsersPage.confirm.typeToConfirm', { value: action.toUpperCase() })}
               </p>
+              {action === 'delete' ? (
+                <p className="text-xs text-amber-800 dark:text-amber-300">
+                  {t('bulkUsersPage.confirm.deleteScopeNote')}
+                </p>
+              ) : null}
               <Input
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}

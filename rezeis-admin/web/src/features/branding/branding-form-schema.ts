@@ -19,6 +19,7 @@ export const BRANDING_APP_BG_TEXTURES = [
 export interface BrandingFormDraft {
   readonly brandName: string
   readonly logoUrl: string | null
+  readonly pwaIconUrl: string | null
   readonly primary: string
   readonly primaryFg: string
   readonly bgPrimary: string
@@ -96,6 +97,7 @@ const IMAGE_URL_MAX = 524288
 const DEFAULT_BRANDING_DRAFT: BrandingFormDraft = {
   brandName: 'Reiwa',
   logoUrl: null,
+  pwaIconUrl: null,
   primary: '#22c55e',
   primaryFg: '#0a0a0a',
   bgPrimary: '#0a0a0a',
@@ -128,6 +130,7 @@ export function createBrandingFormSchema(messages: BrandingFormValidationMessage
     .object({
       brandName: z.string().trim().min(1).max(64),
       logoUrl: optionalImageUrl(messages.imageUrlInvalid),
+      pwaIconUrl: optionalImageUrl(messages.imageUrlInvalid),
       primary: z.string().regex(HEX_PATTERN, messages.hexInvalid),
       primaryFg: z.string().regex(HEX_PATTERN, messages.hexInvalid),
       bgPrimary: z.string().regex(HEX_PATTERN, messages.hexInvalid),
@@ -184,6 +187,7 @@ export function createInitialBrandingDraft(input?: Partial<BrandingFormDraft> | 
     ...DEFAULT_BRANDING_DRAFT,
     ...(input ?? {}),
     logoUrl: normalizeDraftNullableString(input?.logoUrl),
+    pwaIconUrl: normalizeDraftNullableString(input?.pwaIconUrl),
     cardPattern: normalizeDraftNullableString(input?.cardPattern),
     cardLogoUrl: normalizeDraftNullableString(input?.cardLogoUrl),
     cardEffectProps: isPlainRecord(input?.cardEffectProps) ? input.cardEffectProps : {},
@@ -242,6 +246,11 @@ function optionalNullableString(maxLength: number) {
 
 function isAllowedImageUrl(value: string): boolean {
   if (DATA_IMAGE_BASE64_PATTERN.test(value)) {
+    return true
+  }
+  // Relative upload path served same-origin by the admin (and proxied by reiwa),
+  // e.g. an uploaded logo / PWA icon at `/uploads/branding/<hash>.png`.
+  if (/^\/uploads\/[A-Za-z0-9._/-]+$/.test(value)) {
     return true
   }
   try {

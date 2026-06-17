@@ -161,10 +161,19 @@ export class UpdateBrandingSettingsDto {
   @ValidateIf((_, value: unknown) => typeof value === 'string' && value.length > 0)
   @IsString()
   @MaxLength(524288)
-  @Matches(/^(?:data:image\/[a-z0-9+.-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/.+)$/i, {
-    message: 'logoUrl must be a data: URI or an http(s) URL',
+  @Matches(/^(?:data:image\/[a-z0-9+.-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/.+|\/uploads\/[A-Za-z0-9._/-]+)$/i, {
+    message: 'logoUrl must be a data: URI, an http(s) URL, or an /uploads/ path',
   })
   public logoUrl?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value: unknown) => typeof value === 'string' && value.length > 0)
+  @IsString()
+  @MaxLength(524288)
+  @Matches(/^(?:data:image\/[a-z0-9+.-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/.+|\/uploads\/[A-Za-z0-9._/-]+)$/i, {
+    message: 'pwaIconUrl must be a data: URI, an http(s) URL, or an /uploads/ path',
+  })
+  public pwaIconUrl?: string | null;
 
   @IsOptional()
   @IsHexColor()
@@ -202,8 +211,8 @@ export class UpdateBrandingSettingsDto {
   @ValidateIf((_, value: unknown) => typeof value === 'string' && value.length > 0)
   @IsString()
   @MaxLength(524288)
-  @Matches(/^(?:data:image\/[a-z0-9+.-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/.+)$/i, {
-    message: 'cardLogoUrl must be a data: URI or an http(s) URL',
+  @Matches(/^(?:data:image\/[a-z0-9+.-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/.+|\/uploads\/[A-Za-z0-9._/-]+)$/i, {
+    message: 'cardLogoUrl must be a data: URI, an http(s) URL, or an /uploads/ path',
   })
   public cardLogoUrl?: string | null;
 

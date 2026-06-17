@@ -35,6 +35,7 @@ export function readBrandingSettings(value: unknown): BrandingSettingsInterface 
   return {
     brandName: readString(record, 'brandName', DEFAULT_BRANDING.brandName),
     logoUrl: readNullableString(record, 'logoUrl'),
+    pwaIconUrl: readNullableString(record, 'pwaIconUrl'),
     primary: readHex(record, 'primary', DEFAULT_BRANDING.primary),
     primaryFg: readHex(record, 'primaryFg', DEFAULT_BRANDING.primaryFg),
     bgPrimary: readHex(record, 'bgPrimary', DEFAULT_BRANDING.bgPrimary),

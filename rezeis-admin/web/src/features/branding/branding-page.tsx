@@ -11,12 +11,12 @@
  * SPA via the internal `public-config` endpoint.
  */
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useForm, Controller, type Resolver, type UseFormReturn } from "react-hook-form";
 import { useTranslation } from 'react-i18next';
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Paintbrush, RotateCcw, Save, Sparkles, Wand2 } from "lucide-react";
+import { Check, Loader2, Paintbrush, RotateCcw, Save, Sparkles, Upload, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import api from "@/lib/api";
@@ -64,6 +64,16 @@ async function fetchBranding(): Promise<BrandingFormDraft> {
 async function updateBranding(values: BrandingFormData): Promise<BrandingFormDraft> {
   const { data } = await api.patch<Partial<BrandingFormDraft>>("/admin/settings/branding", values);
   return createInitialBrandingDraft(data);
+}
+
+/** Upload a branding asset (logo / PWA icon) → returns its `/uploads/branding/...` URL. */
+async function uploadBrandingAsset(file: File): Promise<string> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await api.post<{ url: string }>("/admin/settings/branding/logo-upload", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data.url;
 }
 
 // ── Page ────────────────────────────────────────────────────────────────────
@@ -238,14 +248,73 @@ export default function WebReiwaPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="logoUrl">{t('brandingPage.sections.identity.logoUrl')}</Label>
-                <Input
-                  id="logoUrl"
-                  {...form.register("logoUrl")}
-                  aria-invalid={!!form.formState.errors.logoUrl}
-                  placeholder={t('brandingPage.sections.identity.logoUrlPlaceholder')}
-                />
+                <div className="flex gap-2">
+                  <Input
+                    id="logoUrl"
+                    {...form.register("logoUrl")}
+                    aria-invalid={!!form.formState.errors.logoUrl}
+                    placeholder={t('brandingPage.sections.identity.logoUrlPlaceholder')}
+                  />
+                  <AssetUploadButton
+                    accept="image/png,image/webp,image/svg+xml"
+                    label={t('brandingPage.sections.identity.upload')}
+                    onUploaded={(url) => form.setValue("logoUrl", url, { shouldDirty: true })}
+                  />
+                </div>
                 <p className="text-[11px] text-muted-foreground">{t('brandingPage.sections.identity.logoHint')}</p>
                 <FieldError message={form.formState.errors.logoUrl?.message} />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('brandingPage.sections.pwaIcon.title')}</CardTitle>
+              <CardDescription>{t('brandingPage.sections.pwaIcon.description')}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-start gap-4">
+                <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl border bg-muted/40">
+                  {watchedValues.pwaIconUrl ?? watchedValues.logoUrl ? (
+                    <img
+                      src={(watchedValues.pwaIconUrl ?? watchedValues.logoUrl) as string}
+                      alt="pwa icon"
+                      className="h-full w-full object-contain"
+                    />
+                  ) : (
+                    <span className="px-2 text-center text-[10px] text-muted-foreground">
+                      {t('brandingPage.sections.pwaIcon.previewEmpty')}
+                    </span>
+                  )}
+                </div>
+                <div className="flex-1 space-y-2">
+                  <div className="flex gap-2">
+                    <Input
+                      id="pwaIconUrl"
+                      {...form.register("pwaIconUrl")}
+                      aria-invalid={!!form.formState.errors.pwaIconUrl}
+                      placeholder={t('brandingPage.sections.pwaIcon.urlPlaceholder')}
+                    />
+                    <AssetUploadButton
+                      accept="image/png,image/webp"
+                      label={t('brandingPage.sections.identity.upload')}
+                      onUploaded={(url) => form.setValue("pwaIconUrl", url, { shouldDirty: true })}
+                    />
+                    {watchedValues.pwaIconUrl ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        aria-label={t('brandingPage.sections.pwaIcon.remove')}
+                        onClick={() => form.setValue("pwaIconUrl", null, { shouldDirty: true })}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    ) : null}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">{t('brandingPage.sections.pwaIcon.hint')}</p>
+                  <FieldError message={form.formState.errors.pwaIconUrl?.message} />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -568,6 +637,61 @@ export default function WebReiwaPage() {
 
 function FieldError({ message }: { readonly message?: string }) {
   return message ? <p className="text-sm text-destructive">{message}</p> : null;
+}
+
+/**
+ * Hidden-input file uploader. Posts the chosen file to the branding asset
+ * endpoint and hands the resulting `/uploads/branding/...` URL back to the
+ * caller (which sets the relevant form field). Self-contained pending state.
+ */
+function AssetUploadButton({
+  onUploaded,
+  label,
+  accept,
+}: {
+  readonly onUploaded: (url: string) => void;
+  readonly label: string;
+  readonly accept: string;
+}) {
+  const { t } = useTranslation();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const mutation = useMutation({
+    mutationFn: uploadBrandingAsset,
+    onSuccess: (url) => {
+      onUploaded(url);
+      toast.success(t('brandingPage.sections.identity.uploadSuccess'));
+    },
+    onError: () => toast.error(t('brandingPage.sections.identity.uploadFailed')),
+  });
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) mutation.mutate(file);
+          e.target.value = '';
+        }}
+      />
+      <Button
+        type="button"
+        variant="outline"
+        disabled={mutation.isPending}
+        onClick={() => inputRef.current?.click()}
+      >
+        {mutation.isPending ? (
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        ) : (
+          <Upload className="mr-2 h-4 w-4" />
+        )}
+        {label}
+      </Button>
+    </>
+  );
 }
 
 function ColorField({

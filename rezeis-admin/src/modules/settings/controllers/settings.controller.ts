@@ -23,6 +23,11 @@ import { BrandingSettingsInterface } from '../interfaces/branding-settings.inter
 import { CustomIconInterface } from '../interfaces/custom-icon.interface';
 import { PlatformSettingsInterface } from '../interfaces/platform-settings.interface';
 import { IconUploadService, ICON_MAX_FILE_SIZE, IconUploadedInterface } from '../services/icon-upload.service';
+import {
+  BrandingAssetUploadService,
+  BRANDING_ASSET_MAX_FILE_SIZE,
+  BrandingAssetUploadedInterface,
+} from '../services/branding-asset-upload.service';
 import { SettingsService } from '../services/settings.service';
 import { PaymentOpsAlertSettingsInterface } from '../../../common/interfaces/payment-ops-alert-settings.interface';
 
@@ -35,6 +40,7 @@ export class SettingsController {
   public constructor(
     private readonly settingsService: SettingsService,
     private readonly iconUploadService: IconUploadService,
+    private readonly brandingAssetUploadService: BrandingAssetUploadService,
   ) {}
 
   /**
@@ -293,6 +299,32 @@ export class SettingsController {
       throw new BadRequestException('No file uploaded');
     }
     return this.iconUploadService.persist({
+      buffer: file.buffer,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+    });
+  }
+
+  /**
+   * Uploads a branding asset (header logo or square PWA icon) and returns its
+   * public `/uploads/branding/<file>` URL. The SPA then PATCHes
+   * `/admin/settings/branding` with `logoUrl` / `pwaIconUrl` set to it.
+   */
+  @Post('branding/logo-upload')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: BRANDING_ASSET_MAX_FILE_SIZE },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload a branding asset (logo / PWA icon) and return its public URL' })
+  public async uploadBrandingAsset(
+    @UploadedFile() file: Express.Multer.File | undefined,
+  ): Promise<BrandingAssetUploadedInterface> {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+    return this.brandingAssetUploadService.persist({
       buffer: file.buffer,
       originalName: file.originalname,
       mimeType: file.mimetype,

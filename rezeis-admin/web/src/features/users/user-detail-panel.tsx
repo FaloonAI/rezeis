@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next'
 import {
   AtSign,
   Apple,
+  AlertTriangle,
   Calendar,
   ChevronDown,
   Copy,
@@ -2557,22 +2558,60 @@ function BlockButton({ telegramId, isBlocked, queryKey }: { telegramId: string; 
 
 function DeleteButton({ telegramId }: { telegramId: string }) {
   const { t } = useTranslation()
+  const [confirmText, setConfirmText] = useState('')
   const mutation = useMutation({
     mutationFn: () => api.delete(`/admin/users/${telegramId}`),
     onSuccess: () => toast.success(t('userDetailPanel.toasts.userDeleted')),
     onError: () => toast.error(t('userDetailPanel.toasts.deleteFailed')),
   })
 
+  // Gate the irreversible delete (also wipes the Remnawave panel profile)
+  // behind a typed confirmation so a stray click can't nuke a subscriber.
+  const confirmed = confirmText.trim().toUpperCase() === 'DELETE'
+
   return (
-    <AlertDialog>
+    <AlertDialog onOpenChange={(open) => { if (!open) setConfirmText('') }}>
       <AlertDialogTrigger asChild>
         <Button size="sm" variant="ghost" className="text-destructive" aria-label={t('userDetailPanel.actions.deleteTitle')}>
           <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
-        <AlertDialogHeader><AlertDialogTitle>{t('userDetailPanel.actions.deleteTitle')}</AlertDialogTitle><AlertDialogDescription>{t('userDetailPanel.actions.deleteDescription')}</AlertDialogDescription></AlertDialogHeader>
-        <AlertDialogFooter><AlertDialogCancel>{t('userDetailPanel.actions.cancel')}</AlertDialogCancel><AlertDialogAction onClick={() => mutation.mutate()} className="bg-destructive text-destructive-foreground">{t('userDetailPanel.actions.deleteForever')}</AlertDialogAction></AlertDialogFooter>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('userDetailPanel.actions.deleteTitle')}</AlertDialogTitle>
+          <AlertDialogDescription>{t('userDetailPanel.actions.deleteDescription')}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>{t('userDetailPanel.actions.deleteWarning')}</span>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="delete-confirm-input">{t('userDetailPanel.actions.deleteConfirmLabel')}</Label>
+          <Input
+            id="delete-confirm-input"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={t('userDetailPanel.actions.deleteConfirmPlaceholder')}
+            autoComplete="off"
+            autoCapitalize="characters"
+          />
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t('userDetailPanel.actions.cancel')}</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={!confirmed || mutation.isPending}
+            onClick={(e) => {
+              if (!confirmed) {
+                e.preventDefault()
+                return
+              }
+              mutation.mutate()
+            }}
+            className="bg-destructive text-destructive-foreground"
+          >
+            {t('userDetailPanel.actions.deleteForever')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
   )

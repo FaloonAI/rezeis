@@ -193,8 +193,15 @@ export interface ProfileNamingSettings {
 export interface BrandingSettingsInterface {
   /** Display name shown on the subscription card and headers. */
   readonly brandName: string;
-  /** Optional logo URL (data: or http(s)). */
+  /** Optional logo URL (data: or http(s) or `/uploads/...`). */
   readonly logoUrl: string | null;
+  /**
+   * Optional square PNG used for PWA install (home-screen icon, splash). Kept
+   * separate from `logoUrl` because the header logo may be an SVG /
+   * transparent / non-square mark, whereas an install icon must be an opaque
+   * square raster. Fallback chain at render: `pwaIconUrl → logoUrl → default`.
+   */
+  readonly pwaIconUrl: string | null;
 
   /** Primary action / accent colour (hex, e.g. `#22c55e`). */
   readonly primary: string;
@@ -285,6 +292,7 @@ export interface BrandingSettingsInterface {
 export const DEFAULT_BRANDING: BrandingSettingsInterface = {
   brandName: 'Reiwa',
   logoUrl: null,
+  pwaIconUrl: null,
   primary: '#22c55e',
   primaryFg: '#0a0a0a',
   bgPrimary: '#0a0a0a',

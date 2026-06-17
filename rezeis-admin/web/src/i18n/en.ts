@@ -1691,6 +1691,7 @@ export const en = {
     confirm: {
       warning: 'This action is destructive',
       typeToConfirm: 'Type {{value}} to confirm.',
+      deleteScopeNote: 'Bulk delete affects the local database only — Remnawave panel profiles are NOT removed.',
     },
     runOn_one: 'Run on {{count}} user',
     runOn_other: 'Run on {{count}} users',
@@ -2603,6 +2604,17 @@ export const en = {
         logoHint: 'Leave empty to use the default Reiwa logo.',
         logoPreview: 'Logo',
         logoDefault: 'Default',
+        upload: 'Upload',
+        uploadSuccess: 'File uploaded',
+        uploadFailed: 'Failed to upload the file',
+      },
+      pwaIcon: {
+        title: 'App icon (PWA)',
+        description: 'The icon and name shown when the cabinet is installed on a phone home screen.',
+        urlPlaceholder: 'URL or upload a file',
+        hint: 'Square PNG 512×512 (1024 ok), opaque background, logo with ~10% safe padding from the edges. Used as the home-screen icon (Android/iOS) and launch splash. If empty, the brand logo is used, otherwise the Reiwa icon.',
+        previewEmpty: 'No icon',
+        remove: 'Remove icon',
       },
       colors: {
         title: 'Colors',

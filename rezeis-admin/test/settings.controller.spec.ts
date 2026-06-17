@@ -21,6 +21,7 @@ import { BrandingSettingsInterface } from '../src/modules/settings/interfaces/br
 import { CustomIconInterface } from '../src/modules/settings/interfaces/custom-icon.interface';
 import { PlatformSettingsInterface } from '../src/modules/settings/interfaces/platform-settings.interface';
 import { IconUploadService, IconUploadedInterface } from '../src/modules/settings/services/icon-upload.service';
+import { BrandingAssetUploadService } from '../src/modules/settings/services/branding-asset-upload.service';
 import { SettingsService, TelegramDeliveryConfig } from '../src/modules/settings/services/settings.service';
 import { SettingsController } from '../src/modules/settings/controllers/settings.controller';
 
@@ -115,10 +116,12 @@ function buildTelegramConfig(): TelegramDeliveryConfig {
 function createController(
   settingsService: object,
   iconUploadService: object = {},
+  brandingAssetUploadService: object = {},
 ): SettingsController {
   return new SettingsController(
     settingsService as unknown as SettingsService,
     iconUploadService as unknown as IconUploadService,
+    brandingAssetUploadService as unknown as BrandingAssetUploadService,
   );
 }
 
@@ -238,6 +241,7 @@ describe('SettingsController', () => {
     const branding: BrandingSettingsInterface = {
       brandName: 'Rezeis',
       logoUrl: null,
+      pwaIconUrl: null,
       primary: '#ffffff',
       primaryFg: '#000000',
       bgPrimary: '#111111',
@@ -363,6 +367,35 @@ describe('SettingsController', () => {
 
     await assert.rejects(controller.uploadCustomIcon(undefined), BadRequestException);
     assert.deepStrictEqual(await controller.uploadCustomIcon(file), uploaded);
+    assert.deepStrictEqual(persistedInput, {
+      buffer: file.buffer,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+    });
+  });
+
+  it('delegates branding asset uploads and rejects missing files', async () => {
+    const uploaded = {
+      url: '/uploads/branding/abc.png',
+      originalName: 'logo.png',
+      mimeType: 'image/png',
+      size: 128,
+    };
+    let persistedInput: { readonly buffer: Buffer; readonly originalName: string; readonly mimeType: string } | undefined;
+    const controller = createController({}, {}, {
+      persist: async (input: { readonly buffer: Buffer; readonly originalName: string; readonly mimeType: string }) => {
+        persistedInput = input;
+        return uploaded;
+      },
+    });
+    const file = {
+      buffer: Buffer.from('PNG'),
+      originalname: 'logo.png',
+      mimetype: 'image/png',
+    } as Express.Multer.File;
+
+    await assert.rejects(controller.uploadBrandingAsset(undefined), BadRequestException);
+    assert.deepStrictEqual(await controller.uploadBrandingAsset(file), uploaded);
     assert.deepStrictEqual(persistedInput, {
       buffer: file.buffer,
       originalName: file.originalname,

@@ -1,10 +1,34 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { loadFeatureBundle } from '@/i18n/i18n'
 import { api } from '@/lib/api'
 import { renderWithProviders } from '@/test/test-utils'
 import UserDetailPanel from './user-detail-panel'
+
+const BASE_USER = {
+  id: 'user-1',
+  telegramId: '12345',
+  username: 'alice',
+  name: 'Alice',
+  email: 'alice@example.com',
+  language: 'en',
+  role: 'USER',
+  isBlocked: false,
+  isPartner: false,
+  points: 0,
+  personalDiscount: 0,
+  purchaseDiscount: 0,
+  maxSubscriptions: 1,
+  createdAt: '2026-06-04T10:00:00.000Z',
+  updatedAt: '2026-06-04T10:00:00.000Z',
+  subscriptions: [],
+  transactions: [],
+  referralsGiven: [],
+  partner: null,
+  webAccount: null,
+}
 
 describe('UserDetailPanel accessibility', () => {
   beforeAll(async () => {
@@ -16,59 +40,42 @@ describe('UserDetailPanel accessibility', () => {
   })
 
   it('names the icon-only delete user trigger', async () => {
-    vi.spyOn(api, 'get').mockResolvedValue({
-      data: {
-        id: 'user-1',
-        telegramId: '12345',
-        username: 'alice',
-        name: 'Alice',
-        email: 'alice@example.com',
-        language: 'en',
-        role: 'USER',
-        isBlocked: false,
-        isPartner: false,
-        points: 0,
-        personalDiscount: 0,
-        purchaseDiscount: 0,
-        maxSubscriptions: 1,
-        createdAt: '2026-06-04T10:00:00.000Z',
-        updatedAt: '2026-06-04T10:00:00.000Z',
-        subscriptions: [],
-        transactions: [],
-        referralsGiven: [],
-        partner: null,
-        webAccount: null,
-      },
-    })
+    vi.spyOn(api, 'get').mockResolvedValue({ data: { ...BASE_USER } })
 
     renderWithProviders(<UserDetailPanel telegramId="12345" />)
 
     expect(await screen.findByRole('button', { name: 'Delete user?' })).toBeInTheDocument()
   })
 
+  it('gates the user delete behind a typed DELETE confirmation', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'get').mockResolvedValue({ data: { ...BASE_USER } })
+    const deleteSpy = vi.spyOn(api, 'delete').mockResolvedValue({ data: {} })
+
+    renderWithProviders(<UserDetailPanel telegramId="12345" />)
+
+    await user.click(await screen.findByRole('button', { name: 'Delete user?' }))
+
+    // The destructive action is disabled until the confirmation matches.
+    const confirmAction = await screen.findByRole('button', { name: 'Delete forever' })
+    expect(confirmAction).toBeDisabled()
+
+    await user.type(screen.getByPlaceholderText('DELETE'), 'DELETE')
+    expect(confirmAction).toBeEnabled()
+    expect(deleteSpy).not.toHaveBeenCalled()
+
+    await user.click(confirmAction)
+    expect(deleteSpy).toHaveBeenCalledWith('/admin/users/12345')
+  })
+
   it('names compact profile action controls', async () => {
     vi.spyOn(api, 'get').mockResolvedValue({
       data: {
-        id: 'user-1',
-        telegramId: '12345',
-        username: 'alice',
-        name: 'Alice',
-        email: 'alice@example.com',
-        language: 'en',
-        role: 'USER',
-        isBlocked: false,
-        isPartner: false,
+        ...BASE_USER,
         points: 7,
         personalDiscount: 5,
         purchaseDiscount: 10,
         maxSubscriptions: 2,
-        createdAt: '2026-06-04T10:00:00.000Z',
-        updatedAt: '2026-06-04T10:00:00.000Z',
-        subscriptions: [],
-        transactions: [],
-        referralsGiven: [],
-        partner: null,
-        webAccount: null,
       },
     })
 
