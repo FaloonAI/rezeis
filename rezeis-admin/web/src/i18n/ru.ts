@@ -1987,6 +1987,14 @@
       kindHwid: 'Устройства',
       kindIp: 'IP',
     },
+    bulk: {
+      selected: 'Выбрано: {{count}}',
+      acknowledge: 'Принять выбранные',
+      dismiss: 'Отклонить выбранные',
+      done: 'Обновлено сигналов: {{count}}',
+      selectAll: 'Выбрать все',
+      selectRow: 'Выбрать сигнал',
+    },
   },
   faqPage: {
     title: 'Часто задаваемые вопросы',

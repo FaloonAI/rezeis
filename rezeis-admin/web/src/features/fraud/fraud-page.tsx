@@ -43,6 +43,7 @@ import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Card,
   CardContent,
@@ -130,6 +131,7 @@ export default function FraudSignalsPage() {
   const [cursorStack, setCursorStack] = useState<string[]>([]);
   const [transitionTarget, setTransitionTarget] = useState<FraudSignal | null>(null);
   const [enforceTarget, setEnforceTarget] = useState<FraudSignal | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const params: ListFraudSignalsParams = { limit: 50 };
   if (statusFilter) params.status = statusFilter;
@@ -155,11 +157,50 @@ export default function FraudSignalsPage() {
     onError: (err) => toast.error(t('fraudPage.toast.detectorsFailed', { message: (err as Error).message })),
   });
 
+  const items = signalsQuery.data?.items ?? [];
+  const selectableIds = items
+    .filter((s) => s.status === 'OPEN' || s.status === 'ACKNOWLEDGED')
+    .map((s) => s.id);
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+
+  function toggleSelect(id: string): void {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll(): void {
+    setSelected((prev) => {
+      if (selectableIds.every((id) => prev.has(id))) return new Set();
+      return new Set(selectableIds);
+    });
+  }
+
+  const bulkMutation = useMutation({
+    mutationFn: async (status: 'ACKNOWLEDGED' | 'DISMISSED') => {
+      const ids = [...selected];
+      for (const id of ids) {
+        await transitionFraudSignal(id, { status });
+      }
+      return ids.length;
+    },
+    onSuccess: (count) => {
+      toast.success(t('fraudPage.bulk.done', { count }));
+      setSelected(new Set());
+      queryClient.invalidateQueries({ queryKey: ['admin', 'fraud'] });
+    },
+    onError: (err) => toast.error(t('fraudPage.toast.updateFailed', { message: (err as Error).message })),
+  });
+
   function clearFilters(): void {
     setStatusFilter('');
     setSeverityFilter('');
     setCursor(undefined);
     setCursorStack([]);
+    setSelected(new Set());
   }
 
   function nextPage(): void {
@@ -282,6 +323,53 @@ export default function FraudSignalsPage() {
         </CardContent>
       </Card>
 
+      {/* Severity quick-chips + bulk actions */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-1.5">
+          {(['', 'HIGH', 'MEDIUM', 'LOW'] as const).map((sev) => (
+            <Button
+              key={sev || 'all'}
+              size="sm"
+              variant={severityFilter === sev ? 'default' : 'outline'}
+              className="h-7 text-xs"
+              onClick={() => {
+                setSeverityFilter(sev);
+                setCursor(undefined);
+                setCursorStack([]);
+                setSelected(new Set());
+              }}
+            >
+              {sev === '' ? t('fraudPage.filters.allSeverities') : t(`fraudPage.severities.${sev}`)}
+            </Button>
+          ))}
+        </div>
+        {selected.size > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              {t('fraudPage.bulk.selected', { count: selected.size })}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              disabled={bulkMutation.isPending}
+              onClick={() => bulkMutation.mutate('ACKNOWLEDGED')}
+            >
+              {t('fraudPage.bulk.acknowledge')}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              disabled={bulkMutation.isPending}
+              onClick={() => bulkMutation.mutate('DISMISSED')}
+            >
+              {t('fraudPage.bulk.dismiss')}
+            </Button>
+          </div>
+        )}
+      </div>
+
       {/* Table */}
       <Card>
         <CardHeader>
@@ -313,6 +401,14 @@ export default function FraudSignalsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={allSelected}
+                        onCheckedChange={toggleSelectAll}
+                        aria-label={t('fraudPage.bulk.selectAll')}
+                        disabled={selectableIds.length === 0}
+                      />
+                    </TableHead>
                     <TableHead className="w-32">{t('fraudPage.table.columns.detected')}</TableHead>
                     <TableHead>{t('fraudPage.table.columns.signal')}</TableHead>
                     <TableHead className="w-24">{t('fraudPage.table.columns.severity')}</TableHead>
@@ -328,6 +424,8 @@ export default function FraudSignalsPage() {
                     <SignalRow
                       key={signal.id}
                       signal={signal}
+                      selected={selected.has(signal.id)}
+                      onToggleSelect={toggleSelect}
                       onTransition={(s) => setTransitionTarget(s)}
                       onEnforce={(s) => setEnforceTarget(s)}
                     />
@@ -530,10 +628,14 @@ function TopOffenders() {
 
 function SignalRow({
   signal,
+  selected,
+  onToggleSelect,
   onTransition,
   onEnforce,
 }: {
   signal: FraudSignal;
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
   onTransition: (s: FraudSignal) => void;
   onEnforce: (s: FraudSignal) => void;
 }) {
@@ -543,9 +645,18 @@ function SignalRow({
     signal.code === 'SUBSCRIPTION_SHARING_HWID' || signal.code === 'SUBSCRIPTION_SHARING_IP';
   const canEnforce =
     isSharing && (signal.status === 'OPEN' || signal.status === 'ACKNOWLEDGED');
+  const selectable = signal.status === 'OPEN' || signal.status === 'ACKNOWLEDGED';
   return (
     <>
       <TableRow>
+        <TableCell>
+          <Checkbox
+            checked={selected}
+            onCheckedChange={() => onToggleSelect(signal.id)}
+            disabled={!selectable}
+            aria-label={t('fraudPage.bulk.selectRow')}
+          />
+        </TableCell>
         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
           {formatDateTime(signal.detectedAt)}
         </TableCell>

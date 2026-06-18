@@ -1965,6 +1965,14 @@ export const en = {
       kindHwid: 'Devices',
       kindIp: 'IP',
     },
+    bulk: {
+      selected: '{{count}} selected',
+      acknowledge: 'Acknowledge selected',
+      dismiss: 'Dismiss selected',
+      done: '{{count}} signals updated',
+      selectAll: 'Select all',
+      selectRow: 'Select signal',
+    },
   },
   faqPage: {
     title: 'Frequently asked questions',
