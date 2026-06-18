@@ -25,7 +25,7 @@ const envBoolean = (defaultValue: boolean) => z.preprocess((value) => {
   return value;
 }, z.boolean().default(defaultValue));
 
-const webhookSecretPattern = /^[a-zA-Z0-9]{64}$/;
+const webhookSecretPattern = /^[a-zA-Z0-9]{64,256}$/;
 
 const environmentSchema = z.object({
   // ── Application ──────────────────────────────────────────────────────────
@@ -54,7 +54,7 @@ const environmentSchema = z.object({
     // operator fixes it. Core secrets like REZEIS_CRYPT_KEY still fail closed.
     if (typeof normalized === 'string' && !webhookSecretPattern.test(normalized)) {
       console.warn(
-        '[env] WEBHOOK_SECRET_HEADER is set but is not exactly 64 alphanumeric characters — ' +
+        '[env] WEBHOOK_SECRET_HEADER is set but is not 64–256 alphanumeric characters — ' +
           'webhook signing (reiwa push / outbound webhooks) is DISABLED. ' +
           'Set a valid value (e.g. `openssl rand -hex 32`) or leave it empty.',
       );

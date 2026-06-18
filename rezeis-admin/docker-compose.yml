@@ -183,8 +183,12 @@ services:
       - ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env to a generated value}
       - --maxmemory
       - ${REDIS_MAXMEMORY:-512mb}
+      # BullMQ (queues share this instance) REQUIRES noeviction — under memory
+      # pressure keys must NOT be evicted or in-flight jobs are silently lost.
+      # Cache keys carry TTLs and expire on their own; raise REDIS_MAXMEMORY if
+      # writes start getting rejected.
       - --maxmemory-policy
-      - volatile-lru
+      - noeviction
       - --save
       - '60'
       - '1000'

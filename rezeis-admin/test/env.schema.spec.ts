@@ -191,19 +191,22 @@ describe('validateEnvironment', () => {
   it('disables (does not crash on) a malformed WEBHOOK_SECRET_HEADER', () => {
     // An optional integration secret must not take down the whole panel.
     // A malformed value is coerced to undefined (signing disabled) + a warning.
-    for (const bad of ['short', 'has-dashes-' + 'a'.repeat(54), 'a'.repeat(63), 'a'.repeat(65)]) {
+    // Valid range is 64–256 alphanumeric characters.
+    for (const bad of ['short', 'has-dashes-' + 'a'.repeat(54), 'a'.repeat(63), 'a'.repeat(257)]) {
       const env = validateEnvironment({
         ...createRequiredEnvironment(),
         WEBHOOK_SECRET_HEADER: bad,
       });
       assert.equal(env.WEBHOOK_SECRET_HEADER, undefined);
     }
-    // A valid 64-char alphanumeric value is preserved.
-    const ok = validateEnvironment({
-      ...createRequiredEnvironment(),
-      WEBHOOK_SECRET_HEADER: 'a'.repeat(64),
-    });
-    assert.equal(ok.WEBHOOK_SECRET_HEADER, 'a'.repeat(64));
+    // Valid alphanumeric values across the 64–256 range are preserved.
+    for (const ok of ['a'.repeat(64), 'a'.repeat(128), 'a'.repeat(256)]) {
+      const env = validateEnvironment({
+        ...createRequiredEnvironment(),
+        WEBHOOK_SECRET_HEADER: ok,
+      });
+      assert.equal(env.WEBHOOK_SECRET_HEADER, ok);
+    }
   });
 
   it('parses booleans leniently while preserving true defaults', () => {
