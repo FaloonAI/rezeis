@@ -111,13 +111,21 @@ function defaultWhy(surface: string): string {
   }
 }
 
-function defaultNextSteps(hasStack: boolean): string {
-  return hasStack
-    ? 'Откройте приложенный .txt со stack trace и проверьте операцию, в которой возникла ошибка.'
-    : 'Проверьте логи сервиса по указанному источнику и операции.';
+function defaultNextSteps(hasStack: boolean, txtAttached: boolean): string {
+  if (txtAttached) {
+    return 'Откройте приложенный .txt со stack trace и проверьте операцию, в которой возникла ошибка.';
+  }
+  if (hasStack) {
+    return 'Полный stack trace доступен в .txt — скачайте его на странице «События» (вложение .txt в Telegram можно включить в настройках доставки).';
+  }
+  return 'Проверьте логи сервиса по указанному источнику и операции.';
 }
 
-export function deriveError(event: ErrorReportEvent, fallbackBuild: BuildInfo): DerivedError {
+export function deriveError(
+  event: ErrorReportEvent,
+  fallbackBuild: BuildInfo,
+  txtAttached: boolean,
+): DerivedError {
   const meta = event.metadata;
   const source = readStr(meta, 'source') ?? (event.kind.includes('reiwa') ? UNKNOWN : 'panel');
   const surface = SURFACE_LABELS[source.toLowerCase()] ?? capitalize(source);
@@ -139,7 +147,7 @@ export function deriveError(event: ErrorReportEvent, fallbackBuild: BuildInfo): 
     errorType,
     errorMessage,
     why: readStr(meta, 'why') ?? defaultWhy(surface),
-    nextSteps: readStr(meta, 'nextSteps') ?? defaultNextSteps(stack !== null),
+    nextSteps: readStr(meta, 'nextSteps') ?? defaultNextSteps(stack !== null, txtAttached),
     build,
     stack,
   };
@@ -163,8 +171,9 @@ export function escapeHtml(input: string): string {
 export function formatErrorEventCardHtml(
   event: ErrorReportEvent,
   fallbackBuild: BuildInfo,
+  txtAttached = false,
 ): string {
-  const d = deriveError(event, fallbackBuild);
+  const d = deriveError(event, fallbackBuild, txtAttached);
   const code = (value: string): string => `<code>${escapeHtml(value)}</code>`;
 
   const lines: string[] = [
@@ -205,7 +214,8 @@ export function formatErrorReportTxt(
   event: ErrorReportEvent,
   fallbackBuild: BuildInfo,
 ): string {
-  const d = deriveError(event, fallbackBuild);
+  // The report IS the .txt, so its "next steps" reflect the attached-file copy.
+  const d = deriveError(event, fallbackBuild, true);
   const actor = event.actor ?? 'system';
   let payloadJson: string;
   try {

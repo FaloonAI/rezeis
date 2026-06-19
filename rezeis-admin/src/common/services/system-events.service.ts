@@ -565,7 +565,7 @@ export class SystemEventsService {
         // chat/topic. This is what makes category routing + the test message
         // actually work without a token on rezeis.
         const html = errorEvent
-          ? formatErrorEventCardHtml(reportEvent, getRezeisBuildInfo())
+          ? formatErrorEventCardHtml(reportEvent, getRezeisBuildInfo(), false)
           : this.formatTelegramMessage(event);
         await this.deliverViaReiwaBroadcast(event, html, resolved.chatId, resolved.topicId);
       }
@@ -577,7 +577,7 @@ export class SystemEventsService {
     // ERROR events get the richly-sectioned card; everything else keeps the
     // generic event formatter.
     const html = errorEvent
-      ? formatErrorEventCardHtml(reportEvent, getRezeisBuildInfo())
+      ? formatErrorEventCardHtml(reportEvent, getRezeisBuildInfo(), attachTxt)
       : this.formatTelegramMessage(event);
 
     const payload: Record<string, unknown> = {
@@ -690,7 +690,7 @@ export class SystemEventsService {
     const notifier = this.resolveBotNotifier();
     if (notifier === null) return;
     const html = opts.errorEvent
-      ? formatErrorEventCardHtml(opts.reportEvent, getRezeisBuildInfo())
+      ? formatErrorEventCardHtml(opts.reportEvent, getRezeisBuildInfo(), opts.attachTxt)
       : this.formatTelegramMessage(event);
     try {
       if (opts.attachTxt) {

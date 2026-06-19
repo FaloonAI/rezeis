@@ -91,6 +91,44 @@ export async function enablePush(): Promise<EnablePushResult> {
   return 'subscribed'
 }
 
+/**
+ * Ensure a push subscription exists WITHOUT prompting — used to make admin push
+ * "on by default" once the operator has granted notification permission. No-op
+ * when push isn't ready, permission isn't granted, or the server has no VAPID
+ * key. Re-subscribes when the browser dropped the subscription and registers
+ * it. Returns true when a subscription is in place afterwards.
+ */
+export async function ensurePushSubscription(): Promise<boolean> {
+  if (detectPushSupport() !== 'ready') return false
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false
+  const publicKey = await getPublicKey()
+  if (publicKey.length === 0) return false
+  const reg = await navigator.serviceWorker.ready
+  let subscription = await reg.pushManager.getSubscription()
+  if (subscription === null) {
+    try {
+      subscription = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      })
+    } catch {
+      return false
+    }
+  }
+  const json = subscription.toJSON()
+  try {
+    await api.post('/admin/push/subscribe', {
+      subscription: {
+        endpoint: subscription.endpoint,
+        keys: { p256dh: json.keys?.p256dh ?? '', auth: json.keys?.auth ?? '' },
+      },
+    })
+  } catch {
+    return false
+  }
+  return true
+}
+
 export async function disablePush(): Promise<boolean> {
   if (!('serviceWorker' in navigator)) return false
   const reg = await navigator.serviceWorker.ready

@@ -18,11 +18,16 @@ import {
   detectPushSupport,
   disablePush,
   enablePush,
+  ensurePushSubscription,
   getCurrentSubscription,
   isPushConfigured,
 } from '@/lib/push'
 
 type NotificationCategory = 'support' | 'payment' | 'fraud' | 'withdrawal' | 'system'
+
+/** Per-device flag: the admin explicitly turned push OFF here — suppress the
+ *  default-on auto-subscribe so we never re-enable against their wish. */
+const PUSH_OPTOUT_KEY = 'rezeis_admin_push_optout'
 
 interface CategoryPreference {
   category: NotificationCategory
@@ -57,15 +62,38 @@ export default function PanelNotificationsTab() {
       const ok = await isPushConfigured()
       if (cancelled) return
       setConfigured(ok)
-      if (ok) {
-        const sub = await getCurrentSubscription()
-        if (!cancelled) setEnabled(sub !== null)
+      if (!ok) return
+      const sub = await getCurrentSubscription()
+      if (cancelled) return
+      if (sub !== null) {
+        setEnabled(true)
+        return
+      }
+      // Default-on: once the operator granted notification permission, make
+      // sure a subscription exists — unless they explicitly turned push off on
+      // this device. Saves the "I granted permission but forgot the toggle"
+      // footgun.
+      const optedOut = (() => {
+        try {
+          return localStorage.getItem(PUSH_OPTOUT_KEY) === '1'
+        } catch {
+          return false
+        }
+      })()
+      if (
+        support === 'ready' &&
+        typeof Notification !== 'undefined' &&
+        Notification.permission === 'granted' &&
+        !optedOut
+      ) {
+        const subscribed = await ensurePushSubscription()
+        if (!cancelled && subscribed) setEnabled(true)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [support])
 
   async function onToggle(next: boolean) {
     setBusy(true)
@@ -74,6 +102,7 @@ export default function PanelNotificationsTab() {
         const result = await enablePush()
         if (result === 'subscribed') {
           setEnabled(true)
+          try { localStorage.removeItem(PUSH_OPTOUT_KEY) } catch { /* ignore */ }
           toast.success(t('pushNotifications.enabled'))
         } else if (result === 'permission-denied') {
           toast.error(t('pushNotifications.permissionDenied'))
@@ -85,6 +114,8 @@ export default function PanelNotificationsTab() {
       } else {
         await disablePush()
         setEnabled(false)
+        // Remember the explicit opt-out so we don't auto-re-enable on reload.
+        try { localStorage.setItem(PUSH_OPTOUT_KEY, '1') } catch { /* ignore */ }
         toast.success(t('pushNotifications.disabled'))
       }
     } catch {

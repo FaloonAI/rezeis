@@ -5,6 +5,7 @@ import { Save, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
+import { enablePush } from '@/lib/push'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -329,10 +330,20 @@ export function WebPushSection({ settings }: { settings: AdminSettings | undefin
   })
 
   const test = useMutation({
-    mutationFn: () => api.post('/admin/push/test', {}),
+    mutationFn: async () => {
+      // Granting browser permission isn't enough — the admin browser must also
+      // have a push SUBSCRIPTION. Ensure one exists (idempotent) before the
+      // server tries to deliver, so the test works in one click right after the
+      // permission prompt.
+      const result = await enablePush()
+      if (result === 'permission-denied') throw new Error(t('settingsPage.webPush.permissionDenied'))
+      if (result === 'push-disabled') throw new Error(t('settingsPage.webPush.disabledServer'))
+      if (result === 'unsupported') throw new Error(t('settingsPage.webPush.unsupported'))
+      return api.post('/admin/push/test', {})
+    },
     onSuccess: () => toast.success(t('settingsPage.webPush.testSent')),
-    onError: (err: { response?: { data?: { message?: string } } }) =>
-      toast.error(err.response?.data?.message ?? t('settingsPage.webPush.testFailed')),
+    onError: (err: Error & { response?: { data?: { message?: string } } }) =>
+      toast.error(err.response?.data?.message ?? err.message ?? t('settingsPage.webPush.testFailed')),
   })
 
   return (
