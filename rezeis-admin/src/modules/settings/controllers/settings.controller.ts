@@ -9,6 +9,7 @@ import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.inter
 import { extractRequestMetadata } from '../../auth/utils/request-metadata.util';
 import { UpdateBrandingSettingsDto } from '../dto/update-branding-settings.dto';
 import { UpdateCustomIconsDto } from '../dto/custom-icons.dto';
+import { GenerateWebPushKeysDto } from '../dto/generate-web-push-keys.dto';
 import { UpdateNotificationsTogglesDto } from '../dto/update-notifications-toggles.dto';
 import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
 import {
@@ -76,6 +77,41 @@ export class SettingsController {
       requestMetadata: extractRequestMetadata(request),
       updatePlatformSettingsDto,
     });
+  }
+
+  /**
+   * Generate + store a fresh web-push VAPID keypair (private key encrypted).
+   * Replaces any existing panel-managed keys; the cabinet re-subscribes on its
+   * next load. Returns the public key for display.
+   */
+  @Post('web-push/generate')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Generate + store web-push VAPID keys' })
+  public async generateWebPushKeys(
+    @Body() dto: GenerateWebPushKeysDto,
+    @CurrentAdmin() currentAdmin: CurrentAdminInterface,
+    @Req() request: Request,
+  ): Promise<{ publicKey: string }> {
+    return this.settingsService.generateWebPushKeys({
+      contactEmail: dto.contactEmail,
+      currentAdmin,
+      requestMetadata: extractRequestMetadata(request),
+    });
+  }
+
+  /** Clear panel-managed web-push VAPID keys (falls back to env, if any). */
+  @Post('web-push/clear')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Clear panel-managed web-push VAPID keys' })
+  public async clearWebPushKeys(
+    @CurrentAdmin() currentAdmin: CurrentAdminInterface,
+    @Req() request: Request,
+  ): Promise<{ ok: true }> {
+    await this.settingsService.clearWebPushKeys({
+      currentAdmin,
+      requestMetadata: extractRequestMetadata(request),
+    });
+    return { ok: true };
   }
 
   @Get('system-notifications/payment-ops')

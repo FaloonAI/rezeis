@@ -3,6 +3,7 @@ import { HttpService } from '@nestjs/axios';
 import { Inject, Injectable, BadRequestException, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma, Settings } from '@prisma/client';
 import { ConfigType } from '@nestjs/config';
+import * as webpush from 'web-push';
 
 import { appConfig } from '../../../common/config/app.config';
 import { paymentsConfig } from '../../../common/config/payments.config';
@@ -469,6 +470,7 @@ export class SettingsService {
     readonly paymentOpsAlerts: PaymentOpsAlertSettingsInterface;
     readonly multiSubscriptionSettings: Record<string, unknown>;
     readonly botTokenConfigured: boolean;
+    readonly webPush: { readonly configured: boolean; readonly publicKey: string; readonly source: 'settings' | 'env' | null };
   }> {
     const settings = await this.getOrCreateSettingsRecord(this.prismaService);
     const platform = mapPlatformSettings(settings);
@@ -492,6 +494,8 @@ export class SettingsService {
       // Only a presence flag — the encrypted token is never sent to the SPA.
       botTokenConfigured: typeof systemNotifications.botTokenEnc === 'string'
         && systemNotifications.botTokenEnc.length > 0,
+      // Web-push VAPID status (public key is safe to expose; private never is).
+      webPush: await this.getWebPushStatus(),
     };
   }
 
@@ -517,6 +521,126 @@ export class SettingsService {
       );
       return null;
     }
+  }
+
+  // ── Web-push VAPID (panel-managed, env fallback) ──────────────────────────
+
+  /**
+   * Resolve the active VAPID keypair for web-push: the panel-managed keys
+   * stored (encrypted) in `systemNotifications.webPush` take precedence, with
+   * the `VAPID_*` environment variables as a fallback. Returns `null` when
+   * neither source is configured. Consumed by `WebPushService` at send time.
+   */
+  public async getDecryptedWebPushConfig(): Promise<{
+    readonly publicKey: string;
+    readonly privateKey: string;
+    readonly subject: string;
+    readonly source: 'settings' | 'env';
+  } | null> {
+    const settings = await this.getSettingsRecord(this.prismaService);
+    const webPush = settings !== null ? readJsonObject(readJsonObject(settings.systemNotifications).webPush) : {};
+    const publicKey = typeof webPush.publicKey === 'string' ? webPush.publicKey.trim() : '';
+    const privateKeyEnc = typeof webPush.privateKeyEnc === 'string' ? webPush.privateKeyEnc : '';
+    const contactEmail = typeof webPush.contactEmail === 'string' ? webPush.contactEmail.trim() : '';
+    const cryptKey = this.applicationConfiguration.cryptKey;
+    if (publicKey.length > 0 && privateKeyEnc.length > 0 && cryptKey) {
+      try {
+        const privateKey = decryptTotpSecret(privateKeyEnc, cryptKey);
+        return { publicKey, privateKey, subject: toMailto(contactEmail), source: 'settings' };
+      } catch (err: unknown) {
+        this.logger.warn(
+          `Failed to decrypt stored VAPID key, falling back to env: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+    const envPublic = (process.env.VAPID_PUBLIC_KEY ?? '').trim();
+    const envPrivate = (process.env.VAPID_PRIVATE_KEY ?? '').trim();
+    const envContact = (process.env.VAPID_CONTACT_EMAIL ?? '').trim();
+    if (envPublic.length > 0 && envPrivate.length > 0) {
+      return { publicKey: envPublic, privateKey: envPrivate, subject: toMailto(envContact), source: 'env' };
+    }
+    return null;
+  }
+
+  /** Public VAPID key + source for the SPA + the public-key endpoints. */
+  public async getWebPushStatus(): Promise<{
+    readonly configured: boolean;
+    readonly publicKey: string;
+    readonly source: 'settings' | 'env' | null;
+  }> {
+    const config = await this.getDecryptedWebPushConfig();
+    if (config === null) return { configured: false, publicKey: '', source: null };
+    return { configured: true, publicKey: config.publicKey, source: config.source };
+  }
+
+  /**
+   * Generate a fresh VAPID keypair and store it (private key AES-256-GCM
+   * encrypted) in `systemNotifications.webPush`. Replaces any existing
+   * panel-managed keys — note this invalidates every browser subscription
+   * created against the old key, so the cabinet re-subscribes on next load.
+   */
+  public async generateWebPushKeys(input: {
+    readonly contactEmail: string;
+    readonly currentAdmin: CurrentAdminInterface;
+    readonly requestMetadata: RequestMetadataInterface;
+  }): Promise<{ publicKey: string }> {
+    const cryptKey = this.applicationConfiguration.cryptKey;
+    if (!cryptKey) {
+      throw new BadRequestException('REZEIS_CRYPT_KEY is required to store VAPID keys');
+    }
+    const contactEmail = input.contactEmail.trim();
+    if (contactEmail.length === 0 || !contactEmail.includes('@')) {
+      throw new BadRequestException('A valid contact email is required for VAPID (RFC 8292 subject)');
+    }
+    const keys = webpush.generateVAPIDKeys();
+    const publicKey = await this.persistWebPush(
+      { publicKey: keys.publicKey, privateKeyEnc: encryptTotpSecret(keys.privateKey, cryptKey), contactEmail },
+      input.currentAdmin,
+      input.requestMetadata,
+      'settings.webpush.generated',
+    );
+    return { publicKey };
+  }
+
+  /** Clear panel-managed VAPID keys (web-push then falls back to env, if any). */
+  public async clearWebPushKeys(input: {
+    readonly currentAdmin: CurrentAdminInterface;
+    readonly requestMetadata: RequestMetadataInterface;
+  }): Promise<void> {
+    await this.persistWebPush(null, input.currentAdmin, input.requestMetadata, 'settings.webpush.cleared');
+  }
+
+  private async persistWebPush(
+    webPush: { publicKey: string; privateKeyEnc: string; contactEmail: string } | null,
+    currentAdmin: CurrentAdminInterface,
+    requestMetadata: RequestMetadataInterface,
+    action: string,
+  ): Promise<string> {
+    return this.prismaService.$transaction(async (tx): Promise<string> => {
+      const existing = await this.getOrCreateSettingsRecord(tx);
+      const nextSystemNotifications = readJsonObject(existing.systemNotifications);
+      if (webPush === null) {
+        delete nextSystemNotifications.webPush;
+      } else {
+        nextSystemNotifications.webPush = webPush;
+      }
+      await tx.settings.update({
+        where: { id: existing.id },
+        data: { systemNotifications: nextSystemNotifications as Prisma.InputJsonValue },
+      });
+      await tx.adminAuditLog.create({
+        data: {
+          action,
+          ipAddress: requestMetadata.remoteAddress,
+          userAgent: requestMetadata.userAgent,
+          metadata: buildAuditMetadata({ requestId: requestMetadata.requestId, updatedFields: ['webPush'] }),
+          adminUser: { connect: { id: currentAdmin.id } },
+        },
+      });
+      return webPush?.publicKey ?? '';
+    });
   }
 
   /**
@@ -1288,6 +1412,13 @@ function readJsonObject(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object') return {};
   if (Array.isArray(value)) return {};
   return value as Record<string, unknown>;
+}
+
+/** Normalise a contact email into the `mailto:` subject VAPID (RFC 8292) wants. */
+function toMailto(contact: string): string {
+  const trimmed = (contact ?? '').trim();
+  if (trimmed.length === 0) return 'mailto:admin@example.com';
+  return trimmed.startsWith('mailto:') ? trimmed : `mailto:${trimmed}`;
 }
 
 /** Valid system-event categories accepted by the delivery test endpoint. */

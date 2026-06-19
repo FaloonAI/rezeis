@@ -49,6 +49,11 @@ interface AdminSettings {
   readonly platformBranding?: BrandingSettings
   readonly multiSubscriptionSettings?: MultiSubscriptionSettings
   readonly botTokenConfigured?: boolean
+  readonly webPush?: {
+    readonly configured: boolean
+    readonly publicKey: string
+    readonly source: 'settings' | 'env' | null
+  }
 }
 
 export default function SettingsPage() {
@@ -72,6 +77,7 @@ export default function SettingsPage() {
         <BrandingTab settings={settings} />
         <MultiSubTab settings={settings} />
         <BotTokenSection settings={settings} />
+        <WebPushSection settings={settings} />
       </div>
     </div>
   )
@@ -288,6 +294,99 @@ export function BotTokenSection({ settings }: { settings: AdminSettings | undefi
             </Button>
           )}
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+export function WebPushSection({ settings }: { settings: AdminSettings | undefined }) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const configured = settings?.webPush?.configured ?? false
+  const publicKey = settings?.webPush?.publicKey ?? ''
+  const source = settings?.webPush?.source ?? null
+  const [contactEmail, setContactEmail] = useState('')
+
+  const generate = useMutation({
+    mutationFn: (email: string) =>
+      api.post('/admin/settings/web-push/generate', { contactEmail: email }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] })
+      setContactEmail('')
+      toast.success(t('settingsPage.webPush.generated'))
+    },
+    onError: (err: { response?: { data?: { message?: string } } }) =>
+      toast.error(err.response?.data?.message ?? t('settingsPage.webPush.generateFailed')),
+  })
+
+  const clear = useMutation({
+    mutationFn: () => api.post('/admin/settings/web-push/clear', {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] })
+      toast.success(t('settingsPage.webPush.cleared'))
+    },
+    onError: () => toast.error(t('settingsPage.webPush.generateFailed')),
+  })
+
+  const test = useMutation({
+    mutationFn: () => api.post('/admin/push/test', {}),
+    onSuccess: () => toast.success(t('settingsPage.webPush.testSent')),
+    onError: (err: { response?: { data?: { message?: string } } }) =>
+      toast.error(err.response?.data?.message ?? t('settingsPage.webPush.testFailed')),
+  })
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('settingsPage.webPush.title')}</CardTitle>
+        <CardDescription>{t('settingsPage.webPush.description')}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-lg border p-3 text-sm">
+          {configured
+            ? t('settingsPage.webPush.statusConfigured', {
+                source: t(`settingsPage.webPush.source.${source ?? 'env'}`),
+              })
+            : t('settingsPage.webPush.statusMissing')}
+        </div>
+        {configured && publicKey.length > 0 && (
+          <div className="space-y-1">
+            <Label>{t('settingsPage.webPush.publicKeyLabel')}</Label>
+            <Input readOnly value={publicKey} className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
+          </div>
+        )}
+        <Separator />
+        <div className="space-y-2">
+          <Label htmlFor="settings-vapid-email">{t('settingsPage.webPush.emailLabel')}</Label>
+          <Input
+            id="settings-vapid-email"
+            type="email"
+            autoComplete="off"
+            value={contactEmail}
+            onChange={(e) => setContactEmail(e.target.value)}
+            placeholder={t('settingsPage.webPush.emailPlaceholder')}
+          />
+          <p className="text-xs text-muted-foreground">{t('settingsPage.webPush.hint')}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            onClick={() => generate.mutate(contactEmail.trim())}
+            disabled={generate.isPending || !contactEmail.includes('@')}
+          >
+            {generate.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+            {configured ? t('settingsPage.webPush.regenerateButton') : t('settingsPage.webPush.generateButton')}
+          </Button>
+          <Button variant="outline" onClick={() => test.mutate()} disabled={test.isPending || !configured}>
+            {test.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+            {t('settingsPage.webPush.testButton')}
+          </Button>
+          {configured && source === 'settings' && (
+            <Button variant="outline" onClick={() => clear.mutate()} disabled={clear.isPending}>
+              {t('settingsPage.webPush.clearButton')}
+            </Button>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">{t('settingsPage.webPush.testHint')}</p>
       </CardContent>
     </Card>
   )

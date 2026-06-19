@@ -47,8 +47,8 @@ export class AdminPushController {
 
   @Get('public-key')
   @ApiOperation({ summary: 'VAPID public key for admin browser subscription' })
-  public getPublicKey(): { publicKey: string } {
-    return { publicKey: this.webPushService.getPublicKey() };
+  public async getPublicKey(): Promise<{ publicKey: string }> {
+    return { publicKey: await this.webPushService.getPublicKey() };
   }
 
   @Post('subscribe')
@@ -91,6 +91,27 @@ export class AdminPushController {
       throw new BadRequestException('Invalid unsubscribe payload');
     }
     await this.webPushService.unsubscribeAdmin({ adminId: admin.id, endpoint });
+    return { success: true };
+  }
+
+  @Post('test')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Send a test web-push to the current admin\'s subscribed devices' })
+  public async sendTest(
+    @CurrentAdmin() admin: CurrentAdminInterface,
+  ): Promise<{ success: boolean }> {
+    if ((await this.webPushService.getPublicKey()).length === 0) {
+      throw new BadRequestException('Web-push is not configured (no VAPID keys)');
+    }
+    if (!(await this.webPushService.adminHasSubscription(admin.id))) {
+      throw new BadRequestException('No push subscription — enable notifications first');
+    }
+    await this.webPushService.sendToAdmin({
+      adminId: admin.id,
+      title: 'Reiwa',
+      body: 'Тестовое web-push уведомление. Доставка работает.',
+      url: '/',
+    });
     return { success: true };
   }
 }

@@ -53,7 +53,7 @@ describe('InternalPushController', () => {
   it('delegates public key, subscribe, and unsubscribe to WebPushService', async () => {
     const calls: unknown[] = [];
     const webPushService = {
-      getPublicKey: () => 'public-key-1',
+      getPublicKey: async () => 'public-key-1',
       subscribe: async (input: unknown) => {
         calls.push(['subscribe', input]);
         return { id: 'subscription-1' };
@@ -64,7 +64,7 @@ describe('InternalPushController', () => {
     } as unknown as WebPushService;
     const controller = new InternalPushController(webPushService);
 
-    assert.deepStrictEqual(controller.getPublicKey(), { publicKey: 'public-key-1' });
+    assert.deepStrictEqual(await controller.getPublicKey(), { publicKey: 'public-key-1' });
     assert.deepStrictEqual(
       await controller.subscribe({
         userId: 'user-1',
@@ -102,7 +102,7 @@ describe('InternalPushController', () => {
   it('rejects invalid subscribe and unsubscribe payloads before service calls', async () => {
     const calls: unknown[] = [];
     const controller = new InternalPushController({
-      getPublicKey: () => '',
+      getPublicKey: async () => '',
       subscribe: async (input: unknown) => {
         calls.push(['subscribe', input]);
       },
@@ -136,11 +136,10 @@ describe('InternalPushController', () => {
 });
 
 describe('WebPushService', () => {
-  it('returns the configured public key exactly as the SPA expects it', () => {
-    process.env.VAPID_PUBLIC_KEY = '  public-key-1  ';
-    const { service } = createService();
+  it('returns the configured public key exactly as the SPA expects it', async () => {
+    const { service } = createService({ webPushConfig: TEST_VAPID });
 
-    assert.equal(service.getPublicKey(), 'public-key-1');
+    assert.equal(await service.getPublicKey(), 'public-key-1');
   });
 
   it('upserts browser subscriptions by endpoint and resets failure state on refresh', async () => {
@@ -211,8 +210,8 @@ describe('WebPushService', () => {
     const providerCalls: unknown[] = [];
     const { service, state } = createService({
       subscriptions: [createSubscription({ id: 'subscription-1' })],
+      webPushConfig: TEST_VAPID,
     });
-    enableWebPush(service);
     setWebPushSendNotification(async (...args) => {
       providerCalls.push(args);
       return {} as webpush.SendResult;
@@ -228,7 +227,7 @@ describe('WebPushService', () => {
         keys: { p256dh: 'p256dh-key', auth: 'auth-key' },
       },
       JSON.stringify({ title: 'Hello', body: 'World', url: '/notifications' }),
-      { TTL: 60 },
+      { TTL: 60, vapidDetails: TEST_VAPID_DETAILS },
     ]);
     assert.equal(state.updateCalls.length, 1);
     assert.deepStrictEqual(state.updateCalls[0], {
@@ -241,8 +240,8 @@ describe('WebPushService', () => {
   it('deletes permanently gone subscriptions after provider 404 or 410 responses', async () => {
     const { service, state } = createService({
       subscriptions: [createSubscription({ id: 'subscription-dead' })],
+      webPushConfig: TEST_VAPID,
     });
-    enableWebPush(service);
     setWebPushSendNotification(async () => {
       throw { statusCode: 410 };
     });
@@ -259,8 +258,8 @@ describe('WebPushService', () => {
         createSubscription({ id: 'subscription-retry', failureCount: 1 }),
         createSubscription({ id: 'subscription-evict', failureCount: 2 }),
       ],
+      webPushConfig: TEST_VAPID,
     });
-    enableWebPush(service);
     setWebPushSendNotification(async () => {
       throw { statusCode: 503 };
     });
@@ -290,6 +289,7 @@ function route(methodName: keyof InternalPushController): {
 function createService(input: {
   readonly upsertResult?: { readonly id: string };
   readonly subscriptions?: readonly WebPushSubscription[];
+  readonly webPushConfig?: typeof TEST_VAPID | null;
 } = {}): {
   readonly service: WebPushService;
   readonly state: {
@@ -331,8 +331,28 @@ function createService(input: {
       },
     },
   };
-  return { service: new WebPushService(prisma as never), state };
+  // Mock SettingsService: returns the panel/env VAPID config (or null when
+  // push is disabled), mirroring `getDecryptedWebPushConfig`.
+  const settingsService = {
+    getDecryptedWebPushConfig: async () => input.webPushConfig ?? null,
+  };
+  return { service: new WebPushService(prisma as never, settingsService as never), state };
 }
+
+/** Test VAPID config returned by the mocked SettingsService. */
+const TEST_VAPID = {
+  publicKey: 'public-key-1',
+  privateKey: 'private-key-1',
+  subject: 'mailto:admin@example.com',
+  source: 'env' as const,
+};
+
+/** The `vapidDetails` the service forwards to `web-push` (subset of TEST_VAPID). */
+const TEST_VAPID_DETAILS = {
+  subject: TEST_VAPID.subject,
+  publicKey: TEST_VAPID.publicKey,
+  privateKey: TEST_VAPID.privateKey,
+};
 
 interface UpsertCall {
   readonly where: { readonly endpoint: string };
@@ -379,10 +399,6 @@ function createSubscription(input: {
     createdAt: new Date('2026-04-20T10:00:00.000Z'),
     lastSeenAt: new Date('2026-04-20T10:00:00.000Z'),
   };
-}
-
-function enableWebPush(service: WebPushService): void {
-  (service as unknown as { vapidConfigured: boolean }).vapidConfigured = true;
 }
 
 function setWebPushSendNotification(next: typeof webpush.sendNotification): void {

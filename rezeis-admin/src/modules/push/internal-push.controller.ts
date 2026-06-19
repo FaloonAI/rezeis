@@ -60,8 +60,8 @@ export class InternalPushController {
     description:
       'Returns the operator-configured VAPID public key. Empty string when push is disabled — the SPA should hide its push opt-in UI in that case.',
   })
-  public getPublicKey(): { publicKey: string } {
-    return { publicKey: this.webPushService.getPublicKey() };
+  public async getPublicKey(): Promise<{ publicKey: string }> {
+    return { publicKey: await this.webPushService.getPublicKey() };
   }
 
   @Post('subscribe')

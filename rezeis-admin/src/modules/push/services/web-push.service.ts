@@ -3,6 +3,7 @@ import { AdminWebPushSubscription, WebPushSubscription } from '@prisma/client';
 import * as webpush from 'web-push';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { SettingsService } from '../../settings/services/settings.service';
 
 interface SubscribeInput {
   readonly userId: string;
@@ -82,7 +83,6 @@ interface PushSubscriptionPayload {
 @Injectable()
 export class WebPushService implements OnModuleInit {
   private readonly logger = new Logger(WebPushService.name);
-  private vapidConfigured = false;
 
   /** Number of consecutive transient failures we tolerate before
    * deleting a subscription. Three matches Web Push best practice —
@@ -90,31 +90,38 @@ export class WebPushService implements OnModuleInit {
    * notifications, dropped service worker). */
   private static readonly MAX_FAILURES = 3;
 
-  public constructor(private readonly prismaService: PrismaService) {}
+  public constructor(
+    private readonly prismaService: PrismaService,
+    private readonly settingsService: SettingsService,
+  ) {}
 
-  public onModuleInit(): void {
-    const publicKey = (process.env.VAPID_PUBLIC_KEY ?? '').trim();
-    const privateKey = (process.env.VAPID_PRIVATE_KEY ?? '').trim();
-    const contact = (process.env.VAPID_CONTACT_EMAIL ?? '').trim();
-    if (publicKey === '' || privateKey === '' || contact === '') {
+  public async onModuleInit(): Promise<void> {
+    const config = await this.settingsService.getDecryptedWebPushConfig();
+    if (config === null) {
       this.logger.warn(
-        'WebPushService disabled — set VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_CONTACT_EMAIL to enable browser pushes',
+        'WebPushService disabled — generate VAPID keys in the admin panel (Settings → Web-push) or set VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY/VAPID_CONTACT_EMAIL',
       );
       return;
     }
-    const subject = contact.startsWith('mailto:') ? contact : `mailto:${contact}`;
-    webpush.setVapidDetails(subject, publicKey, privateKey);
-    this.vapidConfigured = true;
-    this.logger.log('WebPushService VAPID configured');
+    this.logger.log(`WebPushService VAPID configured (source: ${config.source})`);
   }
 
   /**
-   * Returns the VAPID public key for the SPA to use during
-   * subscription. Empty string when push is disabled — the SPA
-   * must hide its push opt-in UI in that case.
+   * Returns the active VAPID public key for the SPA to use during
+   * subscription. Empty string when push is disabled — the SPA must hide
+   * its push opt-in UI in that case. Resolves panel-managed keys first,
+   * then the environment fallback.
    */
-  public getPublicKey(): string {
-    return (process.env.VAPID_PUBLIC_KEY ?? '').trim();
+  public async getPublicKey(): Promise<string> {
+    const config = await this.settingsService.getDecryptedWebPushConfig();
+    return config?.publicKey ?? '';
+  }
+
+  /** Resolve the VAPID details used to sign a push, or null when disabled. */
+  private async resolveVapidDetails(): Promise<webpush.RequestOptions['vapidDetails'] | null> {
+    const config = await this.settingsService.getDecryptedWebPushConfig();
+    if (config === null) return null;
+    return { subject: config.subject, publicKey: config.publicKey, privateKey: config.privateKey };
   }
 
   public async subscribe(input: SubscribeInput): Promise<{ id: string }> {
@@ -160,7 +167,8 @@ export class WebPushService implements OnModuleInit {
    * (those endpoints will never recover).
    */
   public async sendToUser(input: SendInput): Promise<void> {
-    if (!this.vapidConfigured) return;
+    const vapidDetails = await this.resolveVapidDetails();
+    if (vapidDetails === null) return;
     const subs = await this.prismaService.webPushSubscription.findMany({
       where: { userId: input.userId },
     });
@@ -170,7 +178,7 @@ export class WebPushService implements OnModuleInit {
       body: input.body,
       url: input.url ?? '/dashboard',
     });
-    await Promise.all(subs.map((sub) => this.deliverOne(sub, payload)));
+    await Promise.all(subs.map((sub) => this.deliverOne(sub, payload, vapidDetails)));
   }
 
   // ── Admin-scoped push (panel operators) ───────────────────────────────────
@@ -220,7 +228,8 @@ export class WebPushService implements OnModuleInit {
    * admin's other devices, and 404/410 prune immediately.
    */
   public async sendToAdmin(input: AdminSendInput): Promise<void> {
-    if (!this.vapidConfigured) return;
+    const vapidDetails = await this.resolveVapidDetails();
+    if (vapidDetails === null) return;
     const subs = await this.prismaService.adminWebPushSubscription.findMany({
       where: { adminId: input.adminId },
     });
@@ -230,16 +239,20 @@ export class WebPushService implements OnModuleInit {
       body: input.body,
       url: input.url ?? '/',
     });
-    await Promise.all(subs.map((sub) => this.deliverOneAdmin(sub, payload)));
+    await Promise.all(subs.map((sub) => this.deliverOneAdmin(sub, payload, vapidDetails)));
   }
 
-  private async deliverOneAdmin(sub: AdminWebPushSubscription, payload: string): Promise<void> {
+  private async deliverOneAdmin(
+    sub: AdminWebPushSubscription,
+    payload: string,
+    vapidDetails: webpush.RequestOptions['vapidDetails'],
+  ): Promise<void> {
     const target: PushSubscriptionPayload = {
       endpoint: sub.endpoint,
       keys: { p256dh: sub.p256dhKey, auth: sub.authKey },
     };
     try {
-      await webpush.sendNotification(target, payload, { TTL: 60 });
+      await webpush.sendNotification(target, payload, { TTL: 60, vapidDetails });
       await this.prismaService.adminWebPushSubscription.update({
         where: { id: sub.id },
         data: { failureCount: 0, lastSeenAt: new Date() },
@@ -270,13 +283,17 @@ export class WebPushService implements OnModuleInit {
     }
   }
 
-  private async deliverOne(sub: WebPushSubscription, payload: string): Promise<void> {
+  private async deliverOne(
+    sub: WebPushSubscription,
+    payload: string,
+    vapidDetails: webpush.RequestOptions['vapidDetails'],
+  ): Promise<void> {
     const target: PushSubscriptionPayload = {
       endpoint: sub.endpoint,
       keys: { p256dh: sub.p256dhKey, auth: sub.authKey },
     };
     try {
-      await webpush.sendNotification(target, payload, { TTL: 60 });
+      await webpush.sendNotification(target, payload, { TTL: 60, vapidDetails });
       // Successful delivery — reset failure count, refresh lastSeenAt.
       await this.prismaService.webPushSubscription.update({
         where: { id: sub.id },

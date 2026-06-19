@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
+import { SettingsModule } from '../settings/settings.module';
 import { AdminNotificationPreferencesController } from './admin-notification-preferences.controller';
 import { AdminPushController } from './admin-push.controller';
 import { InternalPushController } from './internal-push.controller';
@@ -28,7 +29,7 @@ import { WebPushService } from './services/web-push.service';
  * subscriptions can deliver.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, SettingsModule],
   controllers: [InternalPushController, AdminPushController, AdminNotificationPreferencesController],
   providers: [WebPushService, AdminNotificationDispatcher, AdminNotificationPreferencesService],
   exports: [WebPushService],
