@@ -60,6 +60,11 @@ const NON_REPORTABLE_PATTERNS: readonly RegExp[] = [
   /an unknown error occurred when fetching the script/i,
   /the script resource is behind a redirect/i,
   /serviceworker.*(fetch|script)/i,
+  // Chrome/Safari phrasing when the SW (or any worker) script fetch fails
+  // during register()/update() — e.g. "Script https://…/sw.js load failed".
+  // Routine on redeploy or a flaky mobile network; not an app bug.
+  /script .*\bload failed/i,
+  /sw\.js.*\bload failed/i,
   /resizeobserver loop/i,
   // React vs. 3rd-party/extension DOM reconciliation races (most often caused
   // by browser translation extensions mutating the tree React owns). Not an
