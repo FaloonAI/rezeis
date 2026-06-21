@@ -12,6 +12,7 @@ import { UpdateCustomIconsDto } from '../dto/custom-icons.dto';
 import { GenerateWebPushKeysDto } from '../dto/generate-web-push-keys.dto';
 import { UpdateNotificationsTogglesDto } from '../dto/update-notifications-toggles.dto';
 import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
+import { UpdateRemnawaveCleanupSettingsDto } from '../dto/update-remnawave-cleanup-settings.dto';
 import {
   SendPaymentOpsAlertTestDto,
   UpdatePaymentOpsAlertSettingsDto,
@@ -112,6 +113,30 @@ export class SettingsController {
       requestMetadata: extractRequestMetadata(request),
     });
     return { ok: true };
+  }
+
+  // ── Remnawave expired-profile cleanup policy ──────────────────────────────
+
+  /** Current Remnawave cleanup policy (delete on/off + grace days). */
+  @Get('remnawave-cleanup')
+  @ApiOperation({ summary: 'Get Remnawave expired-profile cleanup policy' })
+  public async getRemnawaveCleanupSettings() {
+    return this.settingsService.getRemnawaveCleanupSettings();
+  }
+
+  /** Update the Remnawave cleanup policy. */
+  @Patch('remnawave-cleanup')
+  @ApiOperation({ summary: 'Update Remnawave expired-profile cleanup policy' })
+  public async updateRemnawaveCleanupSettings(
+    @Body() dto: UpdateRemnawaveCleanupSettingsDto,
+    @CurrentAdmin() currentAdmin: CurrentAdminInterface,
+    @Req() request: Request,
+  ) {
+    return this.settingsService.updateRemnawaveCleanupSettings({
+      currentAdmin,
+      requestMetadata: extractRequestMetadata(request),
+      patch: dto,
+    });
   }
 
   @Get('system-notifications/payment-ops')

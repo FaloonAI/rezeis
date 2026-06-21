@@ -1,10 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { Prisma, SubscriptionStatus, SyncAction, SyncJobStatus } from '@prisma/client';
+import { Prisma, SyncAction, SyncJobStatus } from '@prisma/client';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { shouldRunSchedules } from '../../common/runtime/process-role.util';
 import { EVENT_TYPES, SystemEventsService } from '../../common/services/system-events.service';
+import { SettingsService } from '../settings/services/settings.service';
 import { ProfileSyncQueueService } from './profile-sync-queue.service';
 
 /** Max subscriptions cleaned per sweep — bounds the load on the panel. */
@@ -41,6 +42,7 @@ export class ExpiredProfileCleanupService {
     private readonly prismaService: PrismaService,
     private readonly profileSyncQueueService: ProfileSyncQueueService,
     private readonly events: SystemEventsService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   @Cron(CronExpression.EVERY_30_MINUTES, { name: 'expired-profile-cleanup' })
@@ -55,14 +57,24 @@ export class ExpiredProfileCleanupService {
    * Returns the number of subscriptions enqueued (exposed for tests).
    */
   public async runSweep(): Promise<number> {
+    // Panel-managed policy: operators can disable profile deletion entirely
+    // (critical when one Remnawave panel is shared by multiple projects) or
+    // widen the grace window. Defaults: deletion ON, 3-day grace.
+    const policy = await this.settingsService.getRemnawaveCleanupSettings();
+    if (!policy.deleteEnabled) return 0;
+
     const now = new Date();
+    // Only delete profiles whose subscription expired more than `graceDays`
+    // ago — gives the user a renewal window before the panel profile is
+    // detached. graceDays=0 ⇒ delete as soon as expired.
+    const cutoff = new Date(now.getTime() - policy.graceDays * 24 * 60 * 60 * 1000);
     const candidates = await this.prismaService.subscription.findMany({
       where: {
         remnawaveId: { not: null },
-        OR: [
-          { status: SubscriptionStatus.EXPIRED },
-          { expiresAt: { not: null, lt: now } },
-        ],
+        // Expired strictly before the grace cutoff. We require a concrete
+        // `expiresAt` so the grace window is well-defined; subscriptions with
+        // no expiry date are never auto-cleaned (operator can delete manually).
+        expiresAt: { not: null, lt: cutoff },
         // Skip subscriptions that already have a DELETE job in flight so the
         // sweep is idempotent across overlapping runs.
         syncJobs: {

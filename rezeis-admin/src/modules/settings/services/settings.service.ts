@@ -55,6 +55,13 @@ import {
   type SupportSettingsView,
 } from '../utils/support-settings.util';
 import { UpdateSupportSettingsDto } from '../dto/update-support-settings.dto';
+import {
+  mergeRemnawaveCleanupSettings,
+  toRemnawaveCleanupSettingsView,
+  type RemnawaveCleanupSettingsView,
+  type StoredRemnawaveCleanupSettings,
+} from '../utils/remnawave-cleanup-settings.util';
+import { UpdateRemnawaveCleanupSettingsDto } from '../dto/update-remnawave-cleanup-settings.dto';
 import { IconUploadService } from './icon-upload.service';
 
 interface UpdatePlatformSettingsInput {
@@ -1101,6 +1108,61 @@ export class SettingsService {
       return updated;
     });
     return toSupportSettingsView(readJsonObject(settings.supportSettings) as StoredSupportSettings);
+  }
+
+  // ── Remnawave expired-profile cleanup settings ──────────────────────────
+
+  private async readStoredRemnawaveCleanup(): Promise<StoredRemnawaveCleanupSettings> {
+    const settings = await this.getSettingsRecord(this.prismaService);
+    if (!settings) return {};
+    return readJsonObject(settings.remnawaveCleanupSettings) as StoredRemnawaveCleanupSettings;
+  }
+
+  /**
+   * Effective Remnawave cleanup policy (deletion on/off + grace days). Read by
+   * the SPA settings tab AND by the worker's `ExpiredProfileCleanupService`
+   * sweep. Defaults to deletion ON with a 3-day grace when unset.
+   */
+  public async getRemnawaveCleanupSettings(): Promise<RemnawaveCleanupSettingsView> {
+    return toRemnawaveCleanupSettingsView(await this.readStoredRemnawaveCleanup());
+  }
+
+  /** Partial-update the `remnawaveCleanupSettings` JSON column (panel-managed). */
+  public async updateRemnawaveCleanupSettings(input: {
+    readonly currentAdmin: CurrentAdminInterface;
+    readonly requestMetadata: RequestMetadataInterface;
+    readonly patch: UpdateRemnawaveCleanupSettingsDto;
+  }): Promise<RemnawaveCleanupSettingsView> {
+    const settings = await this.prismaService.$transaction(async (tx) => {
+      const existing = await this.getOrCreateSettingsRecord(tx);
+      const previous = readJsonObject(
+        existing.remnawaveCleanupSettings,
+      ) as StoredRemnawaveCleanupSettings;
+      const next = mergeRemnawaveCleanupSettings(previous, {
+        deleteEnabled: input.patch.deleteEnabled,
+        graceDays: input.patch.graceDays,
+      });
+      const updated = await tx.settings.update({
+        where: { id: existing.id },
+        data: { remnawaveCleanupSettings: next as unknown as Prisma.InputJsonValue },
+      });
+      await tx.adminAuditLog.create({
+        data: {
+          action: 'settings.remnawaveCleanupSettings.update',
+          ipAddress: input.requestMetadata.remoteAddress,
+          userAgent: input.requestMetadata.userAgent,
+          metadata: {
+            requestId: input.requestMetadata.requestId,
+            patchKeys: Object.keys(input.patch),
+          },
+          adminUser: { connect: { id: input.currentAdmin.id } },
+        } as never,
+      });
+      return updated;
+    });
+    return toRemnawaveCleanupSettingsView(
+      readJsonObject(settings.remnawaveCleanupSettings) as StoredRemnawaveCleanupSettings,
+    );
   }
 
   // ── Custom icon library ────────────────────────────────────────────────

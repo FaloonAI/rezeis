@@ -442,6 +442,30 @@ async function getGeoDistribution(): Promise<RemnawaveGeoDistribution[]> {
   return res.data;
 }
 
+// ── Expired-profile cleanup policy (panel-managed; stored in Settings) ────────
+
+export interface RemnawaveCleanupSettings {
+  /** When false, the panel never deletes Remnawave profiles on expiry. */
+  deleteEnabled: boolean;
+  /** Days after expiry before a profile is deleted (0–365). */
+  graceDays: number;
+}
+
+async function getCleanupSettings(): Promise<RemnawaveCleanupSettings> {
+  const res = await api.get<RemnawaveCleanupSettings>("/admin/settings/remnawave-cleanup");
+  return res.data;
+}
+
+async function updateCleanupSettings(
+  patch: Partial<RemnawaveCleanupSettings>,
+): Promise<RemnawaveCleanupSettings> {
+  const res = await api.patch<RemnawaveCleanupSettings>(
+    "/admin/settings/remnawave-cleanup",
+    patch,
+  );
+  return res.data;
+}
+
 export const remnawaveApi = {
   getStatus,
   getSystemStats,
@@ -470,4 +494,6 @@ export const remnawaveApi = {
   getNodePlugins,
   resolveUser,
   getGeoDistribution,
+  getCleanupSettings,
+  updateCleanupSettings,
 };

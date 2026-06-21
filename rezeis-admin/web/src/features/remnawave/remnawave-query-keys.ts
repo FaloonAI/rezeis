@@ -27,4 +27,5 @@ export const KEYS = {
   infraProviders: ['remnawave', 'infra-providers'] as const,
   nodePlugins: ['remnawave', 'node-plugins'] as const,
   geo: ['remnawave', 'geo-distribution'] as const,
+  cleanupSettings: ['remnawave', 'cleanup-settings'] as const,
 } as const

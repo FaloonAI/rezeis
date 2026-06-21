@@ -1632,6 +1632,11 @@ model Settings {
   supportSettings           Json       @default("{}") @map("support_settings")
   /// Bot menu visual settings (donor: settings.bot_menu_settings JSON).
   botMenuSettings           Json       @default("{}") @map("bot_menu_settings")
+  /// Remnawave expired-profile cleanup policy: `{ deleteEnabled, graceDays }`.
+  /// Controls whether (and how many days after expiry) the panel deletes the
+  /// upstream Remnawave profile. Safe for multi-project panels — operators can
+  /// disable deletion entirely or widen the grace window.
+  remnawaveCleanupSettings  Json       @default("{}") @map("remnawave_cleanup_settings")
   /// Operator-uploaded custom icon library, reusable across the panel and the
   /// reiwa cabinet. Array of `{ id, name, url, color }`.
   customIcons               Json       @default("[]") @map("custom_icons")

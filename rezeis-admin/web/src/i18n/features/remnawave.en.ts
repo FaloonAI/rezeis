@@ -288,6 +288,18 @@ export const en = {
     },
     settings: {
       subtitle: 'Read-only Remnawave settings mirror and node plugins inventory.',
+      cleanup: {
+        title: 'Expired profile cleanup',
+        subtitle: 'When — and whether — to delete the Remnawave profile after a subscription lapses.',
+        deleteLabel: 'Delete profile from Remnawave',
+        deleteHint: 'If several projects share one Remnawave panel, turn this off so the panel never deletes profiles (the local subscription still expires).',
+        graceLabel: 'Delete after (days past expiry)',
+        graceHint: 'How many days to wait after a subscription expires before deleting its profile. 0 = delete immediately.',
+        disabledNote: 'Deletion is off — Remnawave profiles are left untouched.',
+        save: 'Save',
+        saved: 'Cleanup policy saved',
+        error: 'Failed to save settings',
+      },
       delivery: {
         title: 'Subscription delivery configuration',
         uuid: 'UUID',

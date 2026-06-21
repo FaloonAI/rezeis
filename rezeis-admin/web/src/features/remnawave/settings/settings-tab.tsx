@@ -1,21 +1,28 @@
 /**
- * Settings tab — read-only mirror of Remnawave's own configuration surface.
+ * Settings tab — Remnawave-related operator settings.
  *
- * Two cards:
- *   1. "Subscription delivery" — the same toggle map that Catalog renders,
- *      duplicated here for operators who land on Settings expecting a
- *      Remnawave-mirror experience.
- *   2. "Node plugins" — installed plugins per node (read-only inventory).
- *      Currently empty on the live panel.
+ * Cards:
+ *   1. "Expired profile cleanup" — EDITABLE panel-managed policy: whether (and
+ *      how many days after expiry) the panel deletes the upstream Remnawave
+ *      profile. Stored in the panel's own Settings, not in Remnawave. Safe for
+ *      multi-project panels (can be turned off entirely).
+ *   2. "Subscription delivery" — read-only mirror of Remnawave's own config.
+ *   3. "Node plugins" — installed plugins per node (read-only inventory).
  *
- * Nothing here mutates Remnawave settings yet — that ships in a later
- * iteration once we have a clean RBAC story for cross-panel writes.
+ * The delivery + plugins cards are read-only mirrors of Remnawave; only the
+ * cleanup policy writes (and it writes to OUR Settings, never to Remnawave).
  */
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQuery } from '@tanstack/react-query'
-import { Loader2, Plug } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Loader2, Plug, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import {
   Card,
   CardContent,
@@ -53,6 +60,8 @@ export function SettingsTab() {
         title={t('remnaWavePage.tabs.settings')}
         subtitle={t('remnaWavePage.settings.subtitle')}
       />
+
+      <CleanupCard />
 
       <Card>
         <CardHeader className="pb-2">
@@ -127,6 +136,114 @@ export function SettingsTab() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+/**
+ * Editable Remnawave expired-profile cleanup policy. Persisted in the panel's
+ * Settings (NOT in Remnawave) — controls whether and how long after expiry the
+ * panel deletes the upstream Remnawave profile. Important for multi-project
+ * panels where deleting a profile could wipe another project's user.
+ */
+function CleanupCard() {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const { data, isLoading } = useQuery({
+    queryKey: KEYS.cleanupSettings,
+    queryFn: remnawaveApi.getCleanupSettings,
+  })
+
+  const [deleteEnabled, setDeleteEnabled] = useState(true)
+  const [graceDays, setGraceDays] = useState('3')
+
+  // Hydrate the form once the server value lands (and on refetch).
+  useEffect(() => {
+    if (!data) return
+    setDeleteEnabled(data.deleteEnabled)
+    setGraceDays(String(data.graceDays))
+  }, [data])
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      remnawaveApi.updateCleanupSettings({
+        deleteEnabled,
+        graceDays: Math.max(0, Math.min(365, Math.trunc(Number(graceDays) || 0))),
+      }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(KEYS.cleanupSettings, next)
+      toast.success(t('remnaWavePage.settings.cleanup.saved'))
+    },
+    onError: () => toast.error(t('remnaWavePage.settings.cleanup.error')),
+  })
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-sm font-medium">
+          <Trash2 className="h-4 w-4 text-muted-foreground" aria-hidden />
+          {t('remnaWavePage.settings.cleanup.title')}
+        </CardTitle>
+        <CardDescription className="text-xs">
+          {t('remnaWavePage.settings.cleanup.subtitle')}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">
+                  {t('remnaWavePage.settings.cleanup.deleteLabel')}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('remnaWavePage.settings.cleanup.deleteHint')}
+                </p>
+              </div>
+              <Switch
+                checked={deleteEnabled}
+                onCheckedChange={setDeleteEnabled}
+                aria-label={t('remnaWavePage.settings.cleanup.deleteLabel')}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+              <div className="space-y-0.5">
+                <Label htmlFor="cleanup-grace-days" className="text-sm font-medium">
+                  {t('remnaWavePage.settings.cleanup.graceLabel')}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {deleteEnabled
+                    ? t('remnaWavePage.settings.cleanup.graceHint')
+                    : t('remnaWavePage.settings.cleanup.disabledNote')}
+                </p>
+              </div>
+              <Input
+                id="cleanup-grace-days"
+                type="number"
+                min={0}
+                max={365}
+                value={graceDays}
+                disabled={!deleteEnabled}
+                onChange={(e) => setGraceDays(e.target.value)}
+                className="w-24"
+              />
+            </div>
+
+            <div className="flex justify-end">
+              <Button
+                onClick={() => mutation.mutate()}
+                disabled={mutation.isPending}
+              >
+                {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />}
+                {t('remnaWavePage.settings.cleanup.save')}
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
