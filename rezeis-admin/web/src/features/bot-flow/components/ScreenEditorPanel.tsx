@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { EmojiPicker } from '@/features/broadcast/emoji-picker'
+import { insertAtCaret } from '@/features/bot-map/utils/insert-at-caret'
 import { CustomEmojiPicker } from './CustomEmojiPicker'
 import type { BotFlowButton, BotFlowButtonAction, BotFlowButtonStyle, BotFlowScreen } from '../types'
 
@@ -26,6 +28,8 @@ export function ScreenEditorPanel({ screen, flowName }: ScreenEditorPanelProps) 
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const mediaInputRef = useRef<HTMLInputElement | null>(null)
+  const textRuRef = useRef<HTMLTextAreaElement | null>(null)
+  const textEnRef = useRef<HTMLTextAreaElement | null>(null)
 
   // Destructure to avoid react-doctor false positive on "screen.*" in deps
   const { id: screenId, name: screenName, textRu: screenTextRu, textEn: screenTextEn, isRoot: screenIsRoot } = screen
@@ -171,6 +175,32 @@ export function ScreenEditorPanel({ screen, flowName }: ScreenEditorPanelProps) 
     }
   }, [name, textRu, textEn, isRoot, screenName, screenTextRu, screenTextEn, screenIsRoot, updateScreenMutation])
 
+  // ── Emoji insert into screen text (insert at caret + persist) ───────────────
+  const insertEmojiRu = (emoji: string) => {
+    const el = textRuRef.current
+    const start = el?.selectionStart ?? textRu.length
+    const end = el?.selectionEnd ?? textRu.length
+    const { value: next, caret } = insertAtCaret(textRu, start, end, emoji)
+    setTextRu(next)
+    updateScreenMutation.mutate({ textRu: next })
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(caret, caret)
+    })
+  }
+  const insertEmojiEn = (emoji: string) => {
+    const el = textEnRef.current
+    const start = el?.selectionStart ?? textEn.length
+    const end = el?.selectionEnd ?? textEn.length
+    const { value: next, caret } = insertAtCaret(textEn, start, end, emoji)
+    setTextEn(next)
+    updateScreenMutation.mutate({ textEn: next })
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(caret, caret)
+    })
+  }
+
   return (
     <div className="space-y-4">
       {/* Screen name */}
@@ -204,8 +234,12 @@ export function ScreenEditorPanel({ screen, flowName }: ScreenEditorPanelProps) 
 
       {/* Text RU */}
       <div className="space-y-1.5">
-        <Label className="text-xs">{t('botFlow.fields.textRu')}</Label>
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">{t('botFlow.fields.textRu')}</Label>
+          <EmojiPicker onSelect={insertEmojiRu} ariaLabel={t('emojiPicker.trigger')} />
+        </div>
         <textarea
+          ref={textRuRef}
           value={textRu}
           onChange={(e) => setTextRu(e.target.value)}
           onBlur={handleScreenBlur}
@@ -222,8 +256,12 @@ export function ScreenEditorPanel({ screen, flowName }: ScreenEditorPanelProps) 
 
       {/* Text EN */}
       <div className="space-y-1.5">
-        <Label className="text-xs">{t('botFlow.fields.textEn')}</Label>
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">{t('botFlow.fields.textEn')}</Label>
+          <EmojiPicker onSelect={insertEmojiEn} ariaLabel={t('emojiPicker.trigger')} />
+        </div>
         <textarea
+          ref={textEnRef}
           value={textEn}
           onChange={(e) => setTextEn(e.target.value)}
           onBlur={handleScreenBlur}
@@ -369,6 +407,8 @@ function ButtonEditor({ button, onUpdate, onDelete }: ButtonEditorProps) {
   const { t } = useTranslation()
   const [labelRu, setLabelRu] = useState(button.labelRu)
   const [labelEn, setLabelEn] = useState(button.labelEn)
+  const labelRuRef = useRef<HTMLInputElement | null>(null)
+  const labelEnRef = useRef<HTMLInputElement | null>(null)
 
   // TODO: refactor — re-derive labelRu/labelEn from `button` prop directly via key/identity.
   /* eslint-disable react-hooks/set-state-in-effect */
@@ -385,24 +425,57 @@ function ButtonEditor({ button, onUpdate, onDelete }: ButtonEditorProps) {
     if (Object.keys(changes).length > 0) onUpdate(changes)
   }
 
+  const insertLabelRu = (emoji: string) => {
+    const el = labelRuRef.current
+    const start = el?.selectionStart ?? labelRu.length
+    const end = el?.selectionEnd ?? labelRu.length
+    const { value: next, caret } = insertAtCaret(labelRu, start, end, emoji)
+    setLabelRu(next)
+    onUpdate({ labelRu: next })
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(caret, caret)
+    })
+  }
+  const insertLabelEn = (emoji: string) => {
+    const el = labelEnRef.current
+    const start = el?.selectionStart ?? labelEn.length
+    const end = el?.selectionEnd ?? labelEn.length
+    const { value: next, caret } = insertAtCaret(labelEn, start, end, emoji)
+    setLabelEn(next)
+    onUpdate({ labelEn: next })
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(caret, caret)
+    })
+  }
+
   return (
     <div className="rounded-lg border p-2.5 space-y-2 bg-muted/30">
       {/* Label RU/EN */}
       <div className="grid grid-cols-2 gap-1.5">
-        <Input
-          value={labelRu}
-          onChange={(e) => setLabelRu(e.target.value)}
-          onBlur={handleLabelBlur}
-          placeholder={t('botFlow.button.labelRuPlaceholder')}
-          className="h-7 text-[11px]"
-        />
-        <Input
-          value={labelEn}
-          onChange={(e) => setLabelEn(e.target.value)}
-          onBlur={handleLabelBlur}
-          placeholder={t('botFlow.button.labelEnPlaceholder')}
-          className="h-7 text-[11px]"
-        />
+        <div className="flex items-center gap-1">
+          <Input
+            ref={labelRuRef}
+            value={labelRu}
+            onChange={(e) => setLabelRu(e.target.value)}
+            onBlur={handleLabelBlur}
+            placeholder={t('botFlow.button.labelRuPlaceholder')}
+            className="h-7 text-[11px]"
+          />
+          <EmojiPicker onSelect={insertLabelRu} ariaLabel={t('emojiPicker.trigger')} />
+        </div>
+        <div className="flex items-center gap-1">
+          <Input
+            ref={labelEnRef}
+            value={labelEn}
+            onChange={(e) => setLabelEn(e.target.value)}
+            onBlur={handleLabelBlur}
+            placeholder={t('botFlow.button.labelEnPlaceholder')}
+            className="h-7 text-[11px]"
+          />
+          <EmojiPicker onSelect={insertLabelEn} ariaLabel={t('emojiPicker.trigger')} />
+        </div>
       </div>
 
       {/* Row / Col — same row = same line in Telegram keyboard */}

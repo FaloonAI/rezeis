@@ -46,7 +46,7 @@ import {
   type OnConnect,
   ReactFlowProvider,
 } from '@xyflow/react'
-import { Workflow, Plus, Check, Save, Smile, Type, Upload, RefreshCw, Image as ImageIcon } from 'lucide-react'
+import { Workflow, Plus, Check, Save, Type, Upload, RefreshCw, Image as ImageIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
@@ -59,7 +59,6 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 
-import { BotEmojisTab } from '@/features/bot-config/bot-emojis-tab'
 import { BotTextsTab } from '@/features/bot-config/bot-texts-tab'
 import BotBannerTab from '@/features/bot-config/bot-banner-tab'
 import { ReplyKeyboardEditorPanel } from '@/features/bot-config/reply-keyboard-editor-panel'
@@ -96,7 +95,6 @@ export default function BotFlowPage() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
 
   // Sheet drawers for global resources
-  const [emojisOpen, setEmojisOpen] = useState(false)
   const [textsOpen, setTextsOpen] = useState(false)
   const [bannerOpen, setBannerOpen] = useState(false)
 
@@ -451,10 +449,6 @@ export default function BotFlowPage() {
             />
             {t('botStudio.toolbar.fetchBlocks')}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setEmojisOpen(true)}>
-            <Smile className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-            {t('botStudio.toolbar.emojis')}
-          </Button>
           <Button variant="outline" size="sm" onClick={() => setTextsOpen(true)}>
             <Type className="mr-1.5 h-3.5 w-3.5" aria-hidden />
             {t('botStudio.toolbar.texts')}
@@ -600,19 +594,7 @@ export default function BotFlowPage() {
         )}
       </div>
 
-      {/* Sheet drawers — global emojis & texts */}
-      <Sheet open={emojisOpen} onOpenChange={setEmojisOpen}>
-        <SheetContent side="right" className="w-full max-w-4xl overflow-y-auto sm:max-w-4xl">
-          <SheetHeader>
-            <SheetTitle>{t('botStudio.toolbar.emojis')}</SheetTitle>
-            <SheetDescription>{t('botStudio.drawers.emojisDescription')}</SheetDescription>
-          </SheetHeader>
-          <div className="mt-4">
-            <BotEmojisTab />
-          </div>
-        </SheetContent>
-      </Sheet>
-
+      {/* Sheet drawers — global texts & banner */}
       <Sheet open={textsOpen} onOpenChange={setTextsOpen}>
         <SheetContent side="right" className="w-full max-w-5xl overflow-y-auto sm:max-w-5xl">
           <SheetHeader>

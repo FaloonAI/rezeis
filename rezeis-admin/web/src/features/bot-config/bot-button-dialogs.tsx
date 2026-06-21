@@ -13,13 +13,15 @@
  * (URL / WEBAPP take a string, SCREEN takes a dropdown of shortIds
  * from the active draft flow, CALLBACK / SUPPORT_URL take nothing).
  */
-import { useEffect, useMemo, useState, type JSX } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
+import { EmojiPicker } from '@/features/broadcast/emoji-picker'
+import { insertAtCaret } from '@/features/bot-map/utils/insert-at-caret'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -251,6 +253,7 @@ export function BotButtonEditDialog({
   const [onePerRow, setOnePerRow] = useState(false)
   const [actionType, setActionType] = useState<BotButtonAction>('CALLBACK')
   const [actionTarget, setActionTarget] = useState('')
+  const labelRef = useRef<HTMLInputElement | null>(null)
 
     /* eslint-disable react-hooks/set-state-in-effect */
     useEffect(() => {
@@ -265,6 +268,18 @@ export function BotButtonEditDialog({
     }
   }, [button, open])
     /* eslint-enable react-hooks/set-state-in-effect */
+
+  const insertLabelEmoji = (emoji: string) => {
+    const el = labelRef.current
+    const start = el?.selectionStart ?? label.length
+    const end = el?.selectionEnd ?? label.length
+    const { value: next, caret } = insertAtCaret(label, start, end, emoji)
+    setLabel(next)
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(caret, caret)
+    })
+  }
 
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { readonly id: string; readonly payload: UpdateBotButtonPayload }) =>
@@ -324,9 +339,13 @@ export function BotButtonEditDialog({
 
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="bbd-edit-label">{t('botConfigPage.buttons.fields.label')}</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="bbd-edit-label">{t('botConfigPage.buttons.fields.label')}</Label>
+              <EmojiPicker onSelect={insertLabelEmoji} ariaLabel={t('emojiPicker.trigger')} />
+            </div>
             <Input
               id="bbd-edit-label"
+              ref={labelRef}
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               maxLength={120}
@@ -450,6 +469,7 @@ export function BotButtonCreateDialog({
   const [onePerRow, setOnePerRow] = useState(false)
   const [actionType, setActionType] = useState<BotButtonAction>('CALLBACK')
   const [actionTarget, setActionTarget] = useState('')
+  const labelRef = useRef<HTMLInputElement | null>(null)
 
     /* eslint-disable react-hooks/set-state-in-effect */
     useEffect(() => {
@@ -465,6 +485,18 @@ export function BotButtonCreateDialog({
     }
   }, [open])
     /* eslint-enable react-hooks/set-state-in-effect */
+
+  const insertLabelEmoji = (emoji: string) => {
+    const el = labelRef.current
+    const start = el?.selectionStart ?? label.length
+    const end = el?.selectionEnd ?? label.length
+    const { value: next, caret } = insertAtCaret(label, start, end, emoji)
+    setLabel(next)
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(caret, caret)
+    })
+  }
 
   const createMutation = useMutation({
     mutationFn: (payload: CreateBotButtonPayload) => botConfigApi.createButton(payload),
@@ -525,9 +557,13 @@ export function BotButtonCreateDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="bbd-new-label">{t('botConfigPage.buttons.fields.label')}</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="bbd-new-label">{t('botConfigPage.buttons.fields.label')}</Label>
+              <EmojiPicker onSelect={insertLabelEmoji} ariaLabel={t('emojiPicker.trigger')} />
+            </div>
             <Input
               id="bbd-new-label"
+              ref={labelRef}
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               maxLength={120}
