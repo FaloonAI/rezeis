@@ -88,6 +88,14 @@ export interface InternalBotConfigVisualInterface {
    * that hasn't customised it doesn't accidentally ship the default.
    */
   readonly bannerUrl: string | null;
+  /**
+   * When `true`, reiwa uses the global `bannerUrl` as the banner on every
+   * dynamic screen that doesn't carry its own media. When `false` (default),
+   * only screens with their own media show a banner. Sourced from the
+   * `bot.banner_apply_all` BotText row (managed via the main-menu inspector
+   * in Bot Studio). Additive — older reiwa builds ignore it.
+   */
+  readonly bannerApplyAll: boolean;
 }
 
 export interface InternalBotConfigFeaturesInterface {

@@ -137,6 +137,7 @@ export class InternalBotConfigService implements OnApplicationBootstrap {
         channelUsername: DEFAULT_VISUAL.channelUsername,
         subscriptionInfoFormat: readSubscriptionInfoFormat(textMap),
         bannerUrl: readBannerUrl(textMap),
+        bannerApplyAll: readBannerApplyAll(textMap),
       },
       features: DEFAULT_FEATURES,
       botEmojis: emojiMap,
@@ -284,6 +285,7 @@ export class InternalBotConfigService implements OnApplicationBootstrap {
 }
 
 const BANNER_URL_KEY = 'bot.banner_url';
+const BANNER_APPLY_ALL_KEY = 'bot.banner_apply_all';
 const WELCOME_MESSAGE_KEY = 'bot.welcome_message';
 const SUBSCRIPTION_INFO_FORMAT_KEY = 'bot.subscription_info_format';
 
@@ -574,6 +576,16 @@ function readBannerUrl(textMap: InternalBotTextMap): string | null {
 }
 
 /**
+ * Read the `bot.banner_apply_all` flag (managed via the main-menu inspector).
+ * Truthy only for the literal `'true'` (case-insensitive); anything else —
+ * including the unset / empty / seed default — is `false`.
+ */
+function readBannerApplyAll(textMap: InternalBotTextMap): boolean {
+  const raw = textMap[BANNER_APPLY_ALL_KEY];
+  return typeof raw === 'string' && raw.trim().toLowerCase() === 'true';
+}
+
+/**
  * Resolve the operator-managed welcome greeting from its `BotText` row.
  *   - row absent (never configured) → built-in default (fresh deploy).
  *   - row hidden (`visible === false`) → empty string: the operator
@@ -618,7 +630,10 @@ function readSubscriptionInfoFormat(
   return DEFAULT_VISUAL.subscriptionInfoFormat;
 }
 
-const DEFAULT_VISUAL: Omit<InternalBotConfigVisualInterface, 'bannerUrl'> = {
+const DEFAULT_VISUAL: Omit<
+  InternalBotConfigVisualInterface,
+  'bannerUrl' | 'bannerApplyAll'
+> = {
   welcomeMessage: 'Привет, {{firstName}}! 👋\n\nДобро пожаловать в Rezeis VPN.',
   welcomeMessageEn: null,
   botDescription: 'Быстрый и надёжный VPN',

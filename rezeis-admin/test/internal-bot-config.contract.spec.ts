@@ -205,5 +205,8 @@ describe('internal bot-config contract (byte-parity)', () => {
       'trialEnabled',
     ]);
     assert.equal(payload.visual.subscriptionInfoFormat, 'full');
+    // Additive `bannerApplyAll` flag (W3b-4): default false when the
+    // `bot.banner_apply_all` text row is absent.
+    assert.equal(payload.visual.bannerApplyAll, false);
   });
 });
