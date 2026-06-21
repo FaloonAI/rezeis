@@ -299,6 +299,8 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
     titleTooLong: t('broadcastPage.form.validation.titleTooLong'),
     textRequired: t('broadcastPage.form.validation.textRequired'),
     textTooLong: t('broadcastPage.form.validation.textTooLong'),
+    promoCodeTooLong: t('broadcastPage.form.validation.promoCodeTooLong'),
+    promoCodeInvalid: t('broadcastPage.form.validation.promoCodeInvalid'),
     mediaTypeInvalid: t('broadcastPage.form.validation.mediaTypeInvalid'),
     mediaRequired: t('broadcastPage.form.validation.mediaRequired'),
     mediaTooLong: t('broadcastPage.form.validation.mediaTooLong'),
@@ -311,6 +313,7 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
       audience: 'ALL',
       title: '',
       text: '',
+      promoCode: '',
       mediaType: 'none',
       mediaSourceMode: 'upload',
       mediaValue: '',
@@ -323,6 +326,7 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
   const [audience, setAudience] = useState('ALL')
   const [title, setTitle] = useState('')
   const [text, setText] = useState('')
+  const [promoCode, setPromoCode] = useState('')
   const [mediaType, setMediaType] = useState<'none' | 'photo' | 'video'>('none')
   const [mediaSourceMode, setMediaSourceMode] = useState<'upload' | 'url' | 'fileId'>('upload')
   const [mediaValue, setMediaValue] = useState('')
@@ -461,6 +465,7 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
       audience,
       title,
       text,
+      promoCode,
       mediaType,
       mediaSourceMode,
       mediaValue,
@@ -714,6 +719,28 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
             <FieldError message={formErrors.mediaValue} />
           </div>
         ) : null}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="broadcast-promo-code">{t('broadcastPage.form.promoCodeLabel')}</Label>
+        <Input
+          id="broadcast-promo-code"
+          placeholder={t('broadcastPage.form.promoCodePlaceholder')}
+          value={promoCode}
+          onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+          maxLength={64}
+          className="font-mono text-xs uppercase"
+          aria-invalid={!!formErrors.promoCode}
+        />
+        <p className="text-xs text-muted-foreground">{t('broadcastPage.form.promoCodeHint')}</p>
+        {promoCode.trim().length > 0 && (
+          <Badge variant="secondary" className="font-normal">
+            {t('broadcastPage.form.promoCodePreview', {
+              code: promoCode.trim().toUpperCase(),
+            })}
+          </Badge>
+        )}
+        <FieldError message={formErrors.promoCode} />
       </div>
 
       <div className="space-y-2">

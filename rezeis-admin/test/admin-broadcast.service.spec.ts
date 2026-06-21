@@ -50,6 +50,7 @@ describe('BroadcastService', () => {
         status: BroadcastStatus.PROCESSING,
         audience: BroadcastAudience.ACTIVE_SUBSCRIBERS,
         audiencePlanId: 'plan-1',
+        promoCode: null,
         payload: {
           title: null,
           text: 'Hello subscribers',
@@ -107,6 +108,7 @@ describe('BroadcastService', () => {
           status: BroadcastStatus.DRAFT,
           audience: BroadcastAudience.TRIAL,
           audiencePlanId: null,
+          promoCode: null,
           payload: {
             title: null,
             text: 'Trial notice',
@@ -319,6 +321,7 @@ function broadcastRecord(overrides: Record<string, unknown> = {}): Record<string
     status: BroadcastStatus.DRAFT,
     audience: BroadcastAudience.ALL,
     audiencePlanId: null,
+    promoCode: null,
     payload: {},
     totalCount: 0,
     successCount: 0,

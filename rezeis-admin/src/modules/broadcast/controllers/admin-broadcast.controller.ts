@@ -103,6 +103,10 @@ export class AdminBroadcastController {
       throw new BadRequestException('Only draft broadcasts can be sent');
     }
 
+    // Dispatch-time promo gate: block the send if the tagged promo drifted
+    // into EXPIRED/DEPLETED (or was deleted) since compose time.
+    await this.broadcastService.assertPromoCodeDispatchable(broadcastId);
+
     const delayMs = dto.delayMinutes ? dto.delayMinutes * 60_000 : undefined;
     const jobId = await this.broadcastQueueService.enqueueStart(
       { broadcastId, adminId: currentAdmin.id },

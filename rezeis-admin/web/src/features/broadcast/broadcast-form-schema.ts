@@ -8,6 +8,7 @@ export interface BroadcastFormDraft {
   readonly audience: string
   readonly title: string
   readonly text: string
+  readonly promoCode: string
   readonly mediaType: 'none' | 'photo' | 'video'
   readonly mediaSourceMode: 'upload' | 'url' | 'fileId'
   readonly mediaValue: string
@@ -15,6 +16,7 @@ export interface BroadcastFormDraft {
 
 export interface BroadcastCreateRequest {
   readonly audience: (typeof BROADCAST_AUDIENCES)[number]
+  readonly promoCode?: string
   readonly payload: {
     readonly title?: string
     readonly text?: string
@@ -28,6 +30,8 @@ export interface BroadcastFormValidationMessages {
   readonly titleTooLong: string
   readonly textRequired: string
   readonly textTooLong: string
+  readonly promoCodeTooLong: string
+  readonly promoCodeInvalid: string
   readonly mediaTypeInvalid: string
   readonly mediaRequired: string
   readonly mediaTooLong: string
@@ -35,18 +39,26 @@ export interface BroadcastFormValidationMessages {
   readonly mediaFileIdInvalid: string
 }
 
+const PROMO_CODE_PATTERN = /^[A-Z0-9._-]+$/
+
 export function createBroadcastFormSchema(messages: BroadcastFormValidationMessages) {
   return z
     .object({
       audience: z.enum(BROADCAST_AUDIENCES, { error: messages.audienceInvalid }),
       title: z.string().trim().max(128, messages.titleTooLong),
       text: z.string().trim().max(4096, messages.textTooLong),
+      promoCode: z.string().trim().max(64, messages.promoCodeTooLong),
       mediaType: z.enum(BROADCAST_MEDIA_TYPES, { error: messages.mediaTypeInvalid }),
       mediaSourceMode: z.enum(BROADCAST_MEDIA_SOURCE_MODES),
       mediaValue: z.string().trim().max(256, messages.mediaTooLong),
     })
     .superRefine((values, ctx) => {
       const hasText = values.text.trim().length > 0
+
+      const promo = values.promoCode.trim().toUpperCase()
+      if (promo.length > 0 && !PROMO_CODE_PATTERN.test(promo)) {
+        ctx.addIssue({ code: 'custom', path: ['promoCode'], message: messages.promoCodeInvalid })
+      }
 
       if (values.mediaType === 'none') {
         if (!hasText) {
@@ -75,6 +87,7 @@ export function createBroadcastFormSchema(messages: BroadcastFormValidationMessa
     .transform((values): BroadcastCreateRequest => {
       const title = values.title.trim()
       const text = values.text.trim()
+      const promoCode = values.promoCode.trim().toUpperCase()
       const mediaValue = values.mediaValue.trim()
       const payload: BroadcastCreateRequest['payload'] = {
         mediaType: values.mediaType,
@@ -85,6 +98,7 @@ export function createBroadcastFormSchema(messages: BroadcastFormValidationMessa
 
       return {
         audience: values.audience,
+        ...(promoCode ? { promoCode } : {}),
         payload,
       }
     })

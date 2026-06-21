@@ -8,7 +8,8 @@ import { UserNotificationsService } from '../../notifications/services/user-noti
 import { BotNotifierClient } from '../../notifications/services/bot-notifier.client';
 import { SettingsService } from '../../settings/services/settings.service';
 import { CustomEmojiService } from '../../custom-emoji/services/custom-emoji.service';
-import { TELEGRAM_RATE_LIMIT_MS } from '../broadcast.constants';
+import { TELEGRAM_RATE_LIMIT_MS, BROADCAST_PROMO_BUTTON_LABEL } from '../broadcast.constants';
+import { buildPromoButton } from '../utils/broadcast-promo.util';
 
 /**
  * Broadcast delivery service — handles staging, sending, editing, deleting,
@@ -188,7 +189,7 @@ export class BroadcastDeliveryService {
 
     const broadcast = await this.prismaService.broadcast.findUnique({
       where: { id: broadcastId },
-      select: { id: true, status: true, payload: true },
+      select: { id: true, status: true, payload: true, promoCode: true },
     });
     if (!broadcast) return { sent: 0, failed: 0 };
 
@@ -227,6 +228,14 @@ export class BroadcastDeliveryService {
     // in Telegram too (not just the cabinet).
     const useHtmlEmoji = hasMedia ? parseMode === 'HTML' : true;
     const telegramText = await this.composeTelegram(title, text, useHtmlEmoji);
+
+    // Promo-tagged broadcast → append a Mini App "activate promo" button to
+    // each delivered message (text path). The reiwa bot resolves the
+    // `webAppPath` against its own miniAppUrl, deep-linking `/promo?code=…`.
+    const promoButton =
+      broadcast.promoCode && broadcast.promoCode.length > 0
+        ? buildPromoButton(broadcast.promoCode, BROADCAST_PROMO_BUTTON_LABEL)
+        : null;
 
     const messages = await this.prismaService.broadcastMessage.findMany({
       where: { id: { in: messageIds }, status: BroadcastMessageStatus.PENDING },
@@ -302,6 +311,7 @@ export class BroadcastDeliveryService {
           telegramId: user.telegramId.toString(),
           text: telegramText || ' ',
           parseMode: 'HTML',
+          buttons: promoButton ? [promoButton] : undefined,
         });
         await sleep(TELEGRAM_RATE_LIMIT_MS);
       }

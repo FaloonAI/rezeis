@@ -121,6 +121,9 @@ describe('AdminBroadcastController', () => {
         updateBroadcastContent: async (input: unknown) => {
           calls.push(['updateContent', input]);
         },
+        assertPromoCodeDispatchable: async (broadcastId: string) => {
+          calls.push(['assertPromo', broadcastId]);
+        },
       } as never,
       {} as never,
       {
@@ -183,6 +186,7 @@ describe('AdminBroadcastController', () => {
     });
     assert.deepStrictEqual(calls, [
       ['get', 'draft-1'],
+      ['assertPromo', 'draft-1'],
       ['enqueueStart', { broadcastId: 'draft-1', adminId: 'admin-1' }, { delayMs: undefined }],
       ['get', 'processing-1'],
       ['cancelQueue', 'processing-1'],

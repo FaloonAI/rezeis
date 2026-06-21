@@ -121,11 +121,18 @@ export const en = {
         'Telegram fetches the file from the URL. Direct URLs supported. Videos must be ≤ 50 MB.',
       fileIdPlaceholder: 'Telegram {{type}} file_id',
       fileIdHint: 'Get file_id by sending the {{type}} to your bot and checking the update.',
+      promoCodeLabel: 'Promo code (optional)',
+      promoCodePlaceholder: 'e.g. SUMMER25',
+      promoCodeHint:
+        'When set, every message gets a Mini App button deep-linking the activation page with the code pre-filled. The code is validated on save and right before dispatch.',
+      promoCodePreview: '🎁 Activate promo → /promo?code={{code}}',
       validation: {
         audienceInvalid: 'Choose a valid broadcast audience.',
         titleTooLong: 'Title must be 128 characters or less.',
         textRequired: 'Enter message text or attach media.',
         textTooLong: 'Message text must be 4096 characters or less.',
+        promoCodeTooLong: 'Promo code must be 64 characters or less.',
+        promoCodeInvalid: 'Promo code may contain only letters, digits and . _ -',
         mediaTypeInvalid: 'Choose photo, video, or no media.',
         mediaRequired: 'Upload media or enter a Telegram file_id/URL.',
         mediaTooLong: 'Media reference must be 256 characters or less.',

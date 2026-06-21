@@ -44,6 +44,12 @@ export class CreateBroadcastDraftDto {
   @IsString()
   public audiencePlanId?: string;
 
+  /** Optional promo-code tag. Validated (exists + usable) on save. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  public promoCode?: string;
+
   @IsOptional()
   @ValidateNested()
   @Type((): typeof BroadcastPayloadDto => BroadcastPayloadDto)
@@ -58,6 +64,15 @@ export class UpdateBroadcastDraftDto {
   @IsOptional()
   @IsString()
   public audiencePlanId?: string;
+
+  /**
+   * Optional promo-code tag. An empty string clears the tag; a non-empty
+   * value is validated (exists + usable) on save.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  public promoCode?: string;
 
   @IsOptional()
   @ValidateNested()

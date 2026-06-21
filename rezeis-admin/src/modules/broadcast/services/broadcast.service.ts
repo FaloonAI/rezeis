@@ -9,6 +9,8 @@ import {
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.interface';
+import { normalizeCode } from '../../promocodes/utils/code-normalizer.util';
+import { PROMOCODE_INCLUDE_ACTIVATIONS_COUNT } from '../../promocodes/utils/promocode-mappers.util';
 import {
   BroadcastPayloadDto,
   CreateBroadcastDraftDto,
@@ -19,6 +21,11 @@ import {
   BroadcastInterface,
   BroadcastPayloadInterface,
 } from '../interfaces/broadcast.interface';
+import {
+  BroadcastPromoStatus,
+  evaluateBroadcastPromocode,
+  isBroadcastPromocodeUsable,
+} from '../utils/broadcast-promo.util';
 
 @Injectable()
 export class BroadcastService {
@@ -46,11 +53,13 @@ export class BroadcastService {
     readonly dto: CreateBroadcastDraftDto;
     readonly currentAdmin: CurrentAdminInterface;
   }): Promise<BroadcastInterface> {
+    const promoCode = await this.resolvePromoCodeForSave(input.dto.promoCode);
     const created = await this.prismaService.broadcast.create({
       data: {
         status: BroadcastStatus.DRAFT,
         audience: input.dto.audience,
         audiencePlanId: input.dto.audiencePlanId ?? null,
+        promoCode: promoCode ?? null,
         payload: payloadDtoToJson(input.dto.payload),
         createdBy: input.currentAdmin.id,
       },
@@ -79,6 +88,9 @@ export class BroadcastService {
           ? undefined
           : input.dto.audiencePlanId,
     };
+    if (input.dto.promoCode !== undefined) {
+      data.promoCode = await this.resolvePromoCodeForSave(input.dto.promoCode);
+    }
     if (input.dto.payload !== undefined) {
       data.payload = mergePayload(existing.payload, input.dto.payload);
     }
@@ -94,6 +106,73 @@ export class BroadcastService {
       where: { id: broadcastId },
       data: { status },
     });
+  }
+
+  /**
+   * Compose-time promo validation. Normalizes the raw code, returns `null`
+   * when the operator clears the tag (empty string), otherwise resolves the
+   * canonical code and throws a `BadRequestException` unless the promo is
+   * currently usable (exists + active + not expired + not depleted).
+   */
+  private async resolvePromoCodeForSave(
+    rawCode: string | undefined,
+  ): Promise<string | null> {
+    if (rawCode === undefined) return null;
+    const normalized = normalizeCode(rawCode);
+    if (normalized.length === 0) return null;
+    const evaluation = await this.evaluatePromoCode(normalized);
+    if (evaluation === null) {
+      throw new BadRequestException(`Promocode "${normalized}" not found`);
+    }
+    if (!isBroadcastPromocodeUsable(evaluation.status)) {
+      throw new BadRequestException(promoStatusMessage(normalized, evaluation.status));
+    }
+    return evaluation.code;
+  }
+
+  /**
+   * Dispatch-time gate. Re-validates the broadcast's promo tag right before
+   * delivery is enqueued and throws a clear error when the code drifted into
+   * EXPIRED / DEPLETED (or was deleted) since compose time. No-op when the
+   * broadcast carries no promo tag.
+   */
+  public async assertPromoCodeDispatchable(broadcastId: string): Promise<void> {
+    const broadcast = await this.prismaService.broadcast.findUnique({
+      where: { id: broadcastId },
+      select: { promoCode: true },
+    });
+    const code = broadcast?.promoCode ?? null;
+    if (code === null || code.length === 0) return;
+    const evaluation = await this.evaluatePromoCode(code);
+    if (evaluation === null) {
+      throw new BadRequestException(`Promocode "${code}" no longer exists`);
+    }
+    if (!isBroadcastPromocodeUsable(evaluation.status)) {
+      throw new BadRequestException(promoStatusMessage(code, evaluation.status));
+    }
+  }
+
+  /**
+   * Looks up a promo by (normalized) code and classifies it for broadcast use.
+   * Returns `null` when the code does not exist.
+   */
+  private async evaluatePromoCode(
+    normalizedCode: string,
+  ): Promise<{ readonly code: string; readonly status: BroadcastPromoStatus } | null> {
+    const record = await this.prismaService.promocode.findUnique({
+      where: { code: normalizedCode },
+      include: PROMOCODE_INCLUDE_ACTIVATIONS_COUNT,
+    });
+    if (record === null) return null;
+    const status = evaluateBroadcastPromocode({
+      isActive: record.isActive,
+      createdAt: record.createdAt,
+      lifetime: record.lifetime,
+      expiresAt: record.expiresAt,
+      maxActivations: record.maxActivations,
+      activationsCount: record._count.activations,
+    });
+    return { code: record.code, status };
   }
 
   /**
@@ -257,6 +336,19 @@ export class BroadcastService {
   }
 }
 
+function promoStatusMessage(code: string, status: BroadcastPromoStatus): string {
+  switch (status) {
+    case 'INACTIVE':
+      return `Promocode "${code}" is inactive`;
+    case 'EXPIRED':
+      return `Promocode "${code}" has expired`;
+    case 'DEPLETED':
+      return `Promocode "${code}" has no activations left`;
+    case 'OK':
+      return `Promocode "${code}" is usable`;
+  }
+}
+
 function payloadDtoToJson(
   payload: BroadcastPayloadDto | undefined,
 ): Prisma.InputJsonObject {
@@ -291,6 +383,7 @@ function mapBroadcast(record: Broadcast): BroadcastInterface {
     status: record.status,
     audience: record.audience,
     audiencePlanId: record.audiencePlanId,
+    promoCode: record.promoCode,
     payload: readPayload(record.payload),
     totalCount: record.totalCount,
     successCount: record.successCount,

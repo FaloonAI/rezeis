@@ -20,3 +20,10 @@ export const BROADCAST_BATCH_SIZE = 50;
 
 /** Delay between Telegram API calls (ms). ~30 msg/sec limit. */
 export const TELEGRAM_RATE_LIMIT_MS = 50;
+
+/**
+ * Label for the auto-appended promo "activate" button on promo-tagged
+ * broadcasts. Russian by default — consistent with the built-in notification
+ * button labels (broadcasts are operator-authored single-language).
+ */
+export const BROADCAST_PROMO_BUTTON_LABEL = '🎁 Активировать промокод';

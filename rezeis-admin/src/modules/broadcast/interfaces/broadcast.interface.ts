@@ -13,6 +13,7 @@ export interface BroadcastInterface {
   readonly status: BroadcastStatus;
   readonly audience: BroadcastAudience;
   readonly audiencePlanId: string | null;
+  readonly promoCode: string | null;
   readonly payload: BroadcastPayloadInterface;
   readonly totalCount: number;
   readonly successCount: number;

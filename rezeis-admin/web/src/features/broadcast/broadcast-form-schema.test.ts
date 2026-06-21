@@ -11,6 +11,8 @@ const messages = {
   titleTooLong: 'title too long',
   textRequired: 'text required',
   textTooLong: 'text too long',
+  promoCodeTooLong: 'promo too long',
+  promoCodeInvalid: 'promo invalid',
   mediaTypeInvalid: 'media type invalid',
   mediaRequired: 'media required',
   mediaTooLong: 'media too long',
@@ -83,6 +85,36 @@ describe('broadcast form schema', () => {
     expect(flattenBroadcastFormErrors(result.error).text).toBe('text required')
   })
 
+  it('uppercases and forwards a promo code tag', () => {
+    const result = createBroadcastFormSchema(messages).safeParse({
+      ...validDraft(),
+      promoCode: '  summer-25  ',
+    })
+
+    expect(result.success).toBe(true)
+    if (!result.success) return
+    expect(result.data.promoCode).toBe('SUMMER-25')
+  })
+
+  it('omits the promo code field when left blank', () => {
+    const result = createBroadcastFormSchema(messages).safeParse(validDraft())
+
+    expect(result.success).toBe(true)
+    if (!result.success) return
+    expect('promoCode' in result.data).toBe(false)
+  })
+
+  it('rejects promo codes with illegal characters', () => {
+    const result = createBroadcastFormSchema(messages).safeParse({
+      ...validDraft(),
+      promoCode: 'bad code!',
+    })
+
+    expect(result.success).toBe(false)
+    if (result.success) return
+    expect(flattenBroadcastFormErrors(result.error).promoCode).toBe('promo invalid')
+  })
+
   it('rejects malformed media references before submit', () => {
     const invalidUrl = createBroadcastFormSchema(messages).safeParse({
       ...validDraft(),
@@ -113,6 +145,7 @@ function validDraft(): BroadcastFormDraft {
     audience: 'ALL',
     title: '',
     text: 'Hello',
+    promoCode: '',
     mediaType: 'none',
     mediaSourceMode: 'upload',
     mediaValue: '',
