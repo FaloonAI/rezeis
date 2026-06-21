@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils'
 
 import type { BotMapNode, BotMapPayload } from '../types'
 import { filterNodesByQuery } from '../utils/filter-nodes-by-query'
-import { CanvasView } from './CanvasView'
+import BotFlowPage from '@/features/bot-flow/bot-flow-page'
 import { InspectorRouter } from './inspector/InspectorRouter'
 import { ListView } from './ListView'
 import { NodeRail } from './NodeRail'
@@ -134,15 +134,20 @@ export function BotMapShell({ payload, isFetching, onRefresh }: BotMapShellProps
           </div>
         </TabsContent>
 
-        <TabsContent value="diagram" className="mt-3 flex flex-1 min-h-0 gap-3">
-          <div className="flex-1 min-w-0 overflow-hidden rounded-lg border bg-card">
-            <CanvasView payload={payload} selectedId={selectedId} onSelect={setSelectedId} />
-          </div>
-          <div className="hidden w-96 shrink-0 overflow-hidden rounded-lg border bg-card lg:flex lg:flex-col">
-            <div className="flex-1 overflow-y-auto p-4">
-              <InspectorRouter node={selected} />
-            </div>
-          </div>
+        <TabsContent
+          value="diagram"
+          className="mt-3 flex-1 min-h-0 overflow-hidden rounded-lg border bg-card"
+        >
+          {/*
+            The "Схема" tab now hosts the full bot constructor (graph + reply
+            keyboard editing, colored NAVIGATE arrows, emoji/texts/banner
+            drawers, publish) reused from the legacy builder — contained inside
+            the bot-map shell rather than a full-screen page. The read-only
+            overview canvas it replaces is superseded by the editable graph;
+            notification / Mini App routes stay visible via the list's
+            destination badges.
+          */}
+          <BotFlowPage />
         </TabsContent>
       </Tabs>
     </div>
