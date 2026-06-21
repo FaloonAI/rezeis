@@ -28,6 +28,7 @@ import {
   BarChart3,
   Smartphone,
   Smile,
+  Map as MapIcon,
 } from 'lucide-react'
 
 import type { SidebarGroupOrder } from '@/stores/sidebar-store'
@@ -100,6 +101,7 @@ export const navGroups: ReadonlyArray<NavGroup> = [
       { key: 'webReiwa', path: '/web-reiwa', icon: Smartphone },
       { key: 'gateways', path: '/payments/gateways', icon: CreditCard, requiredPermission: { resource: 'payment_gateways', action: 'view' } },
       { key: 'botConfig', path: '/bot-config', icon: Bot },
+      { key: 'botMap', path: '/bot-map', icon: MapIcon },
       { key: 'remnawave', path: '/remnawave', icon: RemnawaveIcon },
       { key: 'notifications', path: '/notifications', icon: Bell },
       { key: 'faq', path: '/faq', icon: HelpCircle },

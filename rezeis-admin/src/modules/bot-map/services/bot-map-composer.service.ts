@@ -241,6 +241,7 @@ function toNotificationNode(template: NotificationTemplate): NotificationMapNode
     title: template.title,
     group: `notification:${resolveNotificationCategory(template.type)}`,
     status: template.isActive ? 'ACTIVE' : 'DISABLED',
+    templateId: template.id,
     type: template.type,
     category: resolveNotificationCategory(template.type),
     titleRu: template.title,

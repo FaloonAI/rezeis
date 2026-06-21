@@ -67,6 +67,7 @@ export const en = {
       gateways: 'Payment gateways',
       panelSettings: 'Panel settings',
       botConfig: 'Bot config',
+      botMap: 'Bot map',
       remnawave: 'Remnawave',
       notifications: 'Notifications',
       faq: 'FAQ',

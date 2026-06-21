@@ -67,6 +67,7 @@
       gateways: 'Платёжные шлюзы',
       panelSettings: 'Настройки панели',
       botConfig: 'Бот',
+      botMap: 'Карта бота',
       remnawave: 'Remnawave',
       notifications: 'Уведомления',
       faq: 'FAQ',

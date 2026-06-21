@@ -51,6 +51,8 @@ export interface ReplyKeyboardMapNode extends BotMapBaseNode {
 
 export interface NotificationMapNode extends BotMapBaseNode {
   readonly kind: 'notification';
+  /** `NotificationTemplate.id` (CUID). Used by the SPA inspector to PATCH the row. */
+  readonly templateId: string;
   readonly type: string;
   readonly category: NotificationCategory;
   readonly titleRu: string;

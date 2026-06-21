@@ -80,6 +80,7 @@ export type I18nFeature =
   | 'analytics'
   | 'broadcast'
   | 'automations'
+  | 'botMap'
 
 const loadedFeatureBundles = new Set<I18nFeature>()
 const featureLoadPromises = new Map<string, Promise<void>>()
@@ -137,6 +138,10 @@ async function fetchFeatureBundle(
       return locale === 'ru'
         ? (await import('@/i18n/features/automations.ru')).ru
         : (await import('@/i18n/features/automations.en')).en
+    case 'botMap':
+      return locale === 'ru'
+        ? (await import('@/i18n/features/botMap.ru')).ru
+        : (await import('@/i18n/features/botMap.en')).en
   }
 }
 

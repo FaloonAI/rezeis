@@ -101,6 +101,9 @@ const AnalyticsPage = lazy(
 )
 const BotConfigPage = lazy(() => import('@/features/bot-config/bot-config-page'))
 const BotFlowPage = lazy(() => import('@/features/bot-flow/bot-flow-page'))
+const BotMapPage = lazy(
+  withFeatureBundle('botMap', () => import('@/features/bot-map/bot-map-page')),
+)
 const CustomEmojiPage = lazy(() => import('@/features/custom-emoji/custom-emoji-page'))
 const NotificationsPage = lazy(
   withFeatureBundle('notifications', () => import('@/features/notifications/notifications-page')),
@@ -189,6 +192,7 @@ export const router = createBrowserRouter([
           { path: 'settings/panel', element: withSuspense(<PanelSettingsHub />) },
           { path: 'bot-config', element: withSuspense(<BotConfigPage />) },
           { path: 'bot-flow', element: withSuspense(<BotFlowPage />) },
+          { path: 'bot-map', element: withSuspense(<BotMapPage />) },
           { path: 'analytics', element: withSuspense(<AnalyticsPage />) },
           { path: 'admins', element: withSuspense(<AdminsPage />) },
           { path: 'admins/roles', element: <Navigate to="/admins#roles" replace /> },

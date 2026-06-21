@@ -51,6 +51,9 @@ export class AdminNotificationTemplatesController {
       type: body.type,
       title: body.title,
       body: body.body,
+      titleEn: body.titleEn,
+      bodyEn: body.bodyEn,
+      buttons: body.buttons,
       isActive: body.isActive ?? true,
     });
   }
@@ -72,6 +75,9 @@ export class AdminNotificationTemplatesController {
       id,
       title: body.title,
       body: body.body,
+      titleEn: body.titleEn,
+      bodyEn: body.bodyEn,
+      buttons: body.buttons,
       isActive: body.isActive,
     });
   }
