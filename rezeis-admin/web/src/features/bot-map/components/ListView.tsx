@@ -102,7 +102,9 @@ function NodeCard({ node, edges, nodesById, selected, onSelect }: NodeCardProps)
         <NodeSubtitle node={node} />
         {edges.length === 0 ? (
           <p className="text-[11px] text-muted-foreground">
-            {t('botMapPage.badges.noButtons')}
+            {isSystemGraphScreen(node)
+              ? t('botMapPage.badges.systemButtons')
+              : t('botMapPage.badges.noButtons')}
           </p>
         ) : (
           <ul className="space-y-1">
@@ -188,6 +190,22 @@ function NodeStatusPill({ node }: { node: BotMapNode }) {
     default:
       return null
   }
+}
+
+/**
+ * Built-in screens (help / invite / rules) whose buttons the bot appends at
+ * runtime (not editable graph buttons). The bot-map graph node carries 0
+ * outgoing edges for them, so the list would otherwise read "No buttons" —
+ * misleading, since the bot DOES render system buttons there. Matches reiwa's
+ * `findScreenByName` override sentinels (case-insensitive screen name).
+ */
+const SYSTEM_SCREEN_NAMES: ReadonlySet<string> = new Set(['help', 'invite', 'rules'])
+
+function isSystemGraphScreen(node: BotMapNode): boolean {
+  return (
+    node.kind === 'graph-screen' &&
+    SYSTEM_SCREEN_NAMES.has(node.title.trim().toLowerCase())
+  )
 }
 
 function indexEdgesBySource(

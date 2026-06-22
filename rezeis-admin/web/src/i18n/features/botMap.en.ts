@@ -54,6 +54,7 @@ export const en = {
       disabled: 'Disabled',
       buttons: '{{count}} buttons',
       noButtons: 'No buttons',
+      systemButtons: 'Bot system buttons (added automatically)',
     },
     destination: {
       screen: '→ screen {{name}}',

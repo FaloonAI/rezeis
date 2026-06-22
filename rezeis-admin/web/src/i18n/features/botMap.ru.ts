@@ -54,6 +54,7 @@ export const ru = {
       disabled: 'Выключено',
       buttons: 'Кнопок: {{count}}',
       noButtons: 'Без кнопок',
+      systemButtons: 'Системные кнопки бота (добавляются автоматически)',
     },
     destination: {
       screen: '→ экран {{name}}',
