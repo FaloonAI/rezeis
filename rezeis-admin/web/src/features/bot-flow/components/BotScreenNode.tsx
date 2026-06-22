@@ -33,6 +33,21 @@ function BotScreenNodeComponent({ data, id, selected }: NodeProps) {
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"
       />
 
+      {/*
+        Hidden, non-connectable source anchor used ONLY for the programmatic
+        "back to menu" edges drawn for system screens (help/invite/rules).
+        Invisible + not user-connectable so it adds no canvas noise and can't
+        start a stray drag-connection.
+      */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        id={`${id}-source`}
+        isConnectable={false}
+        className="!w-2 !h-2 !border-0 !bg-transparent"
+        style={{ right: 0, opacity: 0 }}
+      />
+
       {/* Header */}
       <div className={cn(
         'flex items-center gap-2 px-3 py-2 rounded-t-xl border-b text-xs font-medium',

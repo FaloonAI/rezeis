@@ -169,6 +169,50 @@ export interface BotButtonLite {
 }
 
 /**
+ * Built-in screens (help / invite / rules) reiwa renders with a single
+ * runtime "◀️ В меню" button that returns to the welcome (`menu:main`).
+ * That button is not a `BotFlowButton`, so the canvas shows no outgoing edge
+ * for these screens. Draw a dashed back-edge from each system screen to the
+ * root (welcome) screen so the round-trip routing is visible. Skipped when no
+ * root screen exists (reiwa then falls back to the built-in welcome, which has
+ * no canvas node).
+ */
+const SYSTEM_BACK_SCREENS: ReadonlySet<string> = new Set(['help', 'invite', 'rules'])
+
+export function buildSystemScreenBackEdges(
+  flow: BotFlow | undefined,
+  backLabel: string,
+): Edge[] {
+  if (flow === undefined) return []
+  const root = flow.screens.find((s) => s.isRoot)
+  if (root === undefined) return []
+  const color = '#94a3b8'
+  const edges: Edge[] = []
+  for (const screen of flow.screens) {
+    if (screen.id === root.id) continue
+    if (!SYSTEM_BACK_SCREENS.has(screen.name.trim().toLowerCase())) continue
+    edges.push({
+      id: `sysback-${screen.id}`,
+      source: screen.id,
+      sourceHandle: `${screen.id}-source`,
+      target: root.id,
+      targetHandle: `${root.id}-target`,
+      type: 'smoothstep',
+      animated: false,
+      deletable: false,
+      style: { stroke: color, strokeWidth: 1.5, strokeDasharray: '2 4' },
+      markerEnd: { type: 'arrowclosed' as const, color },
+      label: backLabel,
+      labelStyle: { fill: '#ffffff', fontSize: 9, fontWeight: 600 },
+      labelBgStyle: { fill: color, fillOpacity: 0.9 },
+      labelBgPadding: [4, 2] as [number, number],
+      labelBgBorderRadius: 4,
+    } as Edge)
+  }
+  return edges
+}
+
+/**
  * Project the non-graph bot-map nodes (notifications + Mini App terminals)
  * onto the canvas. They carry no DB position, so we lay them out in two
  * fixed columns to the right of the graph: notifications, then Mini App

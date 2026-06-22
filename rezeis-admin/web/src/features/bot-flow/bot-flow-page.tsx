@@ -74,7 +74,7 @@ import {
   REPLY_KEYBOARD_NODE_TYPE,
   type ReplyKeyboardNodeData,
 } from './components/ReplyKeyboardNode'
-import { buildReplyToScreenEdges, buildMapEdges, botMapNodesToReactFlow, flowToReactFlow, nodesToPositions } from './utils'
+import { buildReplyToScreenEdges, buildMapEdges, buildSystemScreenBackEdges, botMapNodesToReactFlow, flowToReactFlow, nodesToPositions } from './utils'
 import type { BotFlow, BotFlowScreen } from './types'
 
 import { NodeRail } from '@/features/bot-map/components/NodeRail'
@@ -225,6 +225,7 @@ export default function BotFlowPage() {
       ...incomingEdges,
       ...buildReplyToScreenEdges(flow, replyButtons),
       ...buildMapEdges(botMap?.edges ?? [], mapNodeIds, validNodeIds),
+      ...buildSystemScreenBackEdges(flow, t('botFlow.systemBackEdge')),
     ])
     // We deliberately exclude `replyNode` identity from this deps list:
     // the merge above always picks the latest reference via the closure,
