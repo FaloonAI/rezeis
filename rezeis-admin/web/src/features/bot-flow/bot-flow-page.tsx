@@ -74,7 +74,7 @@ import {
   REPLY_KEYBOARD_NODE_TYPE,
   type ReplyKeyboardNodeData,
 } from './components/ReplyKeyboardNode'
-import { buildReplyToScreenEdges, flowToReactFlow, nodesToPositions } from './utils'
+import { buildReplyToScreenEdges, buildMapEdges, botMapNodesToReactFlow, flowToReactFlow, nodesToPositions } from './utils'
 import type { BotFlow, BotFlowScreen } from './types'
 
 import { NodeRail } from '@/features/bot-map/components/NodeRail'
@@ -100,6 +100,9 @@ export default function BotFlowPage() {
   const [edges, setEdges] = useState<Edge[]>([])
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [railQuery, setRailQuery] = useState('')
+  // Nonce-tagged focus target — set when the operator picks a node from the
+  // left rail, so the canvas re-centers (even on the same node twice).
+  const [focusNode, setFocusNode] = useState<{ id: string; nonce: number } | null>(null)
 
   // Sheet drawers for global resources
   const [textsOpen, setTextsOpen] = useState(false)
@@ -124,7 +127,16 @@ export default function BotFlowPage() {
     queryKey: BOT_MAP_QUERY_KEY,
     queryFn: fetchBotMap,
   })
-  const botMapNodes: ReadonlyArray<BotMapNode> = botMap?.nodes ?? []
+  const botMapNodes = useMemo<ReadonlyArray<BotMapNode>>(
+    () => botMap?.nodes ?? [],
+    [botMap],
+  )
+
+  // Project the non-graph bot-map nodes (notifications + Mini App terminals)
+  // onto the canvas so a selected event screen is visible and its links to
+  // graph screens are drawn. Memoised so the node-sync effect only re-runs
+  // when the payload actually changes.
+  const mapNodes = useMemo<Node[]>(() => botMapNodesToReactFlow(botMapNodes), [botMapNodes])
 
   // Load the operator-uploaded welcome banner so we can render it as
   // a thumbnail on the pinned reply-keyboard pseudo-node. The same
@@ -193,16 +205,33 @@ export default function BotFlowPage() {
         const existing = previousById.get(REPLY_KEYBOARD_NODE_ID)
         merged.unshift(existing ? { ...existing, data: replyNode.data } : replyNode)
       }
+
+      // Append the read-only map nodes (notifications + Mini App terminals),
+      // preserving any local drag position from the previous render.
+      for (const mn of mapNodes) {
+        const existing = previousById.get(mn.id)
+        merged.push(existing ? { ...existing, data: mn.data } : mn)
+      }
       return merged
     })
 
-    setEdges([...incomingEdges, ...buildReplyToScreenEdges(flow, replyButtons)])
+    const validNodeIds = new Set<string>([
+      ...incoming.map((n) => n.id),
+      ...(replyNode ? [REPLY_KEYBOARD_NODE_ID] : []),
+      ...mapNodes.map((n) => n.id),
+    ])
+    const mapNodeIds = new Set<string>(mapNodes.map((n) => n.id))
+    setEdges([
+      ...incomingEdges,
+      ...buildReplyToScreenEdges(flow, replyButtons),
+      ...buildMapEdges(botMap?.edges ?? [], mapNodeIds, validNodeIds),
+    ])
     // We deliberately exclude `replyNode` identity from this deps list:
     // the merge above always picks the latest reference via the closure,
     // and recomputing the entire flow because the buttons list got a new
     // reference would yank the user's selection mid-edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectedGraph, replyButtons])
+  }, [projectedGraph, replyButtons, mapNodes, botMap?.edges])
     /* eslint-enable react-hooks/set-state-in-effect */
 
   // Separate effect to refresh just the reply-node data on bot-button
@@ -314,6 +343,18 @@ export default function BotFlowPage() {
 
       if (!flow || !connection.source || !connection.target) return
 
+      // Read-only map nodes (notifications / Mini App terminals) can't
+      // originate editable flow edges — drop the optimistic edge and bail.
+      if (!flow.screens.some((s) => s.id === connection.source)) {
+        toast.error(t('botFlow.mapNode.cannotConnectInfo'))
+        setEdges((eds) =>
+          eds.filter(
+            (e) => e.source !== connection.source || e.target !== connection.target,
+          ),
+        )
+        return
+      }
+
       const targetScreen = flow.screens.find((s) => s.id === connection.target)
       if (!targetScreen) return
 
@@ -368,6 +409,9 @@ export default function BotFlowPage() {
   const handleSelectNode = useCallback((nodeId: string) => {
     setSelectedNodeId(nodeId)
     setNodes((nds) => nds.map((n) => ({ ...n, selected: n.id === nodeId })))
+    // Re-center the canvas on the picked node so a selected notification /
+    // Mini App screen (which lives off to the side) comes into view.
+    setFocusNode({ id: nodeId, nonce: Date.now() })
   }, [])
 
   const handleEdgeClick = useCallback(
@@ -405,7 +449,9 @@ export default function BotFlowPage() {
 
   const handleSave = useCallback(() => {
     if (!flow) return
-    const positions = nodesToPositions(nodes)
+    // Only graph-screen nodes have a DB row + position to persist; the
+    // pinned reply node and the read-only map nodes are excluded.
+    const positions = nodesToPositions(nodes.filter((n) => n.type === 'botScreen'))
     savePositionsMutation.mutate(positions, {
       onSuccess: () => toast.success(t('botFlow.saved')),
     })
@@ -563,6 +609,7 @@ export default function BotFlowPage() {
               onNodeClick={handleNodeClick}
               onEdgeClick={handleEdgeClick}
               onDrop={handleDrop}
+              focusNode={focusNode}
             />
           </ReactFlowProvider>
         </div>

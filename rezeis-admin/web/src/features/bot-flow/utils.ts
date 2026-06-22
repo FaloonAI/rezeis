@@ -3,6 +3,9 @@ import {
   replyButtonHandleId,
   resolveReplyButtonColor,
 } from './components/reply-keyboard-utils'
+import type { MapInfoNodeData } from './components/MapInfoNode'
+import { MAP_INFO_NODE_TYPE } from './components/MapInfoNode'
+import type { BotMapNode, BotMapEdge } from '@/features/bot-map/types'
 import type { BotFlow, BotFlowButton, BotScreenNodeData } from './types'
 
 /** Group buttons by row index. */
@@ -163,4 +166,92 @@ export interface BotButtonLite {
   readonly buttonId: string
   readonly label: string
   readonly visible: boolean
+}
+
+/**
+ * Project the non-graph bot-map nodes (notifications + Mini App terminals)
+ * onto the canvas. They carry no DB position, so we lay them out in two
+ * fixed columns to the right of the graph: notifications, then Mini App
+ * terminals. Read-only `mapInfo` nodes — draggable for viewing convenience
+ * but excluded from the position-save (only `botScreen` nodes persist).
+ */
+const MAP_NODE_X_NOTIFICATION = 1040
+const MAP_NODE_X_MINIAPP = 1480
+const MAP_NODE_Y_STEP = 150
+
+export function botMapNodesToReactFlow(nodes: ReadonlyArray<BotMapNode>): Node[] {
+  const out: Node[] = []
+  let notifIndex = 0
+  let miniIndex = 0
+  for (const node of nodes) {
+    if (node.kind === 'notification') {
+      out.push({
+        id: node.id,
+        type: MAP_INFO_NODE_TYPE,
+        position: { x: MAP_NODE_X_NOTIFICATION, y: notifIndex * MAP_NODE_Y_STEP },
+        data: {
+          kind: 'notification',
+          title: node.title,
+          group: node.group,
+          status: node.status ?? null,
+          subtitle: node.type,
+        } satisfies MapInfoNodeData,
+      })
+      notifIndex += 1
+    } else if (node.kind === 'mini-app-terminal') {
+      out.push({
+        id: node.id,
+        type: MAP_INFO_NODE_TYPE,
+        position: { x: MAP_NODE_X_MINIAPP, y: miniIndex * MAP_NODE_Y_STEP },
+        data: {
+          kind: 'mini-app-terminal',
+          title: node.title,
+          group: node.group,
+          status: node.status ?? null,
+          subtitle: node.route,
+        } satisfies MapInfoNodeData,
+      })
+      miniIndex += 1
+    }
+  }
+  return out
+}
+
+/**
+ * Build dashed edges from the projected map nodes (notifications / Mini App
+ * terminals) to their targets, using the backend-computed bot-map edges.
+ * Only edges whose source is a map node and whose endpoints both exist on
+ * the canvas are drawn — so an edge into a screen renders, while one into a
+ * non-node destination (external URL / chat) is skipped.
+ */
+export function buildMapEdges(
+  edges: ReadonlyArray<BotMapEdge>,
+  mapNodeIds: ReadonlySet<string>,
+  validNodeIds: ReadonlySet<string>,
+): Edge[] {
+  const out: Edge[] = []
+  let i = 0
+  for (const edge of edges) {
+    if (!mapNodeIds.has(edge.source)) continue
+    if (!validNodeIds.has(edge.target)) continue
+    const color = EDGE_COLORS[i % EDGE_COLORS.length]
+    i += 1
+    out.push({
+      id: `map-edge-${edge.id}`,
+      source: edge.source,
+      target: edge.target,
+      targetHandle: `${edge.target}-target`,
+      type: 'smoothstep',
+      animated: false,
+      deletable: false,
+      style: { stroke: color, strokeWidth: 2, strokeDasharray: '4 4' },
+      markerEnd: { type: 'arrowclosed' as const, color },
+      label: edge.sourceLabel,
+      labelStyle: { fill: '#ffffff', fontSize: 10, fontWeight: 600 },
+      labelBgStyle: { fill: color, fillOpacity: 0.95 },
+      labelBgPadding: [6, 3] as [number, number],
+      labelBgBorderRadius: 4,
+    } as Edge)
+  }
+  return out
 }

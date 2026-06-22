@@ -3122,6 +3122,13 @@
       saved: 'Текст сохранён',
       saveFailed: 'Не удалось сохранить текст',
     },
+    mapNode: {
+      notification: 'Уведомление',
+      miniApp: 'Mini App',
+      active: 'Активно',
+      disabled: 'Выключено',
+      cannotConnectInfo: 'Узлы уведомлений и Mini App нельзя связывать вручную — их маршруты заданы кодом бота.',
+    },
     palette: 'Блоки',
     newScreen: 'Новый экран',
     save: 'Сохранить',

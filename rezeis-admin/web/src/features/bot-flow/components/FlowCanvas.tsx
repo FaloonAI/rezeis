@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import {
   ReactFlow,
   Background,
@@ -15,9 +15,14 @@ import '@xyflow/react/dist/style.css'
 
 import { BotScreenNode } from './BotScreenNode'
 import { ReplyKeyboardNode } from './ReplyKeyboardNode'
+import { MapInfoNode } from './MapInfoNode'
 import type { BotScreenNodeData } from '../types'
 
-const nodeTypes = { botScreen: BotScreenNode, replyKeyboard: ReplyKeyboardNode }
+const nodeTypes = {
+  botScreen: BotScreenNode,
+  replyKeyboard: ReplyKeyboardNode,
+  mapInfo: MapInfoNode,
+}
 
 interface FlowCanvasProps {
   nodes: Node[]
@@ -28,6 +33,11 @@ interface FlowCanvasProps {
   onNodeClick: (nodeId: string) => void
   onEdgeClick: (edgeId: string) => void
   onDrop: (position: { x: number; y: number }) => void
+  /**
+   * When set, the canvas re-centers on this node. `nonce` forces a
+   * re-center even when the same node is re-selected from the rail.
+   */
+  focusNode?: { id: string; nonce: number } | null
 }
 
 export function FlowCanvas({
@@ -39,8 +49,22 @@ export function FlowCanvas({
   onNodeClick,
   onEdgeClick,
   onDrop,
+  focusNode,
 }: FlowCanvasProps) {
   const reactFlowRef = useRef<ReactFlowInstance | null>(null)
+
+  // Re-center the viewport on a node selected from the left rail. Keyed on
+  // `nonce` so re-selecting the same node still re-centers.
+  useEffect(() => {
+    if (!focusNode || reactFlowRef.current === null) return
+    reactFlowRef.current.fitView({
+      nodes: [{ id: focusNode.id }],
+      duration: 400,
+      maxZoom: 1.2,
+      padding: 0.4,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusNode?.nonce])
 
   const handleDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault()
@@ -101,6 +125,10 @@ export function FlowCanvas({
         <MiniMap
           nodeColor={(node) => {
             if (node.type === 'replyKeyboard') return '#f59e0b'
+            if (node.type === 'mapInfo') {
+              const md = node.data as unknown as { kind?: string }
+              return md.kind === 'notification' ? '#f43f5e' : '#0ea5e9'
+            }
             const nd = node.data as unknown as BotScreenNodeData
             return nd.isRoot ? '#22c55e' : '#64748b'
           }}

@@ -3091,6 +3091,13 @@ export const en = {
       saved: 'Text saved',
       saveFailed: 'Failed to save text',
     },
+    mapNode: {
+      notification: 'Notification',
+      miniApp: 'Mini App',
+      active: 'Active',
+      disabled: 'Disabled',
+      cannotConnectInfo: 'Notification and Mini App nodes can’t be linked manually — their routes are defined in the bot code.',
+    },
     palette: 'Blocks',
     newScreen: 'New Screen',
     save: 'Save',
