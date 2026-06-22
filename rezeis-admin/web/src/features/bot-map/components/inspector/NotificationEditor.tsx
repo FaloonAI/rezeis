@@ -7,7 +7,7 @@
  * `PATCH /admin/notifications/templates/:id` endpoint, which Wave 1
  * extended to accept the new locale + buttons fields.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Bell, Plus, Save as SaveIcon, Trash2 } from 'lucide-react'
@@ -25,6 +25,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { EmojiPicker } from '@/features/broadcast/emoji-picker'
+import { insertAtCaret } from '../../utils/insert-at-caret'
 
 import {
   BOT_MAP_QUERY_KEY,
@@ -260,88 +262,13 @@ export function NotificationEditor({ node }: NotificationEditorProps) {
         ) : (
           <ul className="space-y-2">
             {buttons.map((b) => (
-              <li
+              <NotificationButtonRow
                 key={b.localId}
-                className="space-y-2 rounded-md border bg-muted/20 p-3"
-              >
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <Label className="text-[11px]">
-                      {t('botMapPage.notification.labelRu')}
-                    </Label>
-                    <Input
-                      value={b.labelRu}
-                      onChange={(e) => updateButton(b.localId, { labelRu: e.target.value })}
-                      maxLength={64}
-                      className="text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[11px]">
-                      {t('botMapPage.notification.labelEn')}
-                    </Label>
-                    <Input
-                      value={b.labelEn}
-                      onChange={(e) => updateButton(b.localId, { labelEn: e.target.value })}
-                      maxLength={64}
-                      className="text-xs"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="space-y-1">
-                    <Label className="text-[11px]">
-                      {t('botMapPage.notification.kind')}
-                    </Label>
-                    <Select
-                      value={b.kind}
-                      onValueChange={(v) =>
-                        updateButton(b.localId, {
-                          kind: v as DraftButton['kind'],
-                        })
-                      }
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="webApp" className="text-xs">
-                          {t('botMapPage.notification.kindOptions.webApp')}
-                        </SelectItem>
-                        <SelectItem value="url" className="text-xs">
-                          {t('botMapPage.notification.kindOptions.url')}
-                        </SelectItem>
-                        <SelectItem value="callback" className="text-xs">
-                          {t('botMapPage.notification.kindOptions.callback')}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="col-span-2 space-y-1">
-                    <Label className="text-[11px]">
-                      {t(targetLabelKey(b.kind))}
-                    </Label>
-                    <Input
-                      value={b.target}
-                      onChange={(e) => updateButton(b.localId, { target: e.target.value })}
-                      placeholder={t(targetLabelKey(b.kind))}
-                      maxLength={2_000}
-                      className="font-mono text-xs"
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-end">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => removeButton(b.localId)}
-                    className="text-destructive hover:text-destructive"
-                  >
-                    <Trash2 className="mr-1 h-3 w-3" aria-hidden />
-                    {t('botMapPage.notification.removeButton')}
-                  </Button>
-                </div>
-              </li>
+                button={b}
+                disabled={mutation.isPending}
+                onUpdate={(patch) => updateButton(b.localId, patch)}
+                onRemove={() => removeButton(b.localId)}
+              />
             ))}
           </ul>
         )}
@@ -358,6 +285,132 @@ export function NotificationEditor({ node }: NotificationEditorProps) {
         </div>
       </section>
     </div>
+  )
+}
+
+interface NotificationButtonRowProps {
+  readonly button: DraftButton
+  readonly disabled?: boolean
+  readonly onUpdate: (patch: Partial<DraftButton>) => void
+  readonly onRemove: () => void
+}
+
+/**
+ * Editable row for a single notification button. Mirrors the graph
+ * `ScreenEditorPanel` button editor: RU/EN labels each carry an inline emoji
+ * picker that inserts at the caret. Edits flow into the parent's local draft
+ * (`onUpdate`) and persist on the section's "Save" — same as typing.
+ */
+function NotificationButtonRow({
+  button,
+  disabled,
+  onUpdate,
+  onRemove,
+}: NotificationButtonRowProps) {
+  const { t } = useTranslation()
+  const labelRuRef = useRef<HTMLInputElement | null>(null)
+  const labelEnRef = useRef<HTMLInputElement | null>(null)
+
+  const insertRu = (emoji: string) => {
+    const el = labelRuRef.current
+    const start = el?.selectionStart ?? button.labelRu.length
+    const end = el?.selectionEnd ?? button.labelRu.length
+    const { value: next, caret } = insertAtCaret(button.labelRu, start, end, emoji)
+    onUpdate({ labelRu: next })
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(caret, caret)
+    })
+  }
+  const insertEn = (emoji: string) => {
+    const el = labelEnRef.current
+    const start = el?.selectionStart ?? button.labelEn.length
+    const end = el?.selectionEnd ?? button.labelEn.length
+    const { value: next, caret } = insertAtCaret(button.labelEn, start, end, emoji)
+    onUpdate({ labelEn: next })
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(caret, caret)
+    })
+  }
+
+  return (
+    <li className="space-y-2 rounded-md border bg-muted/20 p-3">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <Label className="text-[11px]">{t('botMapPage.notification.labelRu')}</Label>
+            <EmojiPicker onSelect={insertRu} ariaLabel={t('emojiPicker.trigger')} />
+          </div>
+          <Input
+            ref={labelRuRef}
+            value={button.labelRu}
+            onChange={(e) => onUpdate({ labelRu: e.target.value })}
+            maxLength={64}
+            className="text-xs"
+          />
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <Label className="text-[11px]">{t('botMapPage.notification.labelEn')}</Label>
+            <EmojiPicker onSelect={insertEn} ariaLabel={t('emojiPicker.trigger')} />
+          </div>
+          <Input
+            ref={labelEnRef}
+            value={button.labelEn}
+            onChange={(e) => onUpdate({ labelEn: e.target.value })}
+            maxLength={64}
+            className="text-xs"
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <div className="space-y-1">
+          <Label className="text-[11px]">{t('botMapPage.notification.kind')}</Label>
+          <Select
+            value={button.kind}
+            onValueChange={(v) => onUpdate({ kind: v as DraftButton['kind'] })}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="webApp" className="text-xs">
+                {t('botMapPage.notification.kindOptions.webApp')}
+              </SelectItem>
+              <SelectItem value="url" className="text-xs">
+                {t('botMapPage.notification.kindOptions.url')}
+              </SelectItem>
+              <SelectItem value="callback" className="text-xs">
+                {t('botMapPage.notification.kindOptions.callback')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="col-span-2 space-y-1">
+          <Label className="text-[11px]">{t(targetLabelKey(button.kind))}</Label>
+          <Input
+            value={button.target}
+            onChange={(e) => onUpdate({ target: e.target.value })}
+            placeholder={t(targetLabelKey(button.kind))}
+            maxLength={2_000}
+            className="font-mono text-xs"
+          />
+        </div>
+      </div>
+      <div className="flex justify-end">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onRemove}
+          disabled={disabled}
+          className="text-destructive hover:text-destructive"
+        >
+          <Trash2 className="mr-1 h-3 w-3" aria-hidden />
+          {t('botMapPage.notification.removeButton')}
+        </Button>
+      </div>
+    </li>
   )
 }
 
