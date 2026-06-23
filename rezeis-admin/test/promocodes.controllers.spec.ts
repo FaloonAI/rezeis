@@ -129,6 +129,25 @@ describe('Promocode controllers', () => {
     );
 
     assert.equal((await controller.activateByRef({ userRef: 'cmphfcr6i007v01jg0lcu653h', code: 'promo' })).step, 'ACTIVATED');
-    assert.deepStrictEqual(portalCalls, [{ userId: 'cmphfcr6i007v01jg0lcu653h', userTelegramId: BigInt('123'), dto: { code: 'promo' } }]);
+    // Forwards subscriptionId / confirmCreateNew through to the portal for the
+    // multi-step (SELECT_SUBSCRIPTION / CREATE_NEW) cabinet flow.
+    await controller.activateByRef({
+      userRef: 'cmphfcr6i007v01jg0lcu653h',
+      code: 'promo',
+      subscriptionId: 'sub-1',
+      confirmCreateNew: true,
+    });
+    assert.deepStrictEqual(portalCalls, [
+      {
+        userId: 'cmphfcr6i007v01jg0lcu653h',
+        userTelegramId: BigInt('123'),
+        dto: { code: 'promo', subscriptionId: undefined, confirmCreateNew: undefined },
+      },
+      {
+        userId: 'cmphfcr6i007v01jg0lcu653h',
+        userTelegramId: BigInt('123'),
+        dto: { code: 'promo', subscriptionId: 'sub-1', confirmCreateNew: true },
+      },
+    ]);
   });
 });

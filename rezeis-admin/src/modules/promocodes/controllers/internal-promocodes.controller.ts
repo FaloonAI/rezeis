@@ -62,7 +62,7 @@ export class InternalPromocodesController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Activate a promocode by user reference (reiwa edge)' })
   public async activateByRef(
-    @Body() body: { userRef: string; code: string },
+    @Body() body: { userRef: string; code: string; subscriptionId?: string; confirmCreateNew?: boolean },
   ): Promise<PromocodeActivationResultInterface> {
     const user = await this.prismaService.user.findUnique({
       where: buildUserReferenceWhere(body.userRef),
@@ -74,7 +74,14 @@ export class InternalPromocodesController {
     return this.portalService.activate({
       userId: user.id,
       userTelegramId: user.telegramId,
-      dto: { code: body.code },
+      dto: {
+        code: body.code,
+        subscriptionId:
+          typeof body.subscriptionId === 'string' && body.subscriptionId.length > 0
+            ? body.subscriptionId
+            : undefined,
+        confirmCreateNew: body.confirmCreateNew === true ? true : undefined,
+      },
     });
   }
 

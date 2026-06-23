@@ -35,11 +35,17 @@ export class PaymentSubscriptionMutationService {
       where: { transactionId: transaction.id },
     });
     if (items.length > 0) {
-      return this.applyCombinedRenewal(transaction, items);
+      const combined = await this.applyCombinedRenewal(transaction, items);
+      // A multi-subscription renewal is a plan purchase — consume the
+      // one-time "next purchase" discount once it completes.
+      await this.consumePurchaseDiscount(transaction.userId);
+      return combined;
     }
 
     // Add-on top-ups carry a marker in planSnapshot and have no plan/
-    // duration — handle them before the plan-centric branches.
+    // duration — handle them before the plan-centric branches. Add-ons price
+    // with purchaseDiscount = 0 (they never benefit from it), so they must
+    // NOT consume the user's one-time purchase discount.
     if (isAddOnTransaction(transaction)) {
       const addOnResult = await this.applyAddOnTopUp(transaction);
       return { syncJobs: [addOnResult.syncJob] };
@@ -96,7 +102,25 @@ export class PaymentSubscriptionMutationService {
       remnawaveId: result.subscription.remnawaveId ?? undefined,
     });
 
+    // Consume the one-time "next purchase" discount (PURCHASE_DISCOUNT promo
+    // reward) now that a plan purchase has completed. Without this it kept
+    // applying to every future purchase. The permanent personalDiscount stays.
+    await this.consumePurchaseDiscount(transaction.userId);
+
     return { syncJobs: [result.syncJob] };
+  }
+
+  /**
+   * Resets `user.purchaseDiscount` to 0, but only when it is currently > 0
+   * (guarded `updateMany` → no write / no throw otherwise). The PURCHASE
+   * discount is a one-time "discount on next purchase"; the permanent
+   * PERSONAL discount is never touched here.
+   */
+  private async consumePurchaseDiscount(userId: string): Promise<void> {
+    await this.prismaService.user.updateMany({
+      where: { id: userId, purchaseDiscount: { gt: 0 } },
+      data: { purchaseDiscount: 0 },
+    });
   }
 
   /**

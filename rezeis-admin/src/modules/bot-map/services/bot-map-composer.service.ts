@@ -107,9 +107,13 @@ export class BotMapComposerService {
 
     // ── Graph screens ────────────────────────────────────────────────
     const screensByShortId = new Map<string, FlowWithScreens['screens'][number]>();
+    let rootScreenId: string | null = null;
     if (input.flow) {
       for (const screen of input.flow.screens) {
         screensByShortId.set(screen.shortId, screen);
+        if (screen.isRoot && rootScreenId === null) {
+          rootScreenId = screen.id;
+        }
       }
       for (const screen of input.flow.screens) {
         nodes.push(toGraphScreenNode(screen, input.flow));
@@ -153,6 +157,8 @@ export class BotMapComposerService {
           edgeIndex++,
           button,
           referencedTerminals,
+          screensByShortId,
+          rootScreenId,
         );
         edges.push(synthesized);
       }
@@ -454,6 +460,8 @@ function composeNotificationButtonEdge(
   index: number,
   button: StoredNotificationButton,
   referencedTerminals: Set<string>,
+  screensByShortId: Map<string, FlowWithScreens['screens'][number]>,
+  rootScreenId: string | null,
 ): BotMapEdge {
   const id = `notif-btn:${source}:${index}`;
   const label = button.labelRu;
@@ -496,14 +504,46 @@ function composeNotificationButtonEdge(
     };
   }
   // callback
+  if (target.length === 0) {
+    return {
+      id,
+      source,
+      sourceLabel: label,
+      target: `callback:∅`,
+      destination: { kind: 'callback', id: target },
+      valid: false,
+      reason: 'empty-callback',
+    };
+  }
+  // Resolve callbacks that open a graph screen so the canvas draws an arrow
+  // to it: the well-known "main menu" callback → the root screen, and any
+  // callback whose id matches a screen shortId → that screen. Other callbacks
+  // (handled by the bot at runtime) keep a synthetic target with no node.
+  const callbackScreen =
+    target === 'menu:main' || target === 'menu'
+      ? rootScreenId
+      : (screensByShortId.get(target)?.id ?? null);
+  if (callbackScreen !== null) {
+    const shortId =
+      screensByShortId.get(target)?.shortId ??
+      [...screensByShortId.values()].find((s) => s.id === callbackScreen)?.shortId ??
+      target;
+    return {
+      id,
+      source,
+      sourceLabel: label,
+      target: callbackScreen,
+      destination: { kind: 'screen', shortId },
+      valid: true,
+    };
+  }
   return {
     id,
     source,
     sourceLabel: label,
-    target: `callback:${target || '∅'}`,
+    target: `callback:${target}`,
     destination: { kind: 'callback', id: target },
-    valid: target.length > 0,
-    reason: target.length > 0 ? undefined : 'empty-callback',
+    valid: true,
   };
 }
 

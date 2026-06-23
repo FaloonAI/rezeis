@@ -15,6 +15,47 @@ import { SubscriptionQuoteService } from '../src/modules/subscriptions/services/
 import { PricingService } from '../src/modules/plans/services/pricing.service';
 
 describe('SubscriptionQuoteService', () => {
+  it('raises the effective subscription cap from the global multi-subscription default', async () => {
+    // User column default is 1; a single active subscription would normally
+    // block ADDITIONAL. With the global policy enabled (default 3) the
+    // effective cap rises so the user can buy more.
+    const service = createService({
+      user: createUser({ maxSubscriptions: 1 }),
+      subscriptions: [createSubscription({ id: 'sub-1', isTrial: false, planId: 'plan-a' })],
+      plans: [createPlan({ id: 'plan-a', availability: PlanAvailability.ALL })],
+      multiSubscriptionSettings: { enabled: true, defaultMaxSubscriptions: 3 },
+    });
+
+    const actualPolicy = await service.getActionPolicy({
+      userId: 'user-1',
+      channel: PurchaseChannel.WEB,
+    });
+
+    assert.equal(actualPolicy.actions.ADDITIONAL, true);
+    assert.equal(actualPolicy.maxSubscriptions, 3);
+    assert.equal(
+      actualPolicy.warnings.some((warning) => warning.code === 'SUBSCRIPTION_LIMIT_REACHED'),
+      false,
+    );
+  });
+
+  it('keeps the per-user cap when the global multi-subscription policy is disabled', async () => {
+    const service = createService({
+      user: createUser({ maxSubscriptions: 1 }),
+      subscriptions: [createSubscription({ id: 'sub-1', isTrial: false, planId: 'plan-a' })],
+      plans: [createPlan({ id: 'plan-a', availability: PlanAvailability.ALL })],
+      multiSubscriptionSettings: { enabled: false, defaultMaxSubscriptions: 3 },
+    });
+
+    const actualPolicy = await service.getActionPolicy({
+      userId: 'user-1',
+      channel: PurchaseChannel.WEB,
+    });
+
+    assert.equal(actualPolicy.actions.ADDITIONAL, false);
+    assert.equal(actualPolicy.maxSubscriptions, 1);
+  });
+
   it('allows NEW and ADDITIONAL while capacity is available and returns catalog plans', async () => {
     const service = createService({
       user: createUser({ maxSubscriptions: 2 }),
@@ -248,8 +289,14 @@ function createService(input: {
   readonly subscriptions: readonly Record<string, unknown>[];
   readonly trialGrant?: Record<string, unknown> | null;
   readonly plans: readonly Record<string, unknown>[];
+  readonly multiSubscriptionSettings?: Record<string, unknown> | null;
 }): SubscriptionQuoteService {
   const prismaService = {
+    settings: {
+      findFirst: async () => ({
+        multiSubscriptionSettings: input.multiSubscriptionSettings ?? null,
+      }),
+    },
     user: {
       findUnique: async () => input.user,
     },

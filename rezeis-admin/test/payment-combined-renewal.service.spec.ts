@@ -124,6 +124,10 @@ function createEnv(input: { subs: SubRow[]; items: ItemRow[] }) {
     transactionItem: {
       findMany: async () => [...committedItems.values()],
     },
+    user: {
+      // Consumes the one-time purchase discount after completion; no-op here.
+      updateMany: async () => ({ count: 0 }),
+    },
     $transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
       // Staging layer: changes commit only if the callback resolves.
       const stagedSubs = new Map([...committedSubs].map(([k, v]) => [k, { ...v }] as const));

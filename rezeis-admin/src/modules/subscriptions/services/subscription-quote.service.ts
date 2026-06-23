@@ -142,7 +142,7 @@ export class SubscriptionQuoteService {
     // Only FREE trials are claimable via the dedicated trial action; paid
     // trials are purchased through the NEW flow like any other plan.
     const freeTrialPlans = trialPlans.filter((plan) => readTrialSettings(plan.trialSettings).free);
-    const capacityAvailable = context.activeSubscriptionCount < context.user.maxSubscriptions;
+    const capacityAvailable = context.activeSubscriptionCount < context.effectiveMaxSubscriptions;
     const hasActiveTrial = context.activeSubscriptions.some((subscription) => subscription.isTrial);
     const warnings = [
       ...sourceSelection.warnings,
@@ -166,7 +166,7 @@ export class SubscriptionQuoteService {
           freeTrialPlans.length > 0,
       },
       activeSubscriptionCount: context.activeSubscriptionCount,
-      maxSubscriptions: context.user.maxSubscriptions,
+      maxSubscriptions: context.effectiveMaxSubscriptions,
       currentSubscriptionId: context.sourceSubscription?.id ?? null,
       availablePlans: basePlans.map(mapQuotePlan),
       warnings: dedupeWarnings(warnings),
@@ -246,6 +246,7 @@ export class SubscriptionQuoteService {
     readonly user: UserRecord;
     readonly activeSubscriptions: readonly SubscriptionRecord[];
     readonly activeSubscriptionCount: number;
+    readonly effectiveMaxSubscriptions: number;
     readonly hasUsedTrial: boolean;
     readonly sourceSubscription: SubscriptionRecord | null;
   }> {
@@ -261,6 +262,9 @@ export class SubscriptionQuoteService {
     if (user === null) {
       throw new NotFoundException('User not found');
     }
+    const effectiveMaxSubscriptions = await this.resolveEffectiveMaxSubscriptions(
+      user.maxSubscriptions,
+    );
     const [subscriptions, trialGrant] = await Promise.all([
       this.prismaService.subscription.findMany({
         where: {
@@ -292,9 +296,43 @@ export class SubscriptionQuoteService {
       user,
       activeSubscriptions: subscriptions,
       activeSubscriptionCount: subscriptions.length,
+      effectiveMaxSubscriptions,
       hasUsedTrial: trialGrant !== null,
       sourceSubscription: sourceSubscription ?? null,
     };
+  }
+
+  /**
+   * Effective per-user subscription cap. The per-user `user.maxSubscriptions`
+   * column (default 1) is the floor; when the operator enables the global
+   * multi-subscription policy (`Settings.multiSubscriptionSettings.enabled`),
+   * its `defaultMaxSubscriptions` raises the cap for every user that hasn't
+   * been bumped higher individually. Without this, setting the global limit to
+   * N in the admin panel had no effect (the guard only read the per-user
+   * column) so users stayed capped at 1 and could never buy a 2nd subscription.
+   */
+  private async resolveEffectiveMaxSubscriptions(userMax: number): Promise<number> {
+    try {
+      const settings = await this.prismaService.settings.findFirst({
+        orderBy: { updatedAt: 'asc' },
+        select: { multiSubscriptionSettings: true },
+      });
+      const config = readJsonRecord(settings?.multiSubscriptionSettings);
+      const enabled = config['enabled'] === true;
+      if (!enabled) {
+        return userMax;
+      }
+      const rawDefault = config['defaultMaxSubscriptions'];
+      const globalDefault =
+        typeof rawDefault === 'number' && Number.isFinite(rawDefault) && rawDefault >= 1
+          ? Math.floor(rawDefault)
+          : 1;
+      return Math.max(userMax, globalDefault);
+    } catch {
+      // Never block a purchase on a settings read hiccup — fall back to the
+      // per-user cap.
+      return userMax;
+    }
   }
 
   private async getPlansForQuoteAction(input: {
@@ -544,4 +582,12 @@ function dedupeWarnings(warnings: readonly SubscriptionQuoteWarningInterface[]):
     uniqueWarnings.push(warning);
   }
   return uniqueWarnings;
+}
+
+/** Reads a JSON column value into a plain object (defensive, null-safe). */
+function readJsonRecord(value: unknown): Record<string, unknown> {
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
 }
