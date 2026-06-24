@@ -568,6 +568,8 @@ function createService(options: {
   const accessModeGuard =
     options.accessMode === undefined ? { evaluate: () => null } : new AccessModeGuard();
   const cacheService = options.cacheService ?? { set: async () => undefined, get: async () => null, del: async () => undefined };
+  const systemEventsService = { info: () => undefined, warn: () => undefined, error: () => undefined, emit: () => undefined };
+  const emailDeliveryService = { getSmtpSettings: async () => ({ enabled: true, host: 'smtp.example.com' }) };
   return new WebAuthService(
     options.prisma ?? createPrismaMock(),
     options.passwordHashService ?? createPasswordHashServiceMock(),
@@ -575,6 +577,8 @@ function createService(options: {
     settingsService as never,
     accessModeGuard as never,
     cacheService as never,
+    systemEventsService as never,
+    emailDeliveryService as never,
   );
 }
 

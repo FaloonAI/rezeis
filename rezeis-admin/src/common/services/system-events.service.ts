@@ -533,18 +533,24 @@ export class SystemEventsService {
       return;
     }
 
-    const reportEvent = this.toErrorReportEvent(event);
+    // Resolve the user's Telegram id / name / username from `metadata.userId`
+    // when the emitter didn't include them, so EVERY event card shows a clear
+    // "👤 Пользователь" block (payments, referrals, partner, promocode, …).
+    // Centralised here so individual emit sites stay lean. Best-effort.
+    const enriched = await this.enrichUserIdentity(event);
+
+    const reportEvent = this.toErrorReportEvent(enriched);
     const errorEvent = isErrorEvent(reportEvent);
     const attachTxt =
       errorEvent && tgConfig.errorReportTelegramTxt && tgConfig.errorReportMode !== 'off';
 
-    const resolved = resolveTelegramDeliveryTarget(tgConfig, event);
+    const resolved = resolveTelegramDeliveryTarget(tgConfig, enriched);
     if (resolved === null) {
       // No operator group AND no manual devChatId configured → automatic
       // dev-fallback: route the event to the reiwa bot's BOT_DEV_ID via the
       // internal channel (the bot knows its dev id; rezeis doesn't). The
       // event filter is intentionally NOT applied — the dev firehose sees all.
-      await this.deliverToReiwaDev(event, { errorEvent, attachTxt, reportEvent });
+      await this.deliverToReiwaDev(enriched, { errorEvent, attachTxt, reportEvent });
       return;
     }
 
@@ -557,7 +563,7 @@ export class SystemEventsService {
     // всё равно придут сюда в личку бота. Не потеряются."
     if (!tgConfig.botToken) {
       if (resolved.isDevFallback) {
-        await this.deliverToReiwaDev(event, { errorEvent, attachTxt, reportEvent });
+        await this.deliverToReiwaDev(enriched, { errorEvent, attachTxt, reportEvent });
       } else {
         // Operator group/topic configured but rezeis has no local bot token
         // (split deployment). Route the card through the reiwa relay's
@@ -566,8 +572,8 @@ export class SystemEventsService {
         // actually work without a token on rezeis.
         const html = errorEvent
           ? formatErrorEventCardHtml(reportEvent, getRezeisBuildInfo(), false)
-          : this.formatTelegramMessage(event);
-        await this.deliverViaReiwaBroadcast(event, html, resolved.chatId, resolved.topicId);
+          : this.formatTelegramMessage(enriched);
+        await this.deliverViaReiwaBroadcast(enriched, html, resolved.chatId, resolved.topicId);
       }
       return;
     }
@@ -578,7 +584,7 @@ export class SystemEventsService {
     // generic event formatter.
     const html = errorEvent
       ? formatErrorEventCardHtml(reportEvent, getRezeisBuildInfo(), attachTxt)
-      : this.formatTelegramMessage(event);
+      : this.formatTelegramMessage(enriched);
 
     const payload: Record<string, unknown> = {
       chat_id: targetChatId,
@@ -908,6 +914,10 @@ export class SystemEventsService {
       const refLines: string[] = [];
       if (meta['referralId']) refLines.push(`• <b>Referral ID:</b> <code>${String(meta['referralId']).slice(0, 12)}</code>`);
       if (meta['referrerId']) refLines.push(`• <b>Реферер:</b> <code>${String(meta['referrerId']).slice(0, 12)}</code>`);
+      if (meta['rewardType']) {
+        const rv = meta['rewardValue'] !== undefined ? `: ${escapeHtml(meta['rewardValue'])}` : '';
+        refLines.push(`• <b>Награда:</b> ${humanizeRewardType(meta['rewardType'])}${rv}`);
+      }
       if (meta['historicalPaymentsProcessed'] !== undefined) refLines.push(`• <b>Платежей обработано:</b> ${meta['historicalPaymentsProcessed']}`);
       lines.push(`<blockquote>${refLines.join('\n')}</blockquote>`);
     }
@@ -951,6 +961,11 @@ export class SystemEventsService {
     const extraLines: string[] = [];
     if (meta['reason']) extraLines.push(`• <b>Причина:</b> ${humanizeSource(meta['reason'])}`);
     if (meta['note']) extraLines.push(`• <b>Заметка:</b> ${escapeHtml(meta['note'])}`);
+    if (meta['addOnType']) {
+      const val = meta['addOnValue'] !== undefined ? ` ${escapeHtml(meta['addOnValue'])}` : '';
+      extraLines.push(`• <b>Докупка:</b> ${escapeHtml(meta['addOnType'])}${val}`);
+    }
+    if (meta['itemCount'] !== undefined) extraLines.push(`• <b>Позиций:</b> ${escapeHtml(meta['itemCount'])}`);
     if (meta['count'] !== undefined) extraLines.push(`• <b>Количество:</b> ${escapeHtml(meta['count'])}`);
     if (meta['recipients'] !== undefined) extraLines.push(`• <b>Получателей:</b> ${escapeHtml(meta['recipients'])}`);
     if (meta['templateName']) extraLines.push(`• <b>Шаблон:</b> ${escapeHtml(meta['templateName'])}`);
@@ -996,6 +1011,41 @@ export class SystemEventsService {
     );
 
     return lines.join('\n');
+  }
+
+  /**
+   * Best-effort identity enrichment for Telegram cards. When an event carries
+   * `metadata.userId` but no human identity (`telegramId` / `userName` /
+   * `username`), resolve them from the User row so the card's "Пользователь"
+   * block renders for payments, referrals, partner, promocode, etc. Returns a
+   * new event with merged metadata; the original (audit/realtime/webhook
+   * payload) is untouched. Never throws.
+   */
+  private async enrichUserIdentity(
+    event: SystemEventPayload & { timestamp: string },
+  ): Promise<SystemEventPayload & { timestamp: string }> {
+    const meta = event.metadata;
+    if (!meta) return event;
+    const userId = typeof meta['userId'] === 'string' ? meta['userId'] : null;
+    if (userId === null) return event;
+    // Already identified (or fraud, which self-enriches via fraud* keys).
+    if (meta['telegramId'] || meta['userName'] || meta['username']) return event;
+    try {
+      const user = await this.prismaService.user.findUnique({
+        where: { id: userId },
+        select: { telegramId: true, username: true, name: true },
+      });
+      if (!user) return event;
+      const merged: Record<string, unknown> = { ...meta };
+      if (user.telegramId !== null && merged['telegramId'] === undefined) {
+        merged['telegramId'] = user.telegramId.toString();
+      }
+      if (user.username && merged['username'] === undefined) merged['username'] = user.username;
+      if (user.name && merged['userName'] === undefined) merged['userName'] = user.name;
+      return { ...event, metadata: merged };
+    } catch {
+      return event;
+    }
   }
 
   private async loadTelegramConfig(): Promise<{
@@ -1258,6 +1308,15 @@ function humanizePurchaseType(value: unknown): string {
     case 'ADDON': return 'Докупка';
     case 'UPGRADE': return 'Апгрейд';
     case 'TRIAL': return 'Триал';
+    default: return escapeHtml(value);
+  }
+}
+
+/** Human label for a referral reward type. */
+function humanizeRewardType(value: unknown): string {
+  switch (String(value).toUpperCase()) {
+    case 'POINTS': return 'Баллы';
+    case 'EXTRA_DAYS': return 'Доп. дни';
     default: return escapeHtml(value);
   }
 }

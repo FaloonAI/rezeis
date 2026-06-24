@@ -4,6 +4,7 @@ import { ConfigType } from '@nestjs/config';
 
 import { appConfig } from '../../../common/config/app.config';
 import { InternalAdminAuthGuard } from '../../auth/guards/internal-admin-auth.guard';
+import { EmailDeliveryService } from '../../email/services/email-delivery.service';
 import { BrandingSettingsInterface } from '../interfaces/branding-settings.interface';
 import { CustomIconInterface } from '../interfaces/custom-icon.interface';
 import { SettingsService } from '../services/settings.service';
@@ -39,6 +40,13 @@ export interface InternalPublicConfigInterface {
     readonly projectName: string | null;
     readonly webTitle: string | null;
   };
+  /**
+   * Whether platform email delivery is configured + enabled (SMTP on with a
+   * host). Drives the cabinet's email affordances: when `false`, reiwa hides
+   * "link email" and email password-recovery — there's no way to deliver the
+   * code, so offering it would be a dead end.
+   */
+  readonly emailEnabled: boolean;
 }
 
 @Controller('internal/branding')
@@ -46,6 +54,7 @@ export interface InternalPublicConfigInterface {
 export class InternalBrandingController {
   public constructor(
     private readonly settingsService: SettingsService,
+    private readonly emailDeliveryService: EmailDeliveryService,
     @Inject(appConfig.KEY)
     private readonly appConfiguration: ConfigType<typeof appConfig>,
   ) {}
@@ -71,6 +80,7 @@ export class InternalBrandingController {
       this.settingsService.getCustomIcons(),
     ]);
     const platformBranding = await this.settingsService.getPlatformBranding();
+    const smtp = await this.emailDeliveryService.getSmtpSettings();
     const locales = this.appConfiguration.locales;
     const defaultLocale = this.appConfiguration.defaultLocale;
     return {
@@ -83,6 +93,7 @@ export class InternalBrandingController {
         projectName: platformBranding.projectName,
         webTitle: platformBranding.webTitle,
       },
+      emailEnabled: smtp.enabled === true && typeof smtp.host === 'string' && smtp.host.trim().length > 0,
     };
   }
 }

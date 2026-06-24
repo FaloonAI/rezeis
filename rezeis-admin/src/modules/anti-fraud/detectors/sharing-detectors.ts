@@ -8,6 +8,7 @@ import {
   resolveSharingDetectionConfig,
   SharingDetectionConfig,
 } from '../sharing-detection.config';
+import { countDistinctNetworks, isNetworkSharingOffender } from '../sharing-detection.util';
 
 /**
  * Subscription-sharing detectors backed by the Remnawave panel.
@@ -137,33 +138,57 @@ export class SharingDetectors {
         uuid: string;
         limit: number;
         ips: IpAggregate[];
+        distinctNetworks: number;
       }> = [];
       for (const [panelIdStr, ipMap] of byUser) {
         const meta = byPanelId.get(Number.parseInt(panelIdStr, 10));
         if (!meta || meta.limit <= 0) continue;
-        if (ipMap.size <= meta.limit) continue;
-        offenders.push({ uuid: meta.uuid, limit: meta.limit, ips: [...ipMap.values()] });
+        const ips = [...ipMap.values()];
+        const distinctNetworks = countDistinctNetworks(
+          ips.map((s) => s.ip),
+          {
+            grouping: config.ipNetworkGrouping,
+            v4Prefix: config.ipV4PrefixLength,
+            v6Prefix: config.ipV6PrefixLength,
+          },
+        );
+        // Count distinct *networks* (not raw IPs) and require exceeding the
+        // device limit by a tolerance margin — this is what kills the
+        // mobile/Wi-Fi/CGNAT/IPv6-rotation false positives.
+        if (!isNetworkSharingOffender(distinctNetworks, meta.limit, config.ipOverageMargin)) {
+          continue;
+        }
+        offenders.push({ uuid: meta.uuid, limit: meta.limit, ips, distinctNetworks });
       }
       if (offenders.length === 0) return [];
 
       const userIdByUuid = await this.resolveRezeisUserIds(offenders.map((o) => o.uuid));
       const day = utcDay(now);
+      const threshold = config.ipOverageMargin;
       return offenders.map((o) => {
         const rezeisUserId = userIdByUuid.get(o.uuid) ?? null;
+        // Advisory signal: never HIGH. MEDIUM only when networks are at least
+        // double the tolerated limit; otherwise LOW.
+        const tolerated = o.limit + threshold;
         return {
           code: 'SUBSCRIPTION_SHARING_IP',
           fingerprint: `${day}|${o.uuid}`,
           severity:
-            o.ips.length >= o.limit * 2 ? FraudSignalSeverity.HIGH : FraudSignalSeverity.MEDIUM,
-          title: 'Subscription sharing — concurrent IPs exceed device limit',
-          description: `User connected from ${o.ips.length} distinct IPs in the last ${config.ipWindowMinutes}m but the plan allows ${o.limit} devices.`,
-          score: clampScore(55 + (o.ips.length - o.limit) * 8),
-          confidence: 75,
+            o.distinctNetworks >= tolerated * 2
+              ? FraudSignalSeverity.MEDIUM
+              : FraudSignalSeverity.LOW,
+          title: 'Subscription sharing — concurrent networks exceed device limit',
+          description: `User connected from ${o.distinctNetworks} distinct networks (${o.ips.length} IPs) in the last ${config.ipWindowMinutes}m; plan allows ${o.limit} devices (+${threshold} tolerance).`,
+          score: clampScore(30 + (o.distinctNetworks - o.limit) * 6),
+          confidence: 60,
           affectedUserIds: rezeisUserId ? [rezeisUserId] : [],
           metadata: {
             kind: 'ip_sharing',
+            distinctNetworkCount: o.distinctNetworks,
             distinctIpCount: o.ips.length,
             deviceLimit: o.limit,
+            overageMargin: threshold,
+            networkGrouping: config.ipNetworkGrouping,
             windowMinutes: config.ipWindowMinutes,
             remnawaveUuid: o.uuid,
             ips: o.ips.slice(0, config.maxIpsInMetadata),

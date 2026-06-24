@@ -12,7 +12,12 @@ import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { RawCacheService } from '../../../common/cache/raw-cache.service';
+import {
+  EVENT_TYPES,
+  SystemEventsService,
+} from '../../../common/services/system-events.service';
 import { PasswordHashService } from '../../auth/services/password-hash.service';
+import { EmailDeliveryService } from '../../email/services/email-delivery.service';
 import { loginPolicy } from '../../auth/utils/login-policy.util';
 import { readInviteBypassFlag } from '../../referrals/services/referral-invite-limits.service';
 import { ReferralManualAttachService } from '../../referrals/services/referral-manual-attach.service';
@@ -69,6 +74,8 @@ export class WebAuthService {
     private readonly settingsService: SettingsService,
     private readonly accessModeGuard: AccessModeGuard,
     private readonly cacheService: RawCacheService,
+    private readonly systemEventsService: SystemEventsService,
+    private readonly emailDeliveryService: EmailDeliveryService,
   ) {}
 
   public async register(input: WebAuthRegisterDto): Promise<WebAuthRegisterResultInterface> {
@@ -161,6 +168,25 @@ export class WebAuthService {
         webAccountId: webAccount.id,
       };
     });
+
+    // Emit the web-registration event. Previously `USER_WEB_REGISTERED` was
+    // defined but never emitted, so a web sign-up notified no one. Fires once
+    // per successful registration; `linkedTelegram` distinguishes a brand-new
+    // web-first user from a Telegram-first user adding credentials.
+    this.systemEventsService.info(
+      EVENT_TYPES.USER_WEB_REGISTERED,
+      'USER',
+      `New web registration: ${login}`,
+      {
+        reiwaId: result.userId,
+        webAccountId: result.webAccountId,
+        login,
+        hasEmail: emailNormalized !== null,
+        linkedTelegram: input.telegramIdToLink != null,
+        usedReferral: typeof input.referralCode === 'string' && input.referralCode.trim().length > 0,
+        source: 'web',
+      },
+    );
 
     // Phase 5 — consume the referral invite link (best-effort, outside the
     // credential transaction so a referral hiccup never blocks sign-up).
@@ -402,7 +428,15 @@ export class WebAuthService {
       return { method: 'telegram' };
     }
     if (webAccount.email !== null && webAccount.emailVerifiedAt !== null) {
-      return { method: 'email' };
+      // Only advertise email recovery when platform email delivery is actually
+      // configured + enabled — otherwise the code can't be delivered and the
+      // SPA would show a dead-end "check your email" screen.
+      const smtp = await this.emailDeliveryService.getSmtpSettings();
+      const emailEnabled =
+        smtp.enabled === true && typeof smtp.host === 'string' && smtp.host.trim().length > 0;
+      if (emailEnabled) {
+        return { method: 'email' };
+      }
     }
     return { method: 'none' };
   }

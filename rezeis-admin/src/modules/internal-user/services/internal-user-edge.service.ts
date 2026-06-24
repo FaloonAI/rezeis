@@ -9,6 +9,10 @@ import {
 import { Locale, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import {
+  EVENT_TYPES,
+  SystemEventsService,
+} from '../../../common/services/system-events.service';
 import { AccessModeGuard } from '../../settings/services/access-mode-guard.service';
 import { SettingsService } from '../../settings/services/settings.service';
 import { InternalBootstrapUserInput } from '../interfaces/internal-user-bootstrap.interface';
@@ -48,6 +52,7 @@ export class InternalUserEdgeService {
     private readonly prismaService: PrismaService,
     private readonly settingsService: SettingsService,
     private readonly accessModeGuard: AccessModeGuard,
+    private readonly systemEventsService: SystemEventsService,
   ) {}
 
   // ── Bootstrap / language ─────────────────────────────────────────────────
@@ -128,6 +133,27 @@ export class InternalUserEdgeService {
       },
       include: INTERNAL_USER_INCLUDE,
     });
+
+    // Emit a registration event ONLY for a brand-new user (first /start).
+    // `existing === null` was resolved before the upsert, so this fires once
+    // per Telegram-first sign-up. Previously `USER_REGISTERED` was defined but
+    // never emitted — the bot created the row silently and operators/devs got
+    // no "new user registered" notification.
+    if (existing === null) {
+      this.systemEventsService.info(
+        EVENT_TYPES.USER_REGISTERED,
+        'USER',
+        `New user registered via Telegram bot: ${input.name || input.username || input.telegramId}`,
+        {
+          reiwaId: user.id,
+          telegramId: telegramIdBig.toString(),
+          username: input.username ?? null,
+          name: input.name || null,
+          source: 'telegram_bot',
+        },
+      );
+    }
+
     return mapInternalUserSession(user);
   }
 

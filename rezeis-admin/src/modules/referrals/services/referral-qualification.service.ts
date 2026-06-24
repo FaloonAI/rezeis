@@ -127,6 +127,7 @@ export class ReferralQualificationService {
       referralId: referral.id,
       referrerId: referral.referrerId,
       referredUserId: transaction.userId,
+      userId: transaction.userId,
       transactionId: transaction.id,
     });
 
@@ -200,6 +201,7 @@ export class ReferralQualificationService {
       where: { id: rewardId },
       select: {
         id: true,
+        referralId: true,
         userId: true,
         type: true,
         amount: true,
@@ -256,6 +258,16 @@ export class ReferralQualificationService {
           }
         }
       }
+    });
+
+    // Notify the dev that a referral reward landed (points or extra days).
+    // `issueReward` previously applied the effect silently.
+    this.events.info(EVENT_TYPES.REFERRAL_REWARD_ISSUED, 'REFERRAL', 'Referral reward issued', {
+      referralId: reward.referralId,
+      referrerId: reward.userId,
+      userId: reward.userId,
+      rewardType: reward.type,
+      rewardValue: reward.amount,
     });
   }
 

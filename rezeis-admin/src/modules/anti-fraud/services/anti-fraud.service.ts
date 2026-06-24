@@ -207,9 +207,11 @@ export class AntiFraudService {
       const meta = (row.metadata as Record<string, unknown>) ?? {};
       const isIp = row.code === 'SUBSCRIPTION_SHARING_IP';
       const count = isIp
-        ? typeof meta.distinctIpCount === 'number'
-          ? meta.distinctIpCount
-          : 0
+        ? typeof meta.distinctNetworkCount === 'number'
+          ? meta.distinctNetworkCount
+          : typeof meta.distinctIpCount === 'number'
+            ? meta.distinctIpCount
+            : 0
         : typeof meta.deviceCount === 'number'
           ? meta.deviceCount
           : 0;
@@ -522,9 +524,11 @@ export class AntiFraudService {
     const deviceLimit = typeof meta.deviceLimit === 'number' ? meta.deviceLimit : null;
     const count =
       kind === 'ip_sharing'
-        ? typeof meta.distinctIpCount === 'number'
-          ? meta.distinctIpCount
-          : null
+        ? typeof meta.distinctNetworkCount === 'number'
+          ? meta.distinctNetworkCount
+          : typeof meta.distinctIpCount === 'number'
+            ? meta.distinctIpCount
+            : null
         : typeof meta.deviceCount === 'number'
           ? meta.deviceCount
           : null;

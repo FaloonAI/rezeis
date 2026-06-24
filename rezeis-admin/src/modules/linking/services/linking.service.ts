@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto';
 
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { EmailService } from '../../email/services/email.service';
+import { EVENT_TYPES, SystemEventsService } from '../../../common/services/system-events.service';
 import {
   LinkEmailInitiateDto,
   LinkEmailVerifyDto,
@@ -60,6 +61,7 @@ export class LinkingService {
   public constructor(
     private readonly prismaService: PrismaService,
     private readonly emailService: EmailService,
+    @Optional() private readonly events?: SystemEventsService,
   ) {}
 
   // ── Telegram ─────────────────────────────────────────────────────────
@@ -115,7 +117,8 @@ export class LinkingService {
     const codeHash = this.hash(input.code);
     const telegramIdBig = BigInt(input.telegramId);
 
-    return this.prismaService.$transaction(async (tx) => {
+    let newlyLinkedUserId: string | null = null;
+    const result = await this.prismaService.$transaction(async (tx) => {
       // Find the latest non-consumed challenge for this code hash. Done
       // upfront so we can early-reject before touching any User rows.
       const challenge = await tx.authChallenge.findFirst({
@@ -173,8 +176,25 @@ export class LinkingService {
         where: { id: challenge.id },
         data: { consumedAt: new Date() },
       });
+      newlyLinkedUserId = webAccount.userId;
       return { success: true, userId: webAccount.userId };
     });
+
+    // Emit only when a NEW link was actually made (not the idempotent re-link),
+    // so the dev gets a "🔗 Привязан Telegram" card once per real attachment.
+    if (newlyLinkedUserId !== null) {
+      this.events?.info(
+        EVENT_TYPES.USER_TELEGRAM_LINKED,
+        'USER',
+        `Telegram linked to web account`,
+        {
+          userId: newlyLinkedUserId,
+          telegramId: input.telegramId,
+          source: 'web_cabinet',
+        },
+      );
+    }
+    return result;
   }
 
   // ── Email ────────────────────────────────────────────────────────────
@@ -255,7 +275,8 @@ export class LinkingService {
     input: LinkEmailVerifyDto,
   ): Promise<LinkEmailVerifyResultInterface> {
     const codeHash = this.hash(input.code);
-    return this.prismaService.$transaction(async (tx) => {
+    let verifiedEmail: string | null = null;
+    const result = await this.prismaService.$transaction(async (tx) => {
       const webAccount = await tx.webAccount.findUnique({
         where: { userId: input.userId },
         select: { id: true },
@@ -297,8 +318,23 @@ export class LinkingService {
         where: { id: webAccount.id },
         data: { emailVerifiedAt: now },
       });
+      verifiedEmail = challenge.destination;
       return { success: true, verified: true };
     });
+
+    if (result.verified && verifiedEmail !== null) {
+      this.events?.info(
+        EVENT_TYPES.USER_EMAIL_LINKED,
+        'USER',
+        `Email linked to web account`,
+        {
+          userId: input.userId,
+          email: verifiedEmail,
+          source: 'web_cabinet',
+        },
+      );
+    }
+    return result;
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────

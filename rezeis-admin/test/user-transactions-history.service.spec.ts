@@ -26,6 +26,7 @@ function buildService(prisma: unknown): InternalUserEdgeService {
     prisma as never,
     STUB_SETTINGS_SERVICE as never,
     STUB_ACCESS_MODE_GUARD as never,
+    { info: () => undefined } as never,
   );
 }
 

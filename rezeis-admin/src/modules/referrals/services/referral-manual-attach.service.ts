@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { TransactionStatus } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { EVENT_TYPES, SystemEventsService } from '../../../common/services/system-events.service';
 import { PartnerEarningsService } from '../../partners/services/partner-earnings.service';
 import { ReferralQualificationService } from './referral-qualification.service';
 
@@ -31,6 +32,7 @@ export class ReferralManualAttachService {
     private readonly prismaService: PrismaService,
     private readonly qualificationService: ReferralQualificationService,
     private readonly partnerEarningsService: PartnerEarningsService,
+    private readonly events: SystemEventsService,
   ) {}
 
   /**
@@ -73,13 +75,22 @@ export class ReferralManualAttachService {
     }
 
     // 1. Create referral edge
-    await this.prismaService.referral.create({
+    const referral = await this.prismaService.referral.create({
       data: {
         referrerId: input.referrerId,
         referredId: input.userId,
         level: 1,
         inviteSource: 'UNKNOWN',
       },
+      select: { id: true },
+    });
+
+    // Notify the dev of the new referral edge (covers invite-link sign-ups and
+    // admin manual attaches alike — the single creation chokepoint).
+    this.events.info(EVENT_TYPES.REFERRAL_ATTACHED, 'REFERRAL', 'Referral attached', {
+      referralId: referral.id,
+      referrerId: input.referrerId,
+      userId: input.userId,
     });
 
     // 2. Attach partner referral chain

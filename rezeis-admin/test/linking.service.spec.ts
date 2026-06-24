@@ -434,3 +434,78 @@ describe('LinkingService', () => {
     assert.ok(invalidEmailVerify.length >= 1);
   });
 });
+
+interface CapturedEvent {
+  readonly type: string;
+  readonly category: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
+function createEventsMock(): {
+  readonly mock: { info: (t: string, c: string, m: string, meta?: Record<string, unknown>) => void };
+  readonly events: CapturedEvent[];
+} {
+  const events: CapturedEvent[] = [];
+  return {
+    mock: {
+      info: (type, category, _message, metadata) => {
+        events.push({ type, category, metadata });
+      },
+    },
+    events,
+  };
+}
+
+describe('LinkingService — dev event emission', () => {
+  it('emits user.telegram_linked once when a new Telegram id is attached', async () => {
+    const prisma = createMockPrisma({
+      challenge: createChallenge({ purpose: 'telegram_link', codeHash: hashForTest('123456') }),
+      conflictingTelegramUserId: null,
+    });
+    const { mock, events } = createEventsMock();
+    const service = new LinkingService(prisma as never, createEmailServiceMock() as never, mock as never);
+
+    await service.telegramConsume({ code: '123456', telegramId: '777000' });
+
+    const linked = events.filter((e) => e.type === 'user.telegram_linked');
+    assert.equal(linked.length, 1);
+    assert.equal(linked[0].category, 'USER');
+    assert.equal(linked[0].metadata?.userId, 'user-1');
+    assert.equal(linked[0].metadata?.telegramId, '777000');
+  });
+
+  it('does NOT emit on an idempotent re-link of the same Telegram id', async () => {
+    const prisma = createMockPrisma({
+      webAccount: { id: 'web-account-1', userId: 'user-1', emailVerifiedAt: null, telegramId: BigInt('777000') },
+      challenge: createChallenge({ purpose: 'telegram_link', codeHash: hashForTest('123456') }),
+      conflictingTelegramUserId: null,
+    });
+    const { mock, events } = createEventsMock();
+    const service = new LinkingService(prisma as never, createEmailServiceMock() as never, mock as never);
+
+    await service.telegramConsume({ code: '123456', telegramId: '777000' });
+
+    assert.equal(events.filter((e) => e.type === 'user.telegram_linked').length, 0);
+  });
+
+  it('emits user.email_linked when an email is verified', async () => {
+    const prisma = createMockPrisma({
+      challenge: createChallenge({
+        purpose: 'email_link',
+        channel: 'email',
+        destination: 'user@example.com',
+        codeHash: hashForTest('123456'),
+      }),
+    });
+    const { mock, events } = createEventsMock();
+    const service = new LinkingService(prisma as never, createEmailServiceMock() as never, mock as never);
+
+    await service.emailVerify({ userId: 'user-1', code: '123456' });
+
+    const linked = events.filter((e) => e.type === 'user.email_linked');
+    assert.equal(linked.length, 1);
+    assert.equal(linked[0].category, 'USER');
+    assert.equal(linked[0].metadata?.userId, 'user-1');
+    assert.equal(linked[0].metadata?.email, 'user@example.com');
+  });
+});
