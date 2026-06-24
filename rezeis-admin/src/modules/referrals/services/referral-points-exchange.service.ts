@@ -410,25 +410,30 @@ export class ReferralPointsExchangeService {
     });
     if (!settings) return DEFAULT_CONFIG;
     const json = settings.referralSettings as Record<string, unknown>;
-    const pe = (json?.points_exchange ?? {}) as Record<string, unknown>;
+    // The admin panel persists this block in camelCase (`pointsExchange`);
+    // older installs may still carry the legacy snake_case (`points_exchange`)
+    // shape. Read both so the two halves of the system actually meet — a
+    // mismatch here silently resolves `exchangeEnabled` to false and surfaces
+    // "exchange temporarily unavailable" in the cabinet.
+    const pe = pickObject(json, ['pointsExchange', 'points_exchange']);
     return {
-      exchangeEnabled: pe.exchange_enabled === true,
-      pointsPerDay: typeof pe.points_per_day === 'number' ? pe.points_per_day : 100,
-      minExchangePoints: typeof pe.min_exchange_points === 'number' ? pe.min_exchange_points : 100,
-      maxExchangePoints: typeof pe.max_exchange_points === 'number' ? pe.max_exchange_points : -1,
-      subscriptionDays: readTypeConfig(pe, 'subscription_days'),
+      exchangeEnabled: pickBool(pe, ['exchangeEnabled', 'exchange_enabled']),
+      pointsPerDay: pickNumber(pe, ['pointsPerDay', 'points_per_day'], 100),
+      minExchangePoints: pickNumber(pe, ['minExchangePoints', 'min_exchange_points'], 100),
+      maxExchangePoints: pickNumber(pe, ['maxExchangePoints', 'max_exchange_points'], -1),
+      subscriptionDays: readTypeConfig(pe, ['subscriptionDays', 'subscription_days']),
       giftSubscription: {
-        ...readTypeConfig(pe, 'gift_subscription'),
-        giftPlanId: readString(pe, 'gift_subscription', 'gift_plan_id'),
-        giftDurationDays: readNumber(pe, 'gift_subscription', 'gift_duration_days', 30),
+        ...readTypeConfig(pe, ['giftSubscription', 'gift_subscription']),
+        giftPlanId: readSectionString(pe, ['giftSubscription', 'gift_subscription'], ['giftPlanId', 'gift_plan_id']),
+        giftDurationDays: readSectionNumber(pe, ['giftSubscription', 'gift_subscription'], ['giftDurationDays', 'gift_duration_days'], 30),
       },
       discount: {
-        ...readTypeConfig(pe, 'discount'),
-        maxDiscountPercent: readNumber(pe, 'discount', 'max_discount_percent', 50),
+        ...readTypeConfig(pe, ['discount']),
+        maxDiscountPercent: readSectionNumber(pe, ['discount'], ['maxDiscountPercent', 'max_discount_percent'], 50),
       },
       traffic: {
-        ...readTypeConfig(pe, 'traffic'),
-        maxTrafficGb: readNumber(pe, 'traffic', 'max_traffic_gb', 100),
+        ...readTypeConfig(pe, ['traffic']),
+        maxTrafficGb: readSectionNumber(pe, ['traffic'], ['maxTrafficGb', 'max_traffic_gb'], 100),
       },
     };
   }
@@ -436,26 +441,59 @@ export class ReferralPointsExchangeService {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function readTypeConfig(parent: Record<string, unknown>, key: string): ExchangeTypeConfig {
-  const obj = (parent[key] ?? {}) as Record<string, unknown>;
+/** Returns the first key that holds an object, as an object. */
+function pickObject(parent: Record<string, unknown> | undefined, keys: readonly string[]): Record<string, unknown> {
+  if (!parent) return {};
+  for (const key of keys) {
+    const val = parent[key];
+    if (val !== null && typeof val === 'object') return val as Record<string, unknown>;
+  }
+  return {};
+}
+
+/** True when any of the candidate keys is strictly `true`. */
+function pickBool(obj: Record<string, unknown>, keys: readonly string[]): boolean {
+  return keys.some((key) => obj[key] === true);
+}
+
+/** First candidate key holding a number, else `fallback`. */
+function pickNumber(obj: Record<string, unknown>, keys: readonly string[], fallback: number): number {
+  for (const key of keys) {
+    if (typeof obj[key] === 'number') return obj[key] as number;
+  }
+  return fallback;
+}
+
+/** First candidate key holding a non-empty string, else `null`. */
+function pickString(obj: Record<string, unknown>, keys: readonly string[]): string | null {
+  for (const key of keys) {
+    const val = obj[key];
+    if (typeof val === 'string' && val.length > 0) return val;
+  }
+  return null;
+}
+
+function readTypeConfig(parent: Record<string, unknown>, sectionKeys: readonly string[]): ExchangeTypeConfig {
+  const obj = pickObject(parent, sectionKeys);
+  const pointsCost = pickNumber(obj, ['pointsCost', 'points_cost'], 100);
   return {
-    enabled: obj.enabled === true,
-    pointsCost: typeof obj.points_cost === 'number' ? obj.points_cost : 100,
-    minPoints: typeof obj.min_points === 'number' ? obj.min_points : 100,
-    maxPoints: typeof obj.max_points === 'number' ? obj.max_points : -1,
+    enabled: pickBool(obj, ['enabled']),
+    pointsCost,
+    // The admin panel only persists `pointsCost` per type — there is no
+    // separate minimum input. Default the floor to the cost so a configured
+    // option is actually reachable; legacy snake_case installs may still
+    // carry an explicit `min_points`.
+    minPoints: pickNumber(obj, ['minPoints', 'min_points'], pointsCost),
+    maxPoints: pickNumber(obj, ['maxPoints', 'max_points'], -1),
   };
 }
 
-function readString(parent: Record<string, unknown>, section: string, key: string): string | null {
-  const obj = (parent[section] ?? {}) as Record<string, unknown>;
-  const val = obj[key];
-  return typeof val === 'string' && val.length > 0 ? val : null;
+function readSectionString(parent: Record<string, unknown>, sectionKeys: readonly string[], keys: readonly string[]): string | null {
+  return pickString(pickObject(parent, sectionKeys), keys);
 }
 
-function readNumber(parent: Record<string, unknown>, section: string, key: string, fallback: number): number {
-  const obj = (parent[section] ?? {}) as Record<string, unknown>;
-  const val = obj[key];
-  return typeof val === 'number' ? val : fallback;
+function readSectionNumber(parent: Record<string, unknown>, sectionKeys: readonly string[], keys: readonly string[], fallback: number): number {
+  return pickNumber(pickObject(parent, sectionKeys), keys, fallback);
 }
 
 function generateExchangePromoCode(): string {

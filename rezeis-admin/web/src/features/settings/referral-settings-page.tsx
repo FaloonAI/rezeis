@@ -16,6 +16,7 @@ import {
 import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
+import { usePlans } from '@/features/plans/plans-api'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -58,7 +59,7 @@ interface ReferralSettings {
   pointsExchange?: {
     exchangeEnabled?: boolean
     subscriptionDays?: { enabled?: boolean; pointsCost?: number | string }
-    giftSubscription?: { enabled?: boolean; pointsCost?: number | string; giftDurationDays?: number | string }
+    giftSubscription?: { enabled?: boolean; pointsCost?: number | string; giftDurationDays?: number | string; giftPlanId?: string | null }
     discount?: { enabled?: boolean; pointsCost?: number | string; maxDiscountPercent?: number | string }
     traffic?: { enabled?: boolean; pointsCost?: number | string; maxTrafficGb?: number | string }
   }
@@ -90,6 +91,7 @@ interface ReferralSettingsFormProps {
 function ReferralSettingsForm({ referral }: ReferralSettingsFormProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const { data: plans } = usePlans({ active: true })
 
   const numString = z.string().trim()
 
@@ -113,6 +115,7 @@ function ReferralSettingsForm({ referral }: ReferralSettingsFormProps) {
     giftEnabled: z.boolean(),
     giftPointsCost: numString,
     giftDurationDays: numString,
+    giftPlanId: numString,
     discountEnabled: z.boolean(),
     discountPointsCost: numString,
     discountMaxPercent: numString,
@@ -152,6 +155,7 @@ function ReferralSettingsForm({ referral }: ReferralSettingsFormProps) {
       giftEnabled: pe.giftSubscription?.enabled ?? false,
       giftPointsCost: String(pe.giftSubscription?.pointsCost ?? '30'),
       giftDurationDays: String(pe.giftSubscription?.giftDurationDays ?? '30'),
+      giftPlanId: pe.giftSubscription?.giftPlanId ?? '',
       discountEnabled: pe.discount?.enabled ?? false,
       discountPointsCost: String(pe.discount?.pointsCost ?? '10'),
       discountMaxPercent: String(pe.discount?.maxDiscountPercent ?? '50'),
@@ -202,6 +206,7 @@ function ReferralSettingsForm({ referral }: ReferralSettingsFormProps) {
             enabled: values.giftEnabled,
             pointsCost: parseInt(values.giftPointsCost, 10) || 30,
             giftDurationDays: parseInt(values.giftDurationDays, 10) || 30,
+            giftPlanId: values.giftPlanId || null,
           },
           discount: {
             enabled: values.discountEnabled,
@@ -579,6 +584,34 @@ function ReferralSettingsForm({ referral }: ReferralSettingsFormProps) {
                       )}
                     />
                   </div>
+                  <FormField
+                    control={form.control}
+                    name="giftPlanId"
+                    render={({ field }) => (
+                      <FormItem className="space-y-1 mt-2">
+                        <FormLabel className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                          {t('referralSettingsPage.pointsExchange.giftPlan')}
+                        </FormLabel>
+                        <Select value={field.value || ''} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger className="h-8 text-sm">
+                              <SelectValue placeholder={t('referralSettingsPage.pointsExchange.giftPlanPlaceholder')} />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {(plans ?? []).map((plan) => (
+                              <SelectItem key={plan.id} value={plan.id}>
+                                {plan.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription className="text-[10px]">
+                          {t('referralSettingsPage.pointsExchange.giftPlanHint')}
+                        </FormDescription>
+                      </FormItem>
+                    )}
+                  />
                 </ExchangeOptionCard>
 
                 {/* Personal Discount */}

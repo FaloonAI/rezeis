@@ -36,6 +36,40 @@ describe('ReferralPointsExchangeService', () => {
     });
   });
 
+  it('reads the camelCase pointsExchange shape persisted by the admin panel', async () => {
+    // The admin SPA saves `referralSettings.pointsExchange.*` in camelCase and
+    // does NOT send a per-type `minPoints`. The reader must honour this shape
+    // (otherwise `exchangeEnabled` resolves false → "exchange unavailable") and
+    // default the per-type floor to `pointsCost`.
+    const camelSettings = {
+      pointsExchange: {
+        exchangeEnabled: true,
+        subscriptionDays: { enabled: true, pointsCost: 5 },
+        giftSubscription: { enabled: true, pointsCost: 150, giftDurationDays: 30, giftPlanId: 'plan-x' },
+        discount: { enabled: true, pointsCost: 10, maxDiscountPercent: 50 },
+        traffic: { enabled: true, pointsCost: 15, maxTrafficGb: 100 },
+      },
+    };
+    const service = new ReferralPointsExchangeService({
+      user: { findUnique: async () => ({ points: 25 }) },
+      settings: { findFirst: async () => ({ referralSettings: camelSettings }) },
+    } as never, {} as never);
+
+    const result = await service.getExchangeOptions('user-1');
+
+    assert.equal(result.exchangeEnabled, true);
+    const days = result.types.find((type) => type.type === 'SUBSCRIPTION_DAYS');
+    assert.deepStrictEqual(days, {
+      type: 'SUBSCRIPTION_DAYS',
+      enabled: true,
+      available: true, // balance 25 >= minPoints (defaulted to pointsCost 5)
+      pointsCost: 5,
+      minPoints: 5,
+      maxPoints: -1,
+      computedValue: 5,
+    });
+  });
+
   it('rejects unknown users before exposing options', async () => {
     const service = new ReferralPointsExchangeService({
       user: { findUnique: async () => null },
