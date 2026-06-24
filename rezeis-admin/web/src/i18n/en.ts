@@ -3122,6 +3122,11 @@ export const en = {
       textRu: 'Message text (RU)',
       textEn: 'Message text (EN)',
       parseMode: 'Format',
+      parseModeHint: 'HTML — formatting tags (<b>, <i>, <u>, <s>, <code>, <pre>, <a>, <blockquote>) and premium emoji. "Plain" — text is sent as-is.',
+      parseModes: {
+        HTML: 'HTML',
+        PLAIN: 'Plain',
+      },
       isRoot: 'Start screen',
       media: 'Media',
       chooseMedia: 'Choose screen media file',

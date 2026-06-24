@@ -30,7 +30,7 @@ export interface MapInfoNodeData extends Record<string, unknown> {
   subtitle: string
 }
 
-function MapInfoNodeComponent({ data, selected }: NodeProps) {
+function MapInfoNodeComponent({ id, data, selected }: NodeProps) {
   const { t } = useTranslation()
   const { kind, title, status, subtitle } = data as unknown as MapInfoNodeData
   const isNotification = kind === 'notification'
@@ -80,6 +80,27 @@ function MapInfoNodeComponent({ data, selected }: NodeProps) {
           </span>
         ) : null}
       </div>
+
+      {/*
+        Target handle so programmatic bot-map edges INTO this node render
+        (e.g. a notification → Mini App terminal). `buildMapEdges` points the
+        edge's `targetHandle` at `${id}-target`; without this anchor the edge
+        was silently dropped, so terminal links never appeared on the canvas.
+      */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id={`${id}-target`}
+        isConnectable={false}
+        style={{
+          left: '-7px',
+          top: '50%',
+          background: isNotification ? '#f43f5e' : '#0ea5e9',
+          border: '2px solid var(--color-background)',
+          width: 10,
+          height: 10,
+        }}
+      />
 
       {/*
         Source handle for the programmatic bot-map edges (notification /

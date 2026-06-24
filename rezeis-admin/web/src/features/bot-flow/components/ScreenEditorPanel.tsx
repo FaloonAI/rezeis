@@ -16,7 +16,7 @@ import { insertAtCaret } from '@/features/bot-map/utils/insert-at-caret'
 import { CustomEmojiPicker } from './CustomEmojiPicker'
 import { SystemScreenTexts, TextKeyEditor } from './SystemScreenTexts'
 import { SystemButtonIconPicker } from './SystemButtonIconPicker'
-import type { BotFlowButton, BotFlowButtonAction, BotFlowButtonStyle, BotFlowScreen } from '../types'
+import type { BotFlowButton, BotFlowButtonAction, BotFlowButtonStyle, BotFlowParseMode, BotFlowScreen } from '../types'
 
 interface ScreenEditorPanelProps {
   screen: BotFlowScreen
@@ -25,6 +25,10 @@ interface ScreenEditorPanelProps {
 
 const ACTION_TYPES: BotFlowButtonAction[] = ['NAVIGATE', 'URL', 'WEBAPP', 'CALLBACK', 'BACK', 'START_OVER']
 const BUTTON_STYLES: BotFlowButtonStyle[] = ['DEFAULT', 'PRIMARY', 'SUCCESS', 'DANGER']
+// reiwa distinguishes HTML (parse_mode) from everything else (entity render).
+// Markdown isn't honoured at render time, so we only surface the two modes the
+// bot actually behaves differently for.
+const PARSE_MODES: BotFlowParseMode[] = ['HTML', 'PLAIN']
 
 export function ScreenEditorPanel({ screen, flowName }: ScreenEditorPanelProps) {
   const { t } = useTranslation()
@@ -230,6 +234,29 @@ export function ScreenEditorPanel({ screen, flowName }: ScreenEditorPanelProps) 
           }}
           aria-label={t('botFlow.fields.isRoot')}
         />
+      </div>
+
+      {/* Parse mode (HTML formatting vs plain) */}
+      <div className="space-y-1.5">
+        <Label className="text-xs">{t('botFlow.fields.parseMode')}</Label>
+        <Select
+          value={screen.parseMode === 'HTML' ? 'HTML' : 'PLAIN'}
+          onValueChange={(v) => updateScreenMutation.mutate({ parseMode: v })}
+        >
+          <SelectTrigger className="h-8 text-xs" aria-label={t('botFlow.fields.parseMode')}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PARSE_MODES.map((mode) => (
+              <SelectItem key={mode} value={mode} className="text-xs">
+                {t(`botFlow.fields.parseModes.${mode}`)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-[10px] leading-snug text-muted-foreground">
+          {t('botFlow.fields.parseModeHint')}
+        </p>
       </div>
 
       <Separator />
