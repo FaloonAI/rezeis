@@ -10,6 +10,12 @@ interface ListTicketsQuery {
   readonly channel?: 'CABINET' | 'GUEST';
   /** When true, return CLOSED (archived) conversations; otherwise active only. */
   readonly archived?: boolean;
+  /**
+   * When true, return tickets of ALL statuses (active + closed) for the scope.
+   * Used by the cabinet so a user can still open and read their closed
+   * (archived) conversations. Ignored when `archived`/`status` narrow the set.
+   */
+  readonly allStatuses?: boolean;
   readonly limit?: number;
   readonly offset?: number;
 }
@@ -69,6 +75,10 @@ export class SupportTicketsService {
       where.status = SupportTicketStatus.CLOSED;
     } else if (query.status !== undefined && query.status !== SupportTicketStatus.CLOSED) {
       where.status = query.status;
+    } else if (query.allStatuses === true) {
+      // No status filter: return the full history (active + archived) for the
+      // scope. The cabinet uses this so a user can re-open and read their
+      // CLOSED conversations (read-only chat) instead of losing them.
     } else {
       where.status = { in: [SupportTicketStatus.OPEN, SupportTicketStatus.WAITING_REPLY] };
     }

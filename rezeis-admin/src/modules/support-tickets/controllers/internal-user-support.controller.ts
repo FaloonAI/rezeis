@@ -49,7 +49,7 @@ export class InternalUserSupportController {
   @ApiOperation({ summary: 'List the calling user\'s support tickets' })
   public async list(@Param('userRef') userRef: string): Promise<readonly SerializedTicket[]> {
     const userId = await this.resolveUserId(userRef);
-    const { items } = await this.supportTicketsService.list({ userId });
+    const { items } = await this.supportTicketsService.list({ userId, allStatuses: true });
     return items.map(serializeTicket);
   }
 
@@ -63,6 +63,24 @@ export class InternalUserSupportController {
     const ticket = await this.supportTicketsService.getById(ticketId);
     if (ticket.userId !== userId) {
       throw new NotFoundException('Support ticket not found');
+    }
+    // Opening the ticket is an implicit "read" of the support reply that
+    // prompted the notification. Clear any unread `support_reply` events for
+    // THIS ticket so the cabinet bell / settings badge stop nagging once the
+    // user is already looking at the conversation. Best-effort: a failure here
+    // must never block returning the ticket.
+    try {
+      await this.prismaService.userNotificationEvent.updateMany({
+        where: {
+          userId,
+          type: 'support_reply',
+          readAt: null,
+          payload: { path: ['ticketId'], equals: ticketId },
+        },
+        data: { readAt: new Date() },
+      });
+    } catch {
+      // swallow — read view must still render even if the mark-read fails
     }
     return serializeTicket(ticket);
   }
