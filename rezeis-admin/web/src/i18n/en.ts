@@ -3211,6 +3211,9 @@ export const en = {
     connectionError: 'Failed to save connection',
     deleteEdgeConfirm: 'Delete this connection?',
     edgeDeleted: 'Edge removed',
+    edgeRestored: 'Connection restored',
+    undo: 'Undo',
+    connectHandle: 'Drag to create a link to another screen',
     mediaUploadError: 'Failed to upload media',
     emojiCategories: {
       all: 'All',

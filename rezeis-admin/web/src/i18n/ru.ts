@@ -3242,6 +3242,9 @@
     connectionError: 'Не удалось сохранить связь',
     deleteEdgeConfirm: 'Удалить эту связь?',
     edgeDeleted: 'Связь удалена',
+    edgeRestored: 'Связь восстановлена',
+    undo: 'Отменить',
+    connectHandle: 'Потяните, чтобы создать связь с другим экраном',
     mediaUploadError: 'Не удалось загрузить медиа',
     emojiCategories: {
       all: 'Все',

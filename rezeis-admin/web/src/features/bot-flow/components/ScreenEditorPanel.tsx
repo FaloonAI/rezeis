@@ -84,7 +84,7 @@ export function ScreenEditorPanel({ screen, flowName }: ScreenEditorPanelProps) 
     if (lower === 'invite') {
       return [
         { key: 'invite-share', label: t('botFlow.systemButtons.invite.share'), iconKey: 'invite_share', textKey: 'invite.share_button' },
-        { key: 'invite-copy', label: t('botFlow.systemButtons.invite.copy'), textKey: 'invite.copy_button' },
+        { key: 'invite-copy', label: t('botFlow.systemButtons.invite.copy'), iconKey: 'invite_copy', textKey: 'invite.copy_button' },
         { key: 'invite-back', label: t('botFlow.systemButtons.back'), iconKey: 'back', textKey: 'back_to_menu' },
       ]
     }

@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { useTranslation } from 'react-i18next'
 import { MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { BotScreenNodeData, BotFlowButton } from '../types'
@@ -7,6 +8,7 @@ import { useEmojiRegistry } from '../../custom-emoji/use-emoji-registry'
 
 function BotScreenNodeComponent({ data, id, selected }: NodeProps) {
   const nodeData = data as unknown as BotScreenNodeData
+  const { t } = useTranslation()
   // Resolve a button's stored custom_emoji_id back to its registry preview.
   const { byCustomEmojiId } = useEmojiRegistry()
 
@@ -34,18 +36,21 @@ function BotScreenNodeComponent({ data, id, selected }: NodeProps) {
       />
 
       {/*
-        Hidden, non-connectable source anchor used ONLY for the programmatic
-        "back to menu" edges drawn for system screens (help/invite/rules).
-        Invisible + not user-connectable so it adds no canvas noise and can't
-        start a stray drag-connection.
+        Generic source handle. Drag from here to create a NAVIGATE link to
+        another screen — `onConnect` provisions the underlying button when the
+        drag lands on a target screen's handle. A brand-new screen has no
+        per-button handles yet, so without a connectable anchor there was no
+        way to originate a link from it (the reported "can't draw a connection
+        from a new block" bug). It also remains the origin for the programmatic
+        system "back to menu" edges.
       */}
       <Handle
         type="source"
         position={Position.Right}
         id={`${id}-source`}
-        isConnectable={false}
-        className="!w-2 !h-2 !border-0 !bg-transparent"
-        style={{ right: 0, opacity: 0 }}
+        title={t('botFlow.connectHandle', { defaultValue: 'Drag to create a link to another screen' })}
+        className="!w-3.5 !h-3.5 !bg-emerald-500 !border-2 !border-background"
+        style={{ right: -7 }}
       />
 
       {/* Header */}

@@ -357,7 +357,16 @@ export default function BotFlowPage() {
       }
 
       const targetScreen = flow.screens.find((s) => s.id === connection.target)
-      if (!targetScreen) return
+      if (!targetScreen) {
+        // Drop landed on something that isn't an editable screen — discard the
+        // optimistic edge so no phantom link lingers on the canvas.
+        setEdges((eds) =>
+          eds.filter(
+            (e) => e.source !== connection.source || e.target !== connection.target,
+          ),
+        )
+        return
+      }
 
       if (connection.sourceHandle?.startsWith('btn-')) {
         const buttonId = connection.sourceHandle.replace('btn-', '')
@@ -417,21 +426,56 @@ export default function BotFlowPage() {
 
   const handleEdgeClick = useCallback(
     (edgeId: string) => {
+      // Only NAVIGATE-button edges are editable. Reply-keyboard, system
+      // back, and bot-map edges are virtual (deletable:false) — ignore clicks
+      // on them so a stray click can't blank a virtual link or PUT to a
+      // non-existent button id.
+      if (!edgeId.startsWith('edge-')) return
       const buttonId = edgeId.replace('edge-', '')
       if (!buttonId) return
+
+      // Capture the current target before removing it so the deletion can be
+      // undone — the operator clicks an arrow to delete it, and a mis-click
+      // should be recoverable without redrawing by hand.
+      const deletedEdge = edges.find((e) => e.id === edgeId)
+      const restoreShortId =
+        flow?.screens.find((s) => s.id === deletedEdge?.target)?.shortId ?? null
+
       setEdges((eds) => eds.filter((e) => e.id !== edgeId))
       api
         .put(`/admin/bot-flows/buttons/${buttonId}`, { targetScreenId: null })
         .then(() => {
           queryClient.invalidateQueries({ queryKey: ['bot-flow', 'draft', FLOW_NAME] })
-          toast.success(t('botFlow.edgeDeleted'))
+          if (restoreShortId) {
+            toast.success(t('botFlow.edgeDeleted'), {
+              action: {
+                label: t('botFlow.undo'),
+                onClick: () => {
+                  api
+                    .put(`/admin/bot-flows/buttons/${buttonId}`, {
+                      actionType: 'NAVIGATE',
+                      targetScreenId: restoreShortId,
+                    })
+                    .then(() => {
+                      queryClient.invalidateQueries({
+                        queryKey: ['bot-flow', 'draft', FLOW_NAME],
+                      })
+                      toast.success(t('botFlow.edgeRestored'))
+                    })
+                    .catch(() => toast.error(t('botFlow.connectionError')))
+                },
+              },
+            })
+          } else {
+            toast.success(t('botFlow.edgeDeleted'))
+          }
         })
         .catch(() => {
           toast.error(t('botFlow.connectionError'))
           queryClient.invalidateQueries({ queryKey: ['bot-flow', 'draft', FLOW_NAME] })
         })
     },
-    [t, queryClient],
+    [t, queryClient, edges, flow],
   )
 
   const handleDrop = useCallback(
