@@ -1,10 +1,12 @@
 import { useTranslation } from 'react-i18next'
 import { NavLink } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { GripVertical } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
 
+import { api } from '@/lib/api'
 import { motion } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -53,6 +55,25 @@ export function SortableNavItem({
 
   const label = t(`adminNav.items.${item.key}`)
 
+  // Support-tickets queue badge: show the count of OPEN tickets (a user wrote
+  // and is awaiting an operator reply) so new conversations are noticed
+  // without opening the page. The query only runs for this nav row; the item
+  // itself is already permission-gated upstream, so reaching here implies the
+  // operator may view support tickets.
+  const isSupport = item.key === 'supportTickets'
+  const { data: supportStats } = useQuery({
+    queryKey: ['support-tickets', 'stats', 'nav-badge'],
+    queryFn: async () =>
+      (await api.get<{ open: number; waitingReply: number; closed: number; total: number }>(
+        '/admin/support-tickets/stats',
+      )).data,
+    enabled: isSupport && !editMode,
+    staleTime: 30_000,
+    refetchInterval: isSupport ? 60_000 : false,
+  })
+  const badgeCount = isSupport ? (supportStats?.open ?? 0) : 0
+  const showBadge = badgeCount > 0 && !editMode
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -91,6 +112,20 @@ export function SortableNavItem({
                 )}
                 <ItemIcon className="h-4 w-4 shrink-0" />
                 {!collapsed && <span>{label}</span>}
+                {showBadge && !collapsed && (
+                  <span
+                    className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white"
+                    aria-label={t('supportTicketsPage.navBadgeAria', { count: badgeCount })}
+                  >
+                    {badgeCount > 99 ? '99+' : badgeCount}
+                  </span>
+                )}
+                {showBadge && collapsed && (
+                  <span
+                    className="absolute right-1 top-1 h-2 w-2 rounded-full bg-rose-500"
+                    aria-label={t('supportTicketsPage.navBadgeAria', { count: badgeCount })}
+                  />
+                )}
               </motion.span>
             </>
           </NavLink>

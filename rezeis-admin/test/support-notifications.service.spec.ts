@@ -17,7 +17,7 @@ interface CreateCall {
   preRenderedText?: string;
 }
 
-function build(opts?: { throwOnCreate?: boolean; guestEmail?: string | null; sendThrows?: boolean }): {
+function build(opts?: { throwOnCreate?: boolean; guestEmail?: string | null; sendThrows?: boolean; template?: unknown }): {
   service: SupportNotificationsService;
   calls: CreateCall[];
   emails: Array<{ to: string; subject: string; rawHtml?: string }>;
@@ -57,11 +57,16 @@ function build(opts?: { throwOnCreate?: boolean; guestEmail?: string | null; sen
       return 'resume-tok';
     },
   };
+  const templatesService = {
+    // Default: no seeded row → notifyAdminReply uses the built-in fallback copy.
+    getByType: async () => opts?.template ?? null,
+  };
   const service = new SupportNotificationsService(
     userNotifications as never,
     prisma as never,
     emailDelivery as never,
     guestService as never,
+    templatesService as never,
   );
   return { service, calls, emails, tokensIssued };
 }
@@ -77,9 +82,40 @@ describe('SupportNotificationsService.notifyAdminReply', () => {
     assert.equal(calls.length, 1);
     assert.equal(calls[0].userId, 'u-1');
     assert.equal(calls[0].type, 'support_reply');
-    assert.deepEqual(calls[0].payload, { ticketId: 't-1', subject: 'Оплата не прошла' });
+    assert.equal(calls[0].payload.ticketId, 't-1');
+    assert.equal(calls[0].payload.subject, 'Оплата не прошла');
+    // Title + body are mirrored into the payload (not just preRenderedText) so
+    // the cabinet feed renders real copy instead of "text unavailable".
+    assert.match(String(calls[0].payload.title ?? ''), /Поддержка ответила/);
+    assert.match(String(calls[0].payload.text ?? ''), /Оплата не прошла/);
     assert.match(calls[0].preRenderedText ?? '', /Поддержка ответила/);
     assert.match(calls[0].preRenderedText ?? '', /Оплата не прошла/);
+  });
+
+  it('uses the operator-edited support_reply template (copy + button) and auto-appends the ticket id', async () => {
+    const template = {
+      title: '💬 Поддержка ответила',
+      titleEn: '💬 Support replied',
+      body: 'Новый ответ по «{{subject}}». Откройте раздел поддержки.',
+      bodyEn: 'New reply for "{{subject}}".',
+      buttons: [
+        { labelRu: ':support: Открыть обращение', labelEn: ':support: Open ticket', kind: 'webApp', target: '/support' },
+      ],
+    };
+    const { service, calls } = build({ template });
+    await service.notifyAdminReply({
+      ticketId: 't-9',
+      subject: 'Оплата не прошла',
+      user: { id: 'u-9', language: 'RU' },
+    });
+    assert.equal(calls.length, 1);
+    // Body comes from the template with {{subject}} substituted.
+    assert.match(String(calls[0].payload.text ?? ''), /Новый ответ по «Оплата не прошла»/);
+    // Button keeps the operator's premium-emoji token and gets the ticket id.
+    const buttons = (calls[0] as { buttons?: Array<{ text: string; webAppPath?: string }> }).buttons ?? [];
+    assert.equal(buttons.length, 1);
+    assert.equal(buttons[0].text, ':support: Открыть обращение');
+    assert.equal(buttons[0].webAppPath, '/support?ticket=t-9');
   });
 
   it('falls back to English for non-RU locales', async () => {

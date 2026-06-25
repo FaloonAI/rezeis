@@ -7,7 +7,7 @@
  */
 export interface MiniAppTerminal {
   /** Cabinet route — must match the actual SPA route. */
-  readonly route: '/dashboard' | '/renew' | '/referrals' | '/promo' | '/subscribe' | '/partner';
+  readonly route: '/dashboard' | '/renew' | '/referrals' | '/promo' | '/subscribe' | '/partner' | '/support';
   /** Display name shown on the canvas / list rail (RU). */
   readonly nameRu: string;
   /** Display name shown on the canvas / list rail (EN). */
@@ -59,6 +59,13 @@ export const MINI_APP_TERMINALS: ReadonlyArray<MiniAppTerminal> = [
     nameEn: 'Subscription checkout',
     descriptionRu: 'Покупка / выбор тарифа.',
     descriptionEn: 'Purchase / plan selection.',
+  },
+  {
+    route: '/support',
+    nameRu: 'Поддержка (тикеты)',
+    nameEn: 'Support (tickets)',
+    descriptionRu: 'Раздел тикетов в кабинете — целевой экран уведомления «Поддержка ответила». Принимает `?ticket=` и открывает нужное обращение.',
+    descriptionEn: 'Cabinet tickets section — destination of the "Support replied" notification. Reads `?ticket=` and opens that conversation.',
   },
 ];
 

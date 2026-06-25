@@ -2068,6 +2068,7 @@ export const en = {
   supportTicketsPage: {
     title: 'Support Tickets',
     subtitle: 'Manage user support requests',
+    navBadgeAria: 'New tickets awaiting a reply: {{count}}',
     statuses: {
       open: 'Open',
       closed: 'Closed',

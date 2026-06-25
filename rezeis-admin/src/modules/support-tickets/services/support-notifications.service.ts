@@ -3,6 +3,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { EmailDeliveryService } from '../../email/services/email-delivery.service';
 import { UserNotificationsService } from '../../notifications/services/user-notifications.service';
+import { NotificationTemplatesService } from '../../notifications/services/notification-templates.service';
+import type { NotifyButton } from '../../notifications/services/bot-notifier.client';
+import {
+  coerceNotificationLocale,
+  resolveTemplateButtons,
+  resolveTemplateLocale,
+} from '../../notifications/utils/notification-template-locale.util';
 import { SupportGuestService } from './support-guest.service';
 
 /**
@@ -29,6 +36,7 @@ export class SupportNotificationsService {
     private readonly prismaService: PrismaService,
     private readonly emailDelivery: EmailDeliveryService,
     private readonly guestService: SupportGuestService,
+    private readonly templatesService: NotificationTemplatesService,
   ) {}
 
   /**
@@ -46,13 +54,55 @@ export class SupportNotificationsService {
     if (input.user === null) return;
 
     try {
-      const copy = SUPPORT_REPLY_COPY[resolveLang(input.user.language)];
-      const html = `<b>${escapeHtml(copy.title)}</b>\n\n${escapeHtml(copy.body(input.subject))}`;
+      const locale = coerceNotificationLocale(input.user.language);
+      const substHtml = makeSubstitution({ subject: input.subject, ticketId: input.ticketId }, true);
+      const substRaw = makeSubstitution({ subject: input.subject, ticketId: input.ticketId }, false);
+
+      // Operator-editable, seeded `support_reply` template supplies the copy +
+      // buttons (label/emoji/target) — so the notification is visible on the
+      // bot map and editable in the admin (incl. premium custom-emoji on the
+      // button label, which the bot promotes to icon_custom_emoji_id). We
+      // still deliver via the preRenderedText path so it bypasses the
+      // notification opt-out toggle: a human reply must always reach the user.
+      // The built-in copy is the fallback when the row is absent.
+      const template = await this.templatesService.getByType('support_reply').catch(() => null);
+
+      let title: string;
+      let body: string;
+      let buttons: NotifyButton[];
+      if (template !== null) {
+        const loc = resolveTemplateLocale(template, locale);
+        title = substHtml(loc.title);
+        body = substHtml(loc.body);
+        buttons = resolveTemplateButtons(template, locale).map((button) =>
+          applyTicketDeepLink(button, substRaw, input.ticketId),
+        );
+      } else {
+        const copy = SUPPORT_REPLY_COPY[locale === 'ru' ? 'ru' : 'en'];
+        title = copy.title;
+        body = copy.body(escapeHtml(input.subject));
+        buttons = [{ text: copy.openButton, webAppPath: `/support?ticket=${input.ticketId}` }];
+      }
+
+      // Title is HTML-escaped; injected values inside the body are escaped by
+      // the substitutor while operator markup is preserved (matches the
+      // template fanout convention). The cabinet feed strips HTML on display.
+      const html = `<b>${escapeHtml(title)}</b>\n\n${body}`;
       await this.userNotifications.create({
         userId: input.user.id,
         type: 'support_reply',
-        payload: { ticketId: input.ticketId, subject: input.subject },
+        // Title + text live in the payload too (not just preRenderedText, which
+        // only feeds the bot/push fanout) so the cabinet notification feed —
+        // which renders from the persisted event payload — shows real copy and
+        // a ticket reference instead of "text unavailable".
+        payload: {
+          ticketId: input.ticketId,
+          subject: input.subject,
+          title,
+          text: body,
+        },
         preRenderedText: html,
+        buttons: buttons.length > 0 ? buttons : undefined,
       });
     } catch (err: unknown) {
       // Never surface to the operator; the reply itself is already saved.
@@ -119,22 +169,63 @@ export class SupportNotificationsService {
 
 type SupportLang = 'ru' | 'en';
 
-const SUPPORT_REPLY_COPY: Record<SupportLang, { title: string; body: (subject: string) => string }> = {
+const SUPPORT_REPLY_COPY: Record<SupportLang, { title: string; body: (subject: string) => string; openButton: string }> = {
   ru: {
     title: '💬 Поддержка ответила',
     body: (subject) =>
       `По вашему обращению «${subject}» есть новый ответ от поддержки. Откройте раздел «Поддержка», чтобы прочитать.`,
+    openButton: '💬 Открыть обращение',
   },
   en: {
     title: '💬 Support replied',
     body: (subject) =>
       `There is a new reply to your ticket "${subject}". Open the Support section to read it.`,
+    openButton: '💬 Open ticket',
   },
 };
 
-/** Map the user's `Locale` to a supported notification language (RU → ru, else en). */
-function resolveLang(language: string | null): SupportLang {
-  return (language ?? '').toUpperCase() === 'RU' ? 'ru' : 'en';
+/** Build a `{{subject}}` / `{{ticketId}}` substitutor. When `escape` is set the
+ *  injected values are HTML-escaped (the subject is user-controlled, so it must
+ *  be safe inside Telegram HTML mode); operator-authored markup around the
+ *  placeholder is left intact. `:slug:` emoji tokens are never touched. */
+function makeSubstitution(
+  ctx: { subject: string; ticketId: string },
+  escape: boolean,
+): (input: string) => string {
+  const subject = escape ? escapeHtml(ctx.subject) : ctx.subject;
+  const ticketId = escape ? escapeHtml(ctx.ticketId) : ctx.ticketId;
+  return (input: string): string =>
+    input.replace(/\{\{\s*(subject|ticketId)\s*\}\}/g, (_match, key: string) =>
+      key === 'ticketId' ? ticketId : subject,
+    );
+}
+
+/**
+ * Substitute `{{subject}}`/`{{ticketId}}` placeholders in a resolved button and
+ * auto-append the ticket id to a bare `/support` Mini App deep-link so the
+ * cabinet opens the exact ticket. `:slug:` premium-emoji tokens in the label
+ * are left untouched (the bot promotes them to `icon_custom_emoji_id`). An
+ * operator who repoints the button or adds their own `?ticket=` is respected.
+ */
+function applyTicketDeepLink(
+  button: NotifyButton,
+  subst: (input: string) => string,
+  ticketId: string,
+): NotifyButton {
+  let webAppPath = button.webAppPath !== undefined ? subst(button.webAppPath) : undefined;
+  if (
+    webAppPath !== undefined &&
+    webAppPath.split('?')[0] === '/support' &&
+    !/[?&]ticket=/.test(webAppPath)
+  ) {
+    webAppPath = `${webAppPath}?ticket=${encodeURIComponent(ticketId)}`;
+  }
+  return {
+    text: subst(button.text),
+    url: button.url !== undefined ? subst(button.url) : undefined,
+    callbackData: button.callbackData !== undefined ? subst(button.callbackData) : undefined,
+    webAppPath,
+  };
 }
 
 function escapeHtml(input: string): string {

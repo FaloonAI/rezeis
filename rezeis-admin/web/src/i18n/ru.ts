@@ -2090,6 +2090,7 @@
   supportTicketsPage: {
     title: 'Тикеты поддержки',
     subtitle: 'Управление обращениями пользователей',
+    navBadgeAria: 'Новых обращений, ожидающих ответа: {{count}}',
     statuses: {
       open: 'Открыт',
       closed: 'Закрыт',

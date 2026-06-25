@@ -539,6 +539,7 @@ function stripHtml(input: string): string {
  */
 function resolveNotificationPushUrl(type: string): string {
   const t = type.toLowerCase();
+  if (t.includes('support')) return '/support';
   if (t.includes('expir') || t.includes('limited')) return '/renew';
   if (t.includes('referral') || t.includes('partner')) return '/referrals';
   if (t.includes('broadcast') || t.includes('news')) return '/settings/notifications/feed';

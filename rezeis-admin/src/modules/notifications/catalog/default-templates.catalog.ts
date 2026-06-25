@@ -323,9 +323,30 @@ const SYSTEM_TEMPLATES: ReadonlyArray<DefaultNotificationTemplate> = [
   },
 ];
 
+/** Support-reply rows deep-link the user into the cabinet tickets section. */
+const SUPPORT_BUTTONS: ReadonlyArray<DefaultNotificationTemplateButton> = [
+  { labelRu: '💬 Открыть обращение', labelEn: '💬 Open ticket', kind: 'webApp', target: '/support' },
+];
+
+const SUPPORT_TEMPLATES: ReadonlyArray<DefaultNotificationTemplate> = [
+  {
+    type: 'support_reply',
+    title: '💬 Поддержка ответила',
+    titleEn: '💬 Support replied',
+    body:
+      'По вашему обращению «{{subject}}» есть новый ответ от поддержки. ' +
+      'Откройте раздел «Поддержка», чтобы прочитать.',
+    bodyEn:
+      'There is a new reply to your ticket "{{subject}}". ' +
+      'Open the Support section to read it.',
+    buttons: SUPPORT_BUTTONS,
+  },
+];
+
 export const DEFAULT_NOTIFICATION_TEMPLATES: ReadonlyArray<DefaultNotificationTemplate> = [
   ...DURATION_TEMPLATES,
   ...REFERRAL_TEMPLATES,
   ...PARTNER_TEMPLATES,
   ...SYSTEM_TEMPLATES,
+  ...SUPPORT_TEMPLATES,
 ];

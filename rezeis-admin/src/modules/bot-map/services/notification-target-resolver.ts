@@ -18,7 +18,8 @@ export type MiniAppRoute =
   | '/referrals'
   | '/partner'
   | '/promo'
-  | '/subscribe';
+  | '/subscribe'
+  | '/support';
 
 /**
  * Resolve a template `type` (e.g. `expires_in_3_days`,
@@ -29,6 +30,7 @@ export type MiniAppRoute =
  */
 export function resolveTerminalRouteFor(type: string): MiniAppRoute {
   const t = type.toLowerCase();
+  if (t.includes('support')) return '/support';
   if (t.includes('expir') || t.includes('limited')) return '/renew';
   if (t.includes('partner')) return '/partner';
   if (t.includes('referral')) return '/referrals';
