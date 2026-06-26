@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, UploadedFile, UseGuards, UseInterceptors, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsString, IsOptional, IsNumber, IsBoolean, IsEnum, IsArray, ValidateNested } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsBoolean, IsEnum, IsArray, ValidateNested, Allow } from 'class-validator';
 import { Type } from 'class-transformer';
 import { BotFlowButtonAction, BotFlowButtonStyle, BotFlowMediaType, BotFlowParseMode } from '@prisma/client';
 
@@ -13,6 +13,11 @@ import { BotFlowScreenService } from '../services/bot-flow-screen.service';
 // ── DTOs ────────────────────────────────────────────────────────────────────
 
 class SaveLayoutDto {
+  // Arbitrary JSON canvas layout (viewport + map-node positions). `@Allow()`
+  // whitelists it for the global ValidationPipe (whitelist +
+  // forbidNonWhitelisted) without imposing a shape — otherwise the property
+  // is stripped/rejected as non-whitelisted and the layout PUT 400s.
+  @Allow()
   layoutData!: unknown;
 }
 

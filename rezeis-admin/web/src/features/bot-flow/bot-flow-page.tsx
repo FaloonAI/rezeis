@@ -549,7 +549,7 @@ export default function BotFlowPage() {
       hasMapPositions ? saveLayoutMutation.mutateAsync(mapPositions) : Promise.resolve(),
     ])
       .then(() => toast.success(t('botFlow.saved')))
-      .catch(() => toast.error(t('botFlow.connectionError')))
+      .catch(() => toast.error(t('botFlow.saveError')))
   }, [flow, nodes, savePositionsMutation, saveLayoutMutation, t])
 
   // ── Right inspector router ─────────────────────────────────────────────────

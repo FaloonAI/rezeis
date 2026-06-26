@@ -3125,6 +3125,7 @@ export const en = {
     save: 'Save',
     publish: 'Publish',
     saved: 'Positions saved',
+    saveError: 'Failed to save positions',
     published: 'Flow published — bot updated',
     publishError: 'Failed to publish (at least one start screen required)',
     screenCreated: 'Screen created',
