@@ -16,6 +16,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import {
   CreateBotButtonDto,
   CreateBotEmojiDto,
@@ -49,7 +51,8 @@ import { ReiwaCacheInvalidatorService } from '../services/reiwa-cache-invalidato
  */
 @ApiTags('admin/bot-config')
 @ApiBearerAuth('JWT')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('bot_config', 'view')
 @Controller('admin/bot-config')
 export class AdminBotConfigController {
   public constructor(
@@ -70,6 +73,7 @@ export class AdminBotConfigController {
   }
 
   @Post('buttons')
+  @RequirePermission('bot_config', 'edit')
   @UseInterceptors(ReiwaCacheInvalidateInterceptor)
   @ApiOperation({ summary: 'Create a new bot menu button' })
   public createButton(@Body() body: CreateBotButtonDto) {
@@ -87,6 +91,7 @@ export class AdminBotConfigController {
   }
 
   @Patch('buttons/:id')
+  @RequirePermission('bot_config', 'edit')
   @UseInterceptors(ReiwaCacheInvalidateInterceptor)
   @ApiOperation({ summary: 'Update an existing bot menu button' })
   public updateButton(@Param('id') id: string, @Body() body: UpdateBotButtonDto) {
@@ -104,6 +109,7 @@ export class AdminBotConfigController {
   }
 
   @Post('buttons/:id/delete')
+  @RequirePermission('bot_config', 'edit')
   @UseInterceptors(ReiwaCacheInvalidateInterceptor)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a bot menu button (POST form for legacy clients)' })
@@ -112,6 +118,7 @@ export class AdminBotConfigController {
   }
 
   @Post('buttons/reorder')
+  @RequirePermission('bot_config', 'edit')
   @UseInterceptors(ReiwaCacheInvalidateInterceptor)
   @ApiOperation({ summary: 'Atomically reorder bot menu buttons by id list' })
   public reorderButtons(@Body() body: ReorderBotButtonsDto) {
@@ -127,6 +134,7 @@ export class AdminBotConfigController {
   }
 
   @Post('emojis')
+  @RequirePermission('bot_config', 'edit')
   @UseInterceptors(ReiwaCacheInvalidateInterceptor)
   @ApiOperation({ summary: 'Create a new emoji entry' })
   public createEmoji(@Body() body: CreateBotEmojiDto) {
@@ -138,6 +146,7 @@ export class AdminBotConfigController {
   }
 
   @Patch('emojis/:id')
+  @RequirePermission('bot_config', 'edit')
   @UseInterceptors(ReiwaCacheInvalidateInterceptor)
   @ApiOperation({ summary: 'Update an emoji entry' })
   public updateEmoji(@Param('id') id: string, @Body() body: UpdateBotEmojiDto) {
@@ -150,6 +159,7 @@ export class AdminBotConfigController {
   }
 
   @Post('emojis/:id/delete')
+  @RequirePermission('bot_config', 'edit')
   @UseInterceptors(ReiwaCacheInvalidateInterceptor)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete an emoji entry' })
@@ -166,6 +176,7 @@ export class AdminBotConfigController {
   }
 
   @Post('texts')
+  @RequirePermission('bot_config', 'edit')
   @UseInterceptors(ReiwaCacheInvalidateInterceptor)
   @ApiOperation({ summary: 'Create a new bot copy entry' })
   public createText(@Body() body: CreateBotTextDto) {
@@ -178,6 +189,7 @@ export class AdminBotConfigController {
   }
 
   @Patch('texts/:id')
+  @RequirePermission('bot_config', 'edit')
   @UseInterceptors(ReiwaCacheInvalidateInterceptor)
   @ApiOperation({ summary: 'Update a bot copy entry' })
   public updateText(@Param('id') id: string, @Body() body: UpdateBotTextDto) {
@@ -191,6 +203,7 @@ export class AdminBotConfigController {
   }
 
   @Post('texts/:id/delete')
+  @RequirePermission('bot_config', 'edit')
   @UseInterceptors(ReiwaCacheInvalidateInterceptor)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a bot copy entry' })
@@ -202,6 +215,7 @@ export class AdminBotConfigController {
 
   @Post('refresh-bot')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('bot_config', 'edit')
   @ApiOperation({
     summary: 'Manually push a cache-bust to reiwa-bot',
     description:
@@ -218,6 +232,7 @@ export class AdminBotConfigController {
   // ── Banner upload ──────────────────────────────────────────────────────────
 
   @Post('banner')
+  @RequirePermission('bot_config', 'edit')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB
@@ -273,6 +288,7 @@ export class AdminBotConfigController {
   }
 
   @Post('banners')
+  @RequirePermission('bot_config', 'edit')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: 8 * 1024 * 1024 },
@@ -302,6 +318,7 @@ export class AdminBotConfigController {
   }
 
   @Post('banners/:id/delete')
+  @RequirePermission('bot_config', 'edit')
   @UseInterceptors(ReiwaCacheInvalidateInterceptor)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a banner from the library (assignments keep their URL)' })

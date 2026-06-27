@@ -11,6 +11,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsEmail, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import type { SmtpSettingsInterface } from '../interfaces/email.interface';
 import { EmailDeliveryService } from '../services/email-delivery.service';
 
@@ -74,7 +76,8 @@ class SendTestEmailDto {
  */
 @ApiTags('admin/email')
 @ApiBearerAuth('JWT')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('email', 'view')
 @Controller('admin/email')
 export class AdminEmailController {
   public constructor(
@@ -94,6 +97,7 @@ export class AdminEmailController {
 
   @Post('settings')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('email', 'edit')
   @ApiOperation({ summary: 'Update SMTP settings' })
   public async updateSettings(
     @Body() dto: UpdateSmtpSettingsDto,
@@ -108,6 +112,7 @@ export class AdminEmailController {
 
   @Post('verify')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('email', 'edit')
   @ApiOperation({ summary: 'Verify SMTP connection (does not send email)' })
   public async verify(): Promise<{ success: boolean; error?: string }> {
     return this.emailDeliveryService.verifyConnection();
@@ -115,6 +120,7 @@ export class AdminEmailController {
 
   @Post('test')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('email', 'edit')
   @ApiOperation({ summary: 'Send a test email to verify delivery' })
   public async sendTest(
     @Body() dto: SendTestEmailDto,

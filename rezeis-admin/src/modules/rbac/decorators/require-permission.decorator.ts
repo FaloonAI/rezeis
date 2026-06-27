@@ -25,5 +25,5 @@ export interface RequiredPermission {
  *
  * Multiple decorators on the same handler are AND-combined.
  */
-export const RequirePermission = (resource: string, action: RbacAction): MethodDecorator =>
+export const RequirePermission = (resource: string, action: RbacAction): MethodDecorator & ClassDecorator =>
   SetMetadata(REQUIRE_PERMISSION_KEY, [{ resource, action }] as readonly RequiredPermission[]);

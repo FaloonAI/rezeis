@@ -1837,6 +1837,7 @@ export const en = {
     columns: {
       admin: 'Administrator',
       role: 'Role',
+      access: 'Access',
       status: 'Status',
       lastLogin: 'Last login',
       created: 'Created',
@@ -1850,6 +1851,16 @@ export const en = {
       passwordPlaceholder: 'Min. 8 characters',
       role: 'Role',
       status: 'Status',
+      rbacRole: 'Access role (RBAC)',
+      rbacRoleNone: 'No role (account-type access)',
+      rbacRoleHint: 'Assign a role so the account only sees the sections it grants. Without a role the account-type defaults apply.',
+      mustChangePassword: 'Require password change on sign-in',
+      mustChangePasswordHint: 'The account must set a new password on its first sign-in.',
+    },
+    access: {
+      legacy: 'Account-type',
+      twoFactor: '2FA',
+      mustChange: 'Password change',
     },
     roles: {
       DEV: 'Developer',

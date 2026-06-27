@@ -36,6 +36,8 @@ import { Request } from 'express';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CurrentAdmin } from '../../auth/decorators/current-admin.decorator';
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.interface';
 import { extractRequestMetadata } from '../../auth/utils/request-metadata.util';
 import { ProfileSyncQueueService } from '../../profile-sync/profile-sync-queue.service';
@@ -44,7 +46,8 @@ import { SystemEventsService, EVENT_TYPES } from '../../../common/services/syste
 import { buildPlanSnapshot } from '../utils/plan-snapshot.util';
 
 @Controller('admin/users')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('subscriptions', 'view')
 export class AdminUserSubscriptionsController {
   public constructor(
     private readonly prismaService: PrismaService,
@@ -56,6 +59,7 @@ export class AdminUserSubscriptionsController {
   // ── Subscription Mutations ─────────────────────────────────────────────
 
   @Patch('subscriptions/:subscriptionId')
+  @RequirePermission('subscriptions', 'edit')
   public async updateSubscription(
     @Param('subscriptionId') subscriptionId: string,
     @Body() body: Record<string, unknown>,
@@ -122,6 +126,7 @@ export class AdminUserSubscriptionsController {
   }
 
   @Patch('subscriptions/:subscriptionId/squads')
+  @RequirePermission('subscriptions', 'edit')
   public async updateSquads(
     @Param('subscriptionId') subscriptionId: string,
     @Body() body: { internalSquads?: string[]; externalSquad?: string | null },
@@ -141,6 +146,7 @@ export class AdminUserSubscriptionsController {
 
   @Delete('subscriptions/:subscriptionId')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('subscriptions', 'delete')
   public async deleteSubscription(@Param('subscriptionId') subscriptionId: string) {
     await this.prismaService.subscription.update({
       where: { id: subscriptionId },
@@ -153,6 +159,7 @@ export class AdminUserSubscriptionsController {
 
   @Post('subscriptions/:subscriptionId/reset-traffic')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('subscriptions', 'edit')
   public async resetTraffic(@Param('subscriptionId') subscriptionId: string) {
     const sub = await this.prismaService.subscription.findUnique({
       where: { id: subscriptionId },
@@ -165,6 +172,7 @@ export class AdminUserSubscriptionsController {
 
   @Post('subscriptions/:subscriptionId/sync')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('subscriptions', 'edit')
   public async syncSubscription(@Param('subscriptionId') subscriptionId: string) {
     const sub = await this.prismaService.subscription.findUnique({
       where: { id: subscriptionId },
@@ -196,6 +204,7 @@ export class AdminUserSubscriptionsController {
 
   @Delete('subscriptions/:subscriptionId/devices/:hwid')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('subscriptions', 'delete')
   public async revokeDevice(
     @Param('subscriptionId') subscriptionId: string,
     @Param('hwid') hwid: string,
@@ -237,6 +246,7 @@ export class AdminUserSubscriptionsController {
 
   @Post(':telegramId/give-subscription')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('subscriptions', 'create')
   public async giveSubscription(
     @Param('telegramId') telegramId: string,
     @Body() body: { planId: string; durationDays: number; isTrial?: boolean },
@@ -290,6 +300,7 @@ export class AdminUserSubscriptionsController {
 
   @Post(':telegramId/grant-trial')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('subscriptions', 'create')
   public async grantTrial(
     @Param('telegramId') telegramId: string,
     @CurrentAdmin() admin: CurrentAdminInterface,
@@ -354,6 +365,7 @@ export class AdminUserSubscriptionsController {
    */
   @Post(':telegramId/sync')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('subscriptions', 'edit')
   public async syncAllUserSubscriptions(
     @Param('telegramId') telegramId: string,
     @CurrentAdmin() admin: CurrentAdminInterface,

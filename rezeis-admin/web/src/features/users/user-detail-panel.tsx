@@ -92,6 +92,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { PermissionGate } from '@/features/rbac'
 
 interface UserDetailPanelProps {
   readonly telegramId: string
@@ -357,6 +358,7 @@ function ProfileTab({
       </Card>
 
       {/* ── RIGHT: Actions (label left, control right) ─────── */}
+      <PermissionGate resource="users" action="edit">
       <Card>
         <CardHeader className="px-4 pt-3 pb-2">
           <CardTitle className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -501,6 +503,7 @@ function ProfileTab({
           )}
         </CardContent>
       </Card>
+      </PermissionGate>
     </div>
   )
 }
@@ -651,9 +654,13 @@ function UserHeader({
         </div>
 
         <div className="flex shrink-0 gap-2">
-          <NotifyButton telegramId={telegramId} />
-          <BlockButton telegramId={telegramId} isBlocked={user.isBlocked} queryKey={queryKey} />
-          <DeleteButton telegramId={telegramId} />
+          <PermissionGate resource="users" action="edit">
+            <NotifyButton telegramId={telegramId} />
+            <BlockButton telegramId={telegramId} isBlocked={user.isBlocked} queryKey={queryKey} />
+          </PermissionGate>
+          <PermissionGate resource="users" action="delete">
+            <DeleteButton telegramId={telegramId} />
+          </PermissionGate>
         </div>
       </div>
 
@@ -798,33 +805,37 @@ function SubscriptionsTab({ user, telegramId, queryKey }: { user: UserDetail; te
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" onClick={() => setShowGiveSub(true)}>
-          <Plus className="mr-1 h-3.5 w-3.5" /> {t('userDetailPanel.subscriptions.giveSub')}
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => grantTrialMutation.mutate()} disabled={grantTrialMutation.isPending}>
-          <RefreshCw className="mr-1 h-3.5 w-3.5" /> {t('userDetailPanel.subscriptions.giveTrial')}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => syncAllMutation.mutate()}
-          disabled={syncAllMutation.isPending || subs.length === 0}
-        >
-          {syncAllMutation.isPending ? (
-            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <RefreshCw className="mr-1 h-3.5 w-3.5" />
-          )}
-          {t('userDetailPanel.subscriptions.syncAll')}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setShowAssignPlan(!showAssignPlan)}
-        >
-          <ClipboardList className="mr-1 h-3.5 w-3.5" />
-          {t('userDetailPanel.subscriptions.assignPlan')}
-        </Button>
+        <PermissionGate resource="subscriptions" action="create">
+          <Button size="sm" onClick={() => setShowGiveSub(true)}>
+            <Plus className="mr-1 h-3.5 w-3.5" /> {t('userDetailPanel.subscriptions.giveSub')}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => grantTrialMutation.mutate()} disabled={grantTrialMutation.isPending}>
+            <RefreshCw className="mr-1 h-3.5 w-3.5" /> {t('userDetailPanel.subscriptions.giveTrial')}
+          </Button>
+        </PermissionGate>
+        <PermissionGate resource="subscriptions" action="edit">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => syncAllMutation.mutate()}
+            disabled={syncAllMutation.isPending || subs.length === 0}
+          >
+            {syncAllMutation.isPending ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1 h-3.5 w-3.5" />
+            )}
+            {t('userDetailPanel.subscriptions.syncAll')}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowAssignPlan(!showAssignPlan)}
+          >
+            <ClipboardList className="mr-1 h-3.5 w-3.5" />
+            {t('userDetailPanel.subscriptions.assignPlan')}
+          </Button>
+        </PermissionGate>
       </div>
 
       {showAssignPlan && plans && (
@@ -1036,6 +1047,7 @@ function DevicesSection({ subscriptionId }: { subscriptionId: string }) {
                 >
                   {device.hwid}
                 </span>
+                <PermissionGate resource="subscriptions" action="delete">
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button
@@ -1069,6 +1081,7 @@ function DevicesSection({ subscriptionId }: { subscriptionId: string }) {
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
+                </PermissionGate>
               </div>
             )
           })}
@@ -1177,6 +1190,7 @@ function SubscriptionCard({
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-0">
+          <PermissionGate resource="subscriptions" action="edit">
           <Button
             size="icon"
             variant="ghost"
@@ -1187,9 +1201,12 @@ function SubscriptionCard({
           >
             {isSyncing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           </Button>
+          </PermissionGate>
+          <PermissionGate resource="subscriptions" action="delete">
           <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={onDelete} aria-label={t('userDetailPanel.subscriptions.deleteTitle')}>
             <Trash2 className="h-3 w-3" />
           </Button>
+          </PermissionGate>
         </div>
       </div>
 
@@ -1217,6 +1234,7 @@ function SubscriptionCard({
           </CollapsibleTrigger>
           <CollapsibleContent className="collapsible-animate overflow-hidden">
             <div className="space-y-1.5 pt-1 pb-0.5">
+              <PermissionGate resource="subscriptions" action="edit">
               <div className="flex items-center justify-between gap-2">
                 <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                   <Wifi className="h-3 w-3 text-muted-foreground/60" />
@@ -1265,17 +1283,22 @@ function SubscriptionCard({
                   </Select>
                 </div>
               )}
+              </PermissionGate>
               {/* HWID devices bound to this Remnawave profile */}
               {sub.remnawaveId && <DevicesSection subscriptionId={sub.id} />}
               {/* Footer */}
               <div className="flex items-center justify-between gap-2 pt-1.5">
                 <div className="flex gap-1">
+                  <PermissionGate resource="subscriptions" action="edit">
                   <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]" onClick={() => onUpdate({ status: statusKey === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' })}>
                     {statusKey === 'ACTIVE' ? t('userDetailPanel.subscriptions.disableTitle') : t('userDetailPanel.subscriptions.enableTitle')}
                   </Button>
+                  </PermissionGate>
+                  <PermissionGate resource="subscriptions" action="delete">
                   <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] text-destructive" onClick={onDelete}>
                     {t('userDetailPanel.subscriptions.deleteTitle')}
                   </Button>
+                  </PermissionGate>
                 </div>
                 <div className="flex gap-1">
                   {sub.configUrl && (
@@ -1283,9 +1306,11 @@ function SubscriptionCard({
                       <Link2 className="h-3 w-3" />
                     </Button>
                   )}
+                  <PermissionGate resource="subscriptions" action="edit">
                   <Button size="sm" className="h-6 px-2 text-[10px]" disabled={!dirty} onClick={handleSave}>
                     {t('userDetailPanel.subscriptions.saveBtn')}
                   </Button>
+                  </PermissionGate>
                 </div>
               </div>
             </div>
@@ -1339,6 +1364,7 @@ function PlanAccessSection({
           return (
             <div key={plan.id} className="flex items-center justify-between rounded-md border px-3 py-2">
               <span className="text-sm">{plan.name}</span>
+              <PermissionGate resource="subscriptions" action="edit">
               <Switch
                 checked={hasAccess}
                 onCheckedChange={(checked) => {
@@ -1347,6 +1373,7 @@ function PlanAccessSection({
                 }}
                 aria-label={`${t('userDetailPanel.subscriptions.planAccessToggle')} ${plan.name}`}
               />
+              </PermissionGate>
             </div>
           )
         })}
@@ -1444,9 +1471,11 @@ function PartnerTab({ user, telegramId, queryKey }: { user: UserDetail; telegram
       <Card>
         <CardContent className="flex flex-col items-center gap-3 py-12">
           <p className="text-sm text-muted-foreground">{t('userDetailPanel.partner.notPartner')}</p>
+          <PermissionGate resource="partners" action="edit">
           <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
             <Plus className="mr-2 h-4 w-4" /> {t('userDetailPanel.partner.createPartner')}
           </Button>
+          </PermissionGate>
         </CardContent>
       </Card>
     )
@@ -1471,9 +1500,11 @@ function PartnerTab({ user, telegramId, queryKey }: { user: UserDetail; telegram
               <Badge variant={p.isActive ? 'success' : 'secondary'} className="text-[10px]">
                 {p.isActive ? t('userDetailPanel.partner.active') : t('userDetailPanel.partner.inactive')}
               </Badge>
+              <PermissionGate resource="partners" action="edit">
               <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]" onClick={() => toggleMutation.mutate()}>
                 {p.isActive ? t('userDetailPanel.subscriptions.disableTitle') : t('userDetailPanel.subscriptions.enableTitle')}
               </Button>
+              </PermissionGate>
             </div>
           </div>
         </CardHeader>
@@ -1488,6 +1519,7 @@ function PartnerTab({ user, telegramId, queryKey }: { user: UserDetail; telegram
           <Separator />
 
           {/* Balance adjustment */}
+          <PermissionGate resource="partners" action="edit">
           <div className="space-y-1.5">
             <span className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider">
               {t('userDetailPanel.partner.adjustTitle')}
@@ -1500,11 +1532,14 @@ function PartnerTab({ user, telegramId, queryKey }: { user: UserDetail; telegram
               </Button>
             </div>
           </div>
+          </PermissionGate>
 
           <Separator />
 
           {/* Individual settings */}
+          <PermissionGate resource="partners" action="edit">
           <PartnerSettings telegramId={telegramId} partner={p} queryKey={queryKey} />
+          </PermissionGate>
         </CardContent>
       </Card>
 
@@ -1582,7 +1617,9 @@ function PartnerTab({ user, telegramId, queryKey }: { user: UserDetail; telegram
             <p className="text-[11px] text-muted-foreground">
               {t('userDetailPanel.partner.attachReferralHint')}
             </p>
+            <PermissionGate resource="partners" action="edit">
             <AttachPartnerReferralForm telegramId={telegramId} queryKey={queryKey} />
+            </PermissionGate>
           </div>
         </CardContent>
       </Card>
@@ -1810,12 +1847,14 @@ function ReferralsTab({ user, telegramId, queryKey }: { user: UserDetail; telegr
           ) : (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">{t('userDetailPage.referrals.noReferrer')}</p>
+              <PermissionGate resource="users" action="edit">
               <div className="flex gap-2">
                 <Input placeholder={t('userDetailPanel.referrals.referrerIdPlaceholder')} value={referrerId} onChange={(e) => setReferrerId(e.target.value)} className="h-9 max-w-48" />
                 <Button size="sm" onClick={() => attachMutation.mutate()} disabled={!referrerId || attachMutation.isPending}>
                   {t('userDetailPanel.referrals.attachBtn')}
                 </Button>
               </div>
+              </PermissionGate>
             </div>
           )}
         </CardContent>
@@ -2127,6 +2166,7 @@ function InviteSettingsTab({
         </div>
 
         {dirty && (
+          <PermissionGate resource="users" action="edit">
           <Button
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending}
@@ -2139,6 +2179,7 @@ function InviteSettingsTab({
             )}
             {t('userDetailPanel.invites.save')}
           </Button>
+          </PermissionGate>
         )}
       </CardContent>
     </Card>
@@ -2296,6 +2337,7 @@ function WebCabinetTab({
             value={currentTelegramId ?? '—'}
             mono
           />
+          <PermissionGate resource="users" action="edit">
           <div className="flex gap-2">
             <Input
               value={telegramInput}
@@ -2320,6 +2362,7 @@ function WebCabinetTab({
               {t('userDetailPanel.web.telegramBindButton')}
             </Button>
           </div>
+          </PermissionGate>
         </CardContent>
       </Card>
 
@@ -2388,6 +2431,7 @@ function WebCabinetTab({
               <p className="text-xs text-muted-foreground">
                 {t('userDetailPanel.web.resetPasswordHint')}
               </p>
+              <PermissionGate resource="users" action="edit">
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button disabled={resetMutation.isPending} variant="destructive">
@@ -2414,6 +2458,7 @@ function WebCabinetTab({
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
+              </PermissionGate>
             </CardContent>
           </Card>
 
@@ -2427,6 +2472,7 @@ function WebCabinetTab({
               <p className="text-xs text-muted-foreground">
                 {t('userDetailPanel.web.renameLoginHint')}
               </p>
+              <PermissionGate resource="users" action="edit">
               <div className="flex gap-2">
                 <Input
                   value={newLogin}
@@ -2450,6 +2496,7 @@ function WebCabinetTab({
                   {t('userDetailPanel.web.renameButton')}
                 </Button>
               </div>
+              </PermissionGate>
             </CardContent>
           </Card>
         </>

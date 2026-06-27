@@ -1,6 +1,8 @@
 import { BadRequestException, Controller, Get, Query, UseGuards } from '@nestjs/common';
 
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import {
   AddOnsStatsResultInterface,
   AddOnsStatsService,
@@ -18,7 +20,8 @@ function parseBoundary(value: string | undefined, label: 'from' | 'to'): Date | 
 }
 
 @Controller('admin/add-ons/stats')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('add_ons', 'view')
 export class AdminAddOnsStatsController {
   public constructor(private readonly addOnsStatsService: AddOnsStatsService) {}
 

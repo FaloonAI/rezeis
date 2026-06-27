@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { loadFeatureBundle } from '@/i18n/i18n'
 import { api } from '@/lib/api'
 import { renderWithProviders } from '@/test/test-utils'
+import { usePermissionStore } from '@/features/rbac'
 import UserDetailPanel from './user-detail-panel'
 
 const BASE_USER = {
@@ -37,6 +38,7 @@ describe('UserDetailPanel accessibility', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks()
+    usePermissionStore.setState({ loaded: true, role: 'DEV' })
   })
 
   it('names the icon-only delete user trigger', async () => {

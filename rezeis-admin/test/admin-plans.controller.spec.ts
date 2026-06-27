@@ -7,6 +7,7 @@ import { RequestMethod } from '@nestjs/common';
 import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 
 import { AdminJwtAuthGuard } from '../src/modules/auth/guards/admin-jwt-auth.guard';
+import { RbacGuard } from '../src/modules/rbac/guards/rbac.guard';
 import { AdminPlansController } from '../src/modules/plans/controllers/admin-plans.controller';
 import { PlansAdminService } from '../src/modules/plans/services/plans-admin.service';
 
@@ -47,7 +48,7 @@ describe('AdminPlansController', () => {
     );
     assert.deepStrictEqual(
       Reflect.getMetadata(GUARDS_METADATA, AdminPlansController),
-      [AdminJwtAuthGuard],
+      [AdminJwtAuthGuard, RbacGuard],
     );
   });
 

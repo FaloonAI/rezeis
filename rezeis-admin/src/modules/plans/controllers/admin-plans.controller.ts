@@ -3,6 +3,8 @@ import { Request } from 'express';
 
 import { CurrentAdmin } from '../../auth/decorators/current-admin.decorator';
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.interface';
 import { extractRequestMetadata } from '../../auth/utils/request-metadata.util';
 import { CreatePlanDto } from '../dto/create-plan.dto';
@@ -13,7 +15,8 @@ import { PlansAdminService } from '../services/plans-admin.service';
 import { RemnawaveSquadOptionInterface } from '../../remnawave/interfaces/remnawave-squad-option.interface';
 
 @Controller('admin/plans')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('plans', 'view')
 export class AdminPlansController {
   public constructor(private readonly plansAdminService: PlansAdminService) {}
 
@@ -40,6 +43,7 @@ export class AdminPlansController {
   }
 
   @Post()
+  @RequirePermission('plans', 'create')
   public async createPlan(
     @Body() input: CreatePlanDto,
     @CurrentAdmin() currentAdmin: CurrentAdminInterface,
@@ -52,6 +56,7 @@ export class AdminPlansController {
   }
 
   @Patch(':planId')
+  @RequirePermission('plans', 'edit')
   public async updatePlan(
     @Param('planId') planId: string,
     @Body() input: UpdatePlanDto,
@@ -65,6 +70,7 @@ export class AdminPlansController {
   }
 
   @Patch(':planId/move')
+  @RequirePermission('plans', 'edit')
   public async movePlan(
     @Param('planId') planId: string,
     @Body() input: MovePlanDto,
@@ -78,6 +84,7 @@ export class AdminPlansController {
   }
 
   @Post(':planId/archive')
+  @RequirePermission('plans', 'edit')
   public async archivePlan(
     @Param('planId') planId: string,
     @CurrentAdmin() currentAdmin: CurrentAdminInterface,
@@ -90,6 +97,7 @@ export class AdminPlansController {
   }
 
   @Post(':planId/unarchive')
+  @RequirePermission('plans', 'edit')
   public async unarchivePlan(
     @Param('planId') planId: string,
     @CurrentAdmin() currentAdmin: CurrentAdminInterface,
@@ -102,6 +110,7 @@ export class AdminPlansController {
   }
 
   @Delete(':planId')
+  @RequirePermission('plans', 'delete')
   public async deletePlan(
     @Param('planId') planId: string,
     @CurrentAdmin() currentAdmin: CurrentAdminInterface,

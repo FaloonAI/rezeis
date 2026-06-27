@@ -14,6 +14,7 @@ import { BroadcastAudience, BroadcastStatus, UserRole } from '@prisma/client';
 import { validate } from 'class-validator';
 
 import { AdminJwtAuthGuard } from '../src/modules/auth/guards/admin-jwt-auth.guard';
+import { RbacGuard } from '../src/modules/rbac/guards/rbac.guard';
 import { CurrentAdminInterface } from '../src/modules/auth/interfaces/current-admin.interface';
 import { AdminBroadcastController } from '../src/modules/broadcast/controllers/admin-broadcast.controller';
 import {
@@ -26,7 +27,7 @@ describe('AdminBroadcastController', () => {
   it('is guarded by admin jwt guard', () => {
     assert.deepStrictEqual(
       Reflect.getMetadata(GUARDS_METADATA, AdminBroadcastController),
-      [AdminJwtAuthGuard],
+      [AdminJwtAuthGuard, RbacGuard],
     );
   });
 

@@ -59,11 +59,18 @@ export const RBAC_RESOURCES: Readonly<Record<string, readonly RbacAction[]>> = {
   payment_webhooks: ['view', 'resolve', 'run'],
   support_tickets: ['view', 'create', 'edit', 'delete', 'resolve', 'archive'],
   analytics: ['view', 'export'],
+  /// Auto-renewal pipeline operator surface: `view` reads the last cron
+  /// tick/schedule, `run` triggers an out-of-band cycle.
+  auto_renew: ['view', 'run'],
 
   // Catalog
   plans: ['view', 'create', 'edit', 'delete'],
   promocodes: ['view', 'create', 'edit', 'delete'],
   broadcasts: ['view', 'create', 'edit', 'delete', 'run'],
+  /// Paid add-ons (extra traffic / devices) catalog CRUD.
+  add_ons: ['view', 'create', 'edit', 'delete'],
+  /// Operator-managed FAQ entries (+ media uploads).
+  faq: ['view', 'create', 'edit', 'delete'],
 
   // Growth
   referrals: ['view', 'edit'],
@@ -77,6 +84,8 @@ export const RBAC_RESOURCES: Readonly<Record<string, readonly RbacAction[]>> = {
   bot_config: ['view', 'edit'],
   remnawave: ['view', 'edit'],
   notifications: ['view', 'edit'],
+  /// SMTP email settings + connection test / test-send.
+  email: ['view', 'edit'],
 
   // System
   admins: ['view', 'create', 'edit', 'delete'],
@@ -184,6 +193,10 @@ export const SYSTEM_ROLES: readonly SystemRoleSeed[] = [
       { resource: 'broadcasts', action: 'create' },
       { resource: 'broadcasts', action: 'edit' },
       { resource: 'broadcasts', action: 'run' },
+      { resource: 'add_ons', action: 'view' },
+      { resource: 'faq', action: 'view' },
+      { resource: 'faq', action: 'edit' },
+      { resource: 'auto_renew', action: 'view' },
       { resource: 'support_tickets', action: 'view' },
       { resource: 'support_tickets', action: 'edit' },
       { resource: 'support_tickets', action: 'resolve' },

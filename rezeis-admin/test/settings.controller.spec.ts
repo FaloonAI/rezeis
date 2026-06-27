@@ -9,6 +9,7 @@ import { AccessMode, Currency, UserRole } from '@prisma/client';
 import { Request } from 'express';
 
 import { AdminJwtAuthGuard } from '../src/modules/auth/guards/admin-jwt-auth.guard';
+import { RbacGuard } from '../src/modules/rbac/guards/rbac.guard';
 import { CurrentAdminInterface } from '../src/modules/auth/interfaces/current-admin.interface';
 import { PaymentOpsAlertSettingsInterface } from '../src/common/interfaces/payment-ops-alert-settings.interface';
 import { UpdateBrandingSettingsDto } from '../src/modules/settings/dto/update-branding-settings.dto';
@@ -141,7 +142,7 @@ function getRoute(methodName: keyof SettingsController): { path: string; method:
 describe('SettingsController', () => {
   it('exposes the current admin settings route contract', () => {
     assert.equal(Reflect.getMetadata(PATH_METADATA, SettingsController), 'admin/settings');
-    assert.deepStrictEqual(Reflect.getMetadata(GUARDS_METADATA, SettingsController), [AdminJwtAuthGuard]);
+    assert.deepStrictEqual(Reflect.getMetadata(GUARDS_METADATA, SettingsController), [AdminJwtAuthGuard, RbacGuard]);
     assert.deepStrictEqual(
       [
         ['getOverview', '/', RequestMethod.GET],

@@ -14,6 +14,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { NotificationTemplate } from '@prisma/client';
 
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import {
   CreateNotificationTemplateDto,
   UpdateNotificationTemplateDto,
@@ -31,7 +33,8 @@ import { NotificationTemplatesService } from '../services/notification-templates
  */
 @ApiTags('admin/notifications')
 @ApiBearerAuth('JWT')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('notifications', 'view')
 @Controller('admin/notifications/templates')
 export class AdminNotificationTemplatesController {
   public constructor(
@@ -45,6 +48,7 @@ export class AdminNotificationTemplatesController {
   }
 
   @Post()
+  @RequirePermission('notifications', 'edit')
   @ApiOperation({ summary: 'Create a new template' })
   public create(@Body() body: CreateNotificationTemplateDto): Promise<NotificationTemplate> {
     return this.notificationTemplatesService.upsert({
@@ -61,12 +65,14 @@ export class AdminNotificationTemplatesController {
 
   @Post('seed')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('notifications', 'edit')
   @ApiOperation({ summary: 'Insert any default templates that are not present yet' })
   public seed(): Promise<{ readonly created: number; readonly skipped: number }> {
     return this.notificationTemplatesService.seedDefaults({ emitEvent: true });
   }
 
   @Patch(':id')
+  @RequirePermission('notifications', 'edit')
   @ApiOperation({ summary: 'Update an existing template' })
   public update(
     @Param('id') id: string,
@@ -86,6 +92,7 @@ export class AdminNotificationTemplatesController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission('notifications', 'edit')
   @ApiOperation({ summary: 'Delete a template' })
   public async delete(@Param('id') id: string): Promise<void> {
     await this.notificationTemplatesService.delete(id);

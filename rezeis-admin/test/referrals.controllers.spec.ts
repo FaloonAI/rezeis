@@ -8,6 +8,7 @@ import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/
 import { UserRole } from '@prisma/client';
 
 import { AdminJwtAuthGuard } from '../src/modules/auth/guards/admin-jwt-auth.guard';
+import { RbacGuard } from '../src/modules/rbac/guards/rbac.guard';
 import { InternalAdminAuthGuard } from '../src/modules/auth/guards/internal-admin-auth.guard';
 import { CurrentAdminInterface } from '../src/modules/auth/interfaces/current-admin.interface';
 import { AdminReferralsController } from '../src/modules/referrals/controllers/admin-referrals.controller';
@@ -60,7 +61,7 @@ describe('Referral controllers', () => {
     const internal = new InternalReferralsController({} as never, {} as never, {} as never, {} as never);
 
     assert.equal(Reflect.getMetadata(PATH_METADATA, AdminReferralsController), 'admin/referrals');
-    assert.deepStrictEqual(Reflect.getMetadata(GUARDS_METADATA, AdminReferralsController), [AdminJwtAuthGuard]);
+    assert.deepStrictEqual(Reflect.getMetadata(GUARDS_METADATA, AdminReferralsController), [AdminJwtAuthGuard, RbacGuard]);
     assert.deepStrictEqual(route(admin, 'listReferrals'), { path: '/', method: RequestMethod.GET });
     assert.deepStrictEqual(route(admin, 'getStats'), { path: 'stats', method: RequestMethod.GET });
     assert.deepStrictEqual(route(admin, 'listInvites'), { path: 'invites', method: RequestMethod.GET });

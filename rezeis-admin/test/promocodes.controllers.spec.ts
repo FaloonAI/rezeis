@@ -8,6 +8,7 @@ import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/
 import { PromocodeAvailability, PromocodeRewardType } from '@prisma/client';
 
 import { AdminJwtAuthGuard } from '../src/modules/auth/guards/admin-jwt-auth.guard';
+import { RbacGuard } from '../src/modules/rbac/guards/rbac.guard';
 import { InternalAdminAuthGuard } from '../src/modules/auth/guards/internal-admin-auth.guard';
 import { AdminPromocodesController } from '../src/modules/promocodes/controllers/admin-promocodes.controller';
 import { AdminPromocodesStatsController } from '../src/modules/promocodes/controllers/admin-promocodes-stats.controller';
@@ -49,7 +50,7 @@ describe('Promocode controllers', () => {
     const internal = new InternalPromocodesController({} as never, {} as never, {} as never);
 
     assert.equal(Reflect.getMetadata(PATH_METADATA, AdminPromocodesController), 'admin/promocodes');
-    assert.deepStrictEqual(Reflect.getMetadata(GUARDS_METADATA, AdminPromocodesController), [AdminJwtAuthGuard]);
+    assert.deepStrictEqual(Reflect.getMetadata(GUARDS_METADATA, AdminPromocodesController), [AdminJwtAuthGuard, RbacGuard]);
     assert.deepStrictEqual(route(admin, 'list'), { path: '/', method: RequestMethod.GET });
     assert.deepStrictEqual(route(admin, 'create'), { path: '/', method: RequestMethod.POST });
     assert.deepStrictEqual(route(admin, 'update'), { path: ':promocodeId', method: RequestMethod.PATCH });
@@ -58,7 +59,7 @@ describe('Promocode controllers', () => {
     assert.deepStrictEqual(route(admin, 'listUserActivations'), { path: 'activations/by-user', method: RequestMethod.GET });
 
     assert.equal(Reflect.getMetadata(PATH_METADATA, AdminPromocodesStatsController), 'admin/promocodes/stats');
-    assert.deepStrictEqual(Reflect.getMetadata(GUARDS_METADATA, AdminPromocodesStatsController), [AdminJwtAuthGuard]);
+    assert.deepStrictEqual(Reflect.getMetadata(GUARDS_METADATA, AdminPromocodesStatsController), [AdminJwtAuthGuard, RbacGuard]);
     assert.deepStrictEqual(route(stats, 'getStats'), { path: '/', method: RequestMethod.GET });
 
     assert.equal(Reflect.getMetadata(PATH_METADATA, InternalPromocodesController), 'internal/promocodes');

@@ -16,6 +16,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentAdmin } from '../../auth/decorators/current-admin.decorator';
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.interface';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { AdminAttachReferrerDto } from '../dto/admin-attach-referrer.dto';
@@ -58,7 +60,8 @@ import { ReferralsService } from '../services/referrals.service';
 
 @ApiTags('admin/referrals')
 @ApiBearerAuth('JWT')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('referrals', 'view')
 @Controller('admin/referrals')
 export class AdminReferralsController {
   public constructor(
@@ -97,6 +100,7 @@ export class AdminReferralsController {
   }
 
   @Post('invites')
+  @RequirePermission('referrals', 'edit')
   @ApiOperation({ summary: 'Create a new referral invite token' })
   public createInvite(
     @Body() dto: CreateReferralInviteDto,
@@ -105,6 +109,7 @@ export class AdminReferralsController {
   }
 
   @Delete('invites/:inviteId')
+  @RequirePermission('referrals', 'edit')
   @ApiOperation({ summary: 'Revoke a referral invite' })
   public revokeInvite(
     @Param('inviteId') inviteId: string,
@@ -119,6 +124,7 @@ export class AdminReferralsController {
    */
   @Post('invites/:inviteId/revoke')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('referrals', 'edit')
   @ApiOperation({ summary: 'Revoke a referral invite (POST alias)' })
   public revokeInviteAlias(
     @Param('inviteId') inviteId: string,
@@ -137,6 +143,7 @@ export class AdminReferralsController {
   }
 
   @Post('rewards')
+  @RequirePermission('referrals', 'edit')
   @ApiOperation({ summary: 'Manually grant a referral reward' })
   public grantReward(
     @Body() dto: CreateRewardDto,
@@ -147,6 +154,7 @@ export class AdminReferralsController {
 
   @Post('rewards/:rewardId/issue')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('referrals', 'edit')
   @ApiOperation({ summary: 'Apply a pending reward and mark it as issued' })
   public issueReward(
     @Param('rewardId') rewardId: string,
@@ -157,6 +165,7 @@ export class AdminReferralsController {
 
   @Post('rewards/bulk-issue')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('referrals', 'edit')
   @ApiOperation({ summary: 'Issue multiple pending rewards in a single request' })
   public bulkIssueRewards(
     @Body() dto: BulkIssueRewardsDto,
@@ -167,6 +176,7 @@ export class AdminReferralsController {
 
   @Post('rewards/:rewardId/revoke')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('referrals', 'edit')
   @ApiOperation({ summary: 'Revoke a pending reward (already-issued requires refund flow)' })
   public revokeReward(
     @Param('rewardId') rewardId: string,
@@ -179,6 +189,7 @@ export class AdminReferralsController {
   // ── Manual attach ──────────────────────────────────────────────────────
 
   @Post('manual-attach')
+  @RequirePermission('referrals', 'edit')
   @ApiOperation({ summary: 'Manually attach a referrer (cuid identifiers)' })
   public manualAttach(
     @Body() body: { userId: string; referrerId: string },
@@ -195,6 +206,7 @@ export class AdminReferralsController {
    */
   @Post('attach')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('referrals', 'edit')
   @ApiOperation({ summary: 'Manually attach a referrer (telegram-id friendly)' })
   public async attach(
     @Body() dto: AdminAttachReferrerDto,
@@ -211,6 +223,7 @@ export class AdminReferralsController {
   // ── Limits introspection ──────────────────────────────────────────────
 
   @Get('invite-limits')
+  @RequirePermission('referral_settings', 'view')
   @ApiOperation({ summary: 'Get current invite limits configuration' })
   public getInviteLimits() {
     return this.inviteLimitsService.getEffectiveLimits();

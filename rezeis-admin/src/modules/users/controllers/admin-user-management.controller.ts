@@ -38,6 +38,8 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
 import { SystemEventsService, EVENT_TYPES } from '../../../common/services/system-events.service';
 import { CurrentAdmin } from '../../auth/decorators/current-admin.decorator';
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.interface';
 import { extractRequestMetadata } from '../../auth/utils/request-metadata.util';
 import { UserNotificationsService } from '../../notifications/services/user-notifications.service';
@@ -50,7 +52,8 @@ import { UpdateUserInviteSettingsDto } from '../dto/update-user-invite-settings.
 import { resolveIdentityKind } from '../utils/identity-kind.util';
 
 @Controller('admin/users')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('users', 'view')
 export class AdminUserManagementController {
   private readonly logger = new Logger(AdminUserManagementController.name);
 
@@ -69,6 +72,7 @@ export class AdminUserManagementController {
   /** Create a new user manually (admin-initiated). */
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('users', 'create')
   public async createUser(
     @Body() body: { telegramId?: string; username?: string; name?: string; email?: string },
     @CurrentAdmin() admin: CurrentAdminInterface,
@@ -212,6 +216,7 @@ export class AdminUserManagementController {
 
   /** Update user profile fields (role, discounts, maxSubscriptions, etc.) */
   @Patch(':telegramId/profile')
+  @RequirePermission('users', 'edit')
   public async updateProfile(
     @Param('telegramId') telegramId: string,
     @Body() body: Record<string, unknown>,
@@ -234,6 +239,7 @@ export class AdminUserManagementController {
 
   /** Update per-user referral invite limits override. */
   @Patch(':telegramId/invite-settings')
+  @RequirePermission('users', 'edit')
   public async updateInviteSettings(
     @Param('telegramId') telegramId: string,
     @Body() body: UpdateUserInviteSettingsDto,
@@ -260,6 +266,7 @@ export class AdminUserManagementController {
   /** Add/subtract points */
   @Post(':telegramId/points')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('users', 'edit')
   public async adjustPoints(
     @Param('telegramId') telegramId: string,
     @Body() body: { delta: number },
@@ -283,6 +290,7 @@ export class AdminUserManagementController {
 
   @Post(':telegramId/block')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('users', 'edit')
   public async blockUser(@Param('telegramId') telegramId: string, @CurrentAdmin() admin: CurrentAdminInterface, @Req() req: Request) {
     const user = await this.findUserByTelegramId(telegramId);
     await this.prismaService.user.update({ where: { id: user.id }, data: { isBlocked: true } });
@@ -293,6 +301,7 @@ export class AdminUserManagementController {
 
   @Post(':telegramId/unblock')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('users', 'edit')
   public async unblockUser(@Param('telegramId') telegramId: string, @CurrentAdmin() admin: CurrentAdminInterface, @Req() req: Request) {
     const user = await this.findUserByTelegramId(telegramId);
     await this.prismaService.user.update({ where: { id: user.id }, data: { isBlocked: false } });
@@ -305,6 +314,7 @@ export class AdminUserManagementController {
 
   @Delete(':telegramId')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('users', 'delete')
   public async deleteUser(@Param('telegramId') telegramId: string, @CurrentAdmin() admin: CurrentAdminInterface, @Req() req: Request) {
     const user = await this.findUserByTelegramId(telegramId);
     // Best-effort: remove this user's Remnawave panel profiles BEFORE the row
@@ -352,6 +362,7 @@ export class AdminUserManagementController {
 
   @Post(':telegramId/create-partner')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('users', 'edit')
   public async createPartner(@Param('telegramId') telegramId: string, @CurrentAdmin() admin: CurrentAdminInterface, @Req() req: Request) {
     const user = await this.findUserByTelegramId(telegramId);
     const existing = await this.prismaService.partner.findUnique({ where: { userId: user.id } });
@@ -366,6 +377,7 @@ export class AdminUserManagementController {
 
   @Post(':telegramId/partner/toggle')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('users', 'edit')
   public async togglePartner(@Param('telegramId') telegramId: string) {
     const user = await this.findUserByTelegramId(telegramId);
     const partner = await this.prismaService.partner.findUnique({ where: { userId: user.id } });
@@ -379,6 +391,7 @@ export class AdminUserManagementController {
 
   @Post(':telegramId/partner/adjust-balance')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('users', 'edit')
   public async adjustPartnerBalance(
     @Param('telegramId') telegramId: string,
     @Body() body: { amount: number; reason?: string },
@@ -402,6 +415,7 @@ export class AdminUserManagementController {
 
   /** Update partner individual settings (percent per level, reward type, accrual strategy). */
   @Patch(':telegramId/partner/settings')
+  @RequirePermission('users', 'edit')
   public async updatePartnerSettings(
     @Param('telegramId') telegramId: string,
     @Body() body: UpdatePartnerSettingsDto,
@@ -438,6 +452,7 @@ export class AdminUserManagementController {
 
   @Post(':telegramId/referral/attach')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('users', 'edit')
   public async attachReferrer(
     @Param('telegramId') telegramId: string,
     @Body() body: { referrerTelegramId: string },
@@ -470,6 +485,7 @@ export class AdminUserManagementController {
    */
   @Post(':telegramId/partner/attach-referral')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('users', 'edit')
   public async attachPartnerReferral(
     @Param('telegramId') telegramId: string,
     @Body() body: { referralIdentifier: string },
@@ -500,6 +516,7 @@ export class AdminUserManagementController {
 
   @Post(':telegramId/plan-access/:planId')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('users', 'edit')
   public async grantPlanAccess(
     @Param('telegramId') telegramId: string,
     @Param('planId') planId: string,
@@ -517,6 +534,7 @@ export class AdminUserManagementController {
 
   @Delete(':telegramId/plan-access/:planId')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('users', 'edit')
   public async revokePlanAccess(
     @Param('telegramId') telegramId: string,
     @Param('planId') planId: string,
@@ -536,6 +554,7 @@ export class AdminUserManagementController {
 
   @Post(':telegramId/notify')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('users', 'edit')
   public async sendNotification(
     @Param('telegramId') telegramId: string,
     @Body() body: { message: string },

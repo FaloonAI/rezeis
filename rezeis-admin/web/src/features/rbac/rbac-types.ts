@@ -18,7 +18,9 @@ export type RbacAction =
   | 'resolve'
   | 'run'
   | 'export'
-  | 'import';
+  | 'import'
+  | 'archive'
+  | 'enforce';
 
 export interface RbacPermission {
   resource: string;

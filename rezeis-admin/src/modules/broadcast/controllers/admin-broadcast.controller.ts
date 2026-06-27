@@ -16,6 +16,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentAdmin } from '../../auth/decorators/current-admin.decorator';
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.interface';
 import {
   CreateBroadcastDraftDto,
@@ -37,7 +39,8 @@ import {
 
 @ApiTags('admin/broadcast')
 @ApiBearerAuth('JWT')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('broadcasts', 'view')
 @Controller('admin/broadcast')
 export class AdminBroadcastController {
   public constructor(
@@ -64,6 +67,7 @@ export class AdminBroadcastController {
   }
 
   @Post('drafts')
+  @RequirePermission('broadcasts', 'create')
   @ApiOperation({ summary: 'Create a new broadcast draft' })
   public createDraft(
     @Body() dto: CreateBroadcastDraftDto,
@@ -73,6 +77,7 @@ export class AdminBroadcastController {
   }
 
   @Patch('drafts/:broadcastId')
+  @RequirePermission('broadcasts', 'edit')
   @ApiOperation({ summary: 'Update a broadcast draft' })
   public updateDraft(
     @Param('broadcastId') broadcastId: string,
@@ -92,6 +97,7 @@ export class AdminBroadcastController {
   // ── SEND (async via BullMQ) ─────────────────────────────────────────────
 
   @Post(':broadcastId/send')
+  @RequirePermission('broadcasts', 'run')
   @ApiOperation({ summary: 'Start async delivery (supports scheduled send via delayMinutes)' })
   public async sendBroadcast(
     @Param('broadcastId') broadcastId: string,
@@ -126,6 +132,7 @@ export class AdminBroadcastController {
   // ── TEST SEND (dev only) ────────────────────────────────────────────────
 
   @Post(':broadcastId/test')
+  @RequirePermission('broadcasts', 'run')
   @ApiOperation({ summary: 'Send a preview of a draft to the bot developer (BOT_DEV_ID) only' })
   public async sendTestBroadcast(
     @Param('broadcastId') broadcastId: string,
@@ -159,6 +166,7 @@ export class AdminBroadcastController {
   // ── CANCEL ──────────────────────────────────────────────────────────────
 
   @Post(':broadcastId/cancel')
+  @RequirePermission('broadcasts', 'edit')
   @ApiOperation({ summary: 'Cancel a broadcast in progress (removes pending jobs, marks messages CANCELED)' })
   public async cancelBroadcast(
     @Param('broadcastId') broadcastId: string,
@@ -180,6 +188,7 @@ export class AdminBroadcastController {
   // ── EDIT (already-sent messages) ────────────────────────────────────────
 
   @Post(':broadcastId/edit')
+  @RequirePermission('broadcasts', 'edit')
   @ApiOperation({ summary: 'Edit a sent broadcast: rewrite cabinet feed + Telegram messages' })
   public async editBroadcast(
     @Param('broadcastId') broadcastId: string,
@@ -217,6 +226,7 @@ export class AdminBroadcastController {
   // ── DELETE (whole broadcast) ────────────────────────────────────────────
 
   @Delete(':broadcastId')
+  @RequirePermission('broadcasts', 'delete')
   @ApiOperation({ summary: 'Delete a broadcast and all of its message rows' })
   public async deleteBroadcast(
     @Param('broadcastId') broadcastId: string,
@@ -229,6 +239,7 @@ export class AdminBroadcastController {
   // ── DELETE (already-sent messages) ──────────────────────────────────────
 
   @Delete(':broadcastId/messages')
+  @RequirePermission('broadcasts', 'delete')
   @ApiOperation({ summary: 'Delete already-sent messages from Telegram (within 48h window)' })
   public async deleteBroadcastMessages(
     @Param('broadcastId') broadcastId: string,
@@ -252,6 +263,7 @@ export class AdminBroadcastController {
   // ── RETRY FAILED ────────────────────────────────────────────────────────
 
   @Post(':broadcastId/retry')
+  @RequirePermission('broadcasts', 'run')
   @ApiOperation({ summary: 'Retry all failed messages for a broadcast' })
   public async retryFailed(
     @Param('broadcastId') broadcastId: string,
@@ -279,6 +291,7 @@ export class AdminBroadcastController {
   // ── MEDIA UPLOAD ────────────────────────────────────────────────────────
 
   @Post('upload-media')
+  @RequirePermission('broadcasts', 'edit')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
   @ApiOperation({ summary: 'Upload photo/video to Telegram and return file_id' })
   public async uploadMedia(

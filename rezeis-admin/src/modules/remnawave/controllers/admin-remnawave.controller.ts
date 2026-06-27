@@ -2,6 +2,8 @@ import { Body, Controller, Get, Param, Post, Query, RawBodyRequest, Req, UseGuar
 import { Request } from 'express';
 
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import { RemnawaveConfigProfileInterface } from '../interfaces/remnawave-config-profile.interface';
 import {
   RemnawaveHealthInterface,
@@ -42,7 +44,8 @@ import {
 } from '../services/remnawave-webhook.service';
 
 @Controller('admin/remnawave')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('remnawave', 'view')
 export class AdminRemnawaveController {
   public constructor(
     private readonly remnawaveApiService: RemnawaveApiService,
@@ -105,21 +108,25 @@ export class AdminRemnawaveController {
   }
 
   @Post('nodes/:uuid/enable')
+  @RequirePermission('remnawave', 'edit')
   public async enableNode(@Param('uuid') uuid: string): Promise<void> {
     await this.remnawaveApiService.enableNode(uuid);
   }
 
   @Post('nodes/:uuid/disable')
+  @RequirePermission('remnawave', 'edit')
   public async disableNode(@Param('uuid') uuid: string): Promise<void> {
     await this.remnawaveApiService.disableNode(uuid);
   }
 
   @Post('nodes/:uuid/restart')
+  @RequirePermission('remnawave', 'edit')
   public async restartNode(@Param('uuid') uuid: string): Promise<void> {
     await this.remnawaveApiService.restartNode(uuid);
   }
 
   @Post('nodes/:uuid/reset-traffic')
+  @RequirePermission('remnawave', 'edit')
   public async resetNodeTraffic(@Param('uuid') uuid: string): Promise<void> {
     await this.remnawaveApiService.resetNodeTraffic(uuid);
   }
@@ -259,6 +266,7 @@ export class AdminRemnawaveController {
   // ── Hosts (mutations beyond CRUD) ─────────────────────────────────────────
 
   @Post('hosts/reorder')
+  @RequirePermission('remnawave', 'edit')
   public async reorderHosts(@Body() body: { readonly uuids: readonly string[] }): Promise<{ ok: true }> {
     await this.remnawaveApiService.reorderHosts(body?.uuids ?? []);
     return { ok: true };

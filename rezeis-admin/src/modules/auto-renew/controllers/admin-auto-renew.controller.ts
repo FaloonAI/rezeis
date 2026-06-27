@@ -2,6 +2,8 @@ import { Controller, Get, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import { AutoRenewScheduler } from '../auto-renew.scheduler';
 
 /**
@@ -11,7 +13,8 @@ import { AutoRenewScheduler } from '../auto-renew.scheduler';
  */
 @ApiTags('admin/auto-renew')
 @ApiBearerAuth('JWT')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('auto_renew', 'view')
 @Controller('admin/auto-renew')
 export class AdminAutoRenewController {
   public constructor(private readonly autoRenewScheduler: AutoRenewScheduler) {}
@@ -24,6 +27,7 @@ export class AdminAutoRenewController {
 
   @Post('run')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('auto_renew', 'run')
   @ApiOperation({ summary: 'Run the cycle synchronously and return its result' })
   public run() {
     return this.autoRenewScheduler.runOnce();

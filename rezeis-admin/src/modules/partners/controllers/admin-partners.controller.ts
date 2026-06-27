@@ -18,6 +18,8 @@ import { Request, Response } from 'express';
 
 import { CurrentAdmin } from '../../auth/decorators/current-admin.decorator';
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.interface';
 import { extractRequestMetadata } from '../../auth/utils/request-metadata.util';
 import { AdjustPartnerBalanceDto } from '../dto/adjust-partner-balance.dto';
@@ -63,7 +65,8 @@ import { PartnersService } from '../services/partners.service';
 
 @ApiTags('admin/partners')
 @ApiBearerAuth('JWT')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('partners', 'view')
 @Controller('admin/partners')
 export class AdminPartnersController {
   public constructor(
@@ -101,6 +104,7 @@ export class AdminPartnersController {
 
   @Post('withdrawals/:withdrawalId/approve')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('withdrawals', 'resolve')
   @ApiOperation({ summary: 'Approve a pending partner withdrawal' })
   public approve(
     @Param('withdrawalId') withdrawalId: string,
@@ -118,6 +122,7 @@ export class AdminPartnersController {
 
   @Post('withdrawals/:withdrawalId/reject')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('withdrawals', 'resolve')
   @ApiOperation({ summary: 'Reject a pending partner withdrawal (restores balance)' })
   public reject(
     @Param('withdrawalId') withdrawalId: string,
@@ -135,6 +140,7 @@ export class AdminPartnersController {
 
   @Post('withdrawals/bulk-approve')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('withdrawals', 'resolve')
   @ApiOperation({ summary: 'Approve multiple pending withdrawals in a single operator action' })
   public bulkApproveWithdrawals(
     @Body() dto: BulkApproveWithdrawalsDto,
@@ -203,6 +209,7 @@ export class AdminPartnersController {
 
   @Post(':partnerId/toggle')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('partners', 'edit')
   @ApiOperation({ summary: 'Toggle partner active/inactive status' })
   public toggle(
     @Param('partnerId') partnerId: string,
@@ -212,6 +219,7 @@ export class AdminPartnersController {
 
   @Post(':partnerId/adjust-balance')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('partners', 'edit')
   @ApiOperation({ summary: 'Manually adjust partner balance (positive = credit, negative = debit)' })
   public adjustBalance(
     @Param('partnerId') partnerId: string,

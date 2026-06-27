@@ -2,6 +2,8 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import { ListUserNotificationEventsQueryDto } from '../dto/list-user-notification-events.dto';
 import { UserNotificationsService } from '../services/user-notifications.service';
 
@@ -15,7 +17,8 @@ import { UserNotificationsService } from '../services/user-notifications.service
  */
 @ApiTags('admin/notifications')
 @ApiBearerAuth('JWT')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('notifications', 'view')
 @Controller('admin/notifications/events')
 export class AdminUserNotificationEventsController {
   public constructor(

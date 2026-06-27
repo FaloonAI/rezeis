@@ -5,6 +5,8 @@ import { Request } from 'express';
 
 import { CurrentAdmin } from '../../auth/decorators/current-admin.decorator';
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.interface';
 import { extractRequestMetadata } from '../../auth/utils/request-metadata.util';
 import { UpdateBrandingSettingsDto } from '../dto/update-branding-settings.dto';
@@ -37,7 +39,8 @@ import { PaymentOpsAlertSettingsInterface } from '../../../common/interfaces/pay
  * Exposes JWT-protected platform settings endpoints for the admin panel.
  */
 @Controller('admin/settings')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('settings', 'view')
 export class SettingsController {
   public constructor(
     private readonly settingsService: SettingsService,
@@ -68,6 +71,7 @@ export class SettingsController {
    * Updates the singleton platform settings payload.
    */
   @Patch('platform')
+  @RequirePermission('settings', 'edit')
   public async updatePlatformSettings(
     @Body() updatePlatformSettingsDto: UpdatePlatformSettingsDto,
     @CurrentAdmin() currentAdmin: CurrentAdminInterface,
@@ -87,6 +91,7 @@ export class SettingsController {
    */
   @Post('web-push/generate')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('settings', 'edit')
   @ApiOperation({ summary: 'Generate + store web-push VAPID keys' })
   public async generateWebPushKeys(
     @Body() dto: GenerateWebPushKeysDto,
@@ -103,6 +108,7 @@ export class SettingsController {
   /** Clear panel-managed web-push VAPID keys (falls back to env, if any). */
   @Post('web-push/clear')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('settings', 'edit')
   @ApiOperation({ summary: 'Clear panel-managed web-push VAPID keys' })
   public async clearWebPushKeys(
     @CurrentAdmin() currentAdmin: CurrentAdminInterface,
@@ -126,6 +132,7 @@ export class SettingsController {
 
   /** Update the Remnawave cleanup policy. */
   @Patch('remnawave-cleanup')
+  @RequirePermission('settings', 'edit')
   @ApiOperation({ summary: 'Update Remnawave expired-profile cleanup policy' })
   public async updateRemnawaveCleanupSettings(
     @Body() dto: UpdateRemnawaveCleanupSettingsDto,
@@ -145,6 +152,7 @@ export class SettingsController {
   }
 
   @Patch('system-notifications/payment-ops')
+  @RequirePermission('settings', 'edit')
   public async updatePaymentOpsAlertSettings(
     @Body() updatePaymentOpsAlertSettingsDto: UpdatePaymentOpsAlertSettingsDto,
     @CurrentAdmin() currentAdmin: CurrentAdminInterface,
@@ -158,6 +166,7 @@ export class SettingsController {
   }
 
   @Post('system-notifications/payment-ops/test')
+  @RequirePermission('settings', 'edit')
   public async sendPaymentOpsAlertTest(
     @Body() sendPaymentOpsAlertTestDto: SendPaymentOpsAlertTestDto,
     @CurrentAdmin() currentAdmin: CurrentAdminInterface,
@@ -178,6 +187,7 @@ export class SettingsController {
    * partially supplied — keys not present in the patch retain their value.
    */
   @Patch('notifications')
+  @RequirePermission('settings', 'edit')
   public async updateNotificationToggles(
     @Body() body: UpdateNotificationsTogglesDto,
     @CurrentAdmin() currentAdmin: CurrentAdminInterface,
@@ -196,6 +206,7 @@ export class SettingsController {
    * per-category routing). Setting `enabled = true` requires a chat id.
    */
   @Patch('system-notifications/telegram')
+  @RequirePermission('settings', 'edit')
   public async updateTelegramDelivery(
     @Body() body: UpdateTelegramDeliveryDto,
     @CurrentAdmin() currentAdmin: CurrentAdminInterface,
@@ -224,6 +235,7 @@ export class SettingsController {
    */
   @Post('system-notifications/telegram/test')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('settings', 'edit')
   public async sendTelegramDeliveryTest(
     @Body() body: SendTelegramDeliveryTestDto,
     @CurrentAdmin() currentAdmin: CurrentAdminInterface,
@@ -263,6 +275,7 @@ export class SettingsController {
    * subsection patch does not blow away unrelated knobs.
    */
   @Patch('referral')
+  @RequirePermission('settings', 'edit')
   public async updateReferralSettings(
     @Body() body: Record<string, unknown>,
     @CurrentAdmin() currentAdmin: CurrentAdminInterface,
@@ -290,6 +303,7 @@ export class SettingsController {
    * `withdrawals` are merged one level deeper.
    */
   @Patch('partner')
+  @RequirePermission('settings', 'edit')
   public async updatePartnerSettings(
     @Body() body: Record<string, unknown>,
     @CurrentAdmin() currentAdmin: CurrentAdminInterface,
@@ -307,6 +321,7 @@ export class SettingsController {
    * the rest stay at their previous values.
    */
   @Patch('branding')
+  @RequirePermission('settings', 'edit')
   public async updateBrandingSettings(
     @Body() updateBrandingSettingsDto: UpdateBrandingSettingsDto,
     @CurrentAdmin() currentAdmin: CurrentAdminInterface,
@@ -333,6 +348,7 @@ export class SettingsController {
    * Replaces the whole custom-icon library (add / rename / recolour / delete).
    */
   @Put('icons')
+  @RequirePermission('settings', 'edit')
   public async updateCustomIcons(
     @Body() body: UpdateCustomIconsDto,
     @CurrentAdmin() currentAdmin: CurrentAdminInterface,
@@ -350,6 +366,7 @@ export class SettingsController {
    * The SPA then adds an entry to the library and saves via `PUT /icons`.
    */
   @Post('icons/upload')
+  @RequirePermission('settings', 'edit')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: ICON_MAX_FILE_SIZE },
@@ -376,6 +393,7 @@ export class SettingsController {
    * `/admin/settings/branding` with `logoUrl` / `pwaIconUrl` set to it.
    */
   @Post('branding/logo-upload')
+  @RequirePermission('settings', 'edit')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: BRANDING_ASSET_MAX_FILE_SIZE },

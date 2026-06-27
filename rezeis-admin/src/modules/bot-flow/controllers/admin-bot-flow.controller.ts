@@ -6,6 +6,8 @@ import { Type } from 'class-transformer';
 import { BotFlowButtonAction, BotFlowButtonStyle, BotFlowMediaType, BotFlowParseMode } from '@prisma/client';
 
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import { ReiwaCacheInvalidateInterceptor } from '../../bot-config/interceptors/reiwa-cache-invalidate.interceptor';
 import { BotFlowService } from '../services/bot-flow.service';
 import { BotFlowScreenService } from '../services/bot-flow-screen.service';
@@ -181,7 +183,8 @@ class UpdateButtonDto {
 
 @ApiTags('Bot Flow Editor')
 @ApiBearerAuth('JWT')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('bot_config', 'view')
 @UseInterceptors(ReiwaCacheInvalidateInterceptor)
 @Controller('admin/bot-flows')
 export class AdminBotFlowController {
@@ -211,12 +214,14 @@ export class AdminBotFlowController {
   }
 
   @Put(':id/layout')
+  @RequirePermission('bot_config', 'edit')
   @ApiOperation({ summary: 'Save flow layout (viewport, positions)' })
   public saveLayout(@Param('id') id: string, @Body() dto: SaveLayoutDto) {
     return this.flowService.saveLayout(id, dto.layoutData);
   }
 
   @Post(':id/publish')
+  @RequirePermission('bot_config', 'edit')
   @ApiOperation({ summary: 'Publish a draft flow' })
   public publish(@Param('id') id: string) {
     return this.flowService.publish(id);
@@ -229,12 +234,14 @@ export class AdminBotFlowController {
   }
 
   @Post(':id/standard-blocks')
+  @RequirePermission('bot_config', 'edit')
   @ApiOperation({ summary: 'Restore any missing standard built-in screens into the draft' })
   public ensureStandardBlocks(@Param('id') id: string) {
     return this.flowService.ensureStandardBlocks(id);
   }
 
   @Delete(':id')
+  @RequirePermission('bot_config', 'edit')
   @ApiOperation({ summary: 'Delete a draft flow' })
   public deleteFlow(@Param('id') id: string) {
     return this.flowService.deleteDraft(id);
@@ -243,24 +250,28 @@ export class AdminBotFlowController {
   // ── Screen CRUD ───────────────────────────────────────────────────────────
 
   @Put('screens/positions')
+  @RequirePermission('bot_config', 'edit')
   @ApiOperation({ summary: 'Batch-update screen positions' })
   public updatePositions(@Body() dto: UpdatePositionsDto) {
     return this.screenService.updatePositions(dto.positions);
   }
 
   @Post('screens')
+  @RequirePermission('bot_config', 'edit')
   @ApiOperation({ summary: 'Create a screen in a flow' })
   public createScreen(@Body() dto: CreateScreenDto) {
     return this.screenService.createScreen(dto);
   }
 
   @Put('screens/:id')
+  @RequirePermission('bot_config', 'edit')
   @ApiOperation({ summary: 'Update a screen' })
   public updateScreen(@Param('id') id: string, @Body() dto: UpdateScreenDto) {
     return this.screenService.updateScreen(id, dto);
   }
 
   @Delete('screens/:id')
+  @RequirePermission('bot_config', 'edit')
   @ApiOperation({ summary: 'Delete a screen' })
   public deleteScreen(@Param('id') id: string) {
     return this.screenService.deleteScreen(id);
@@ -269,18 +280,21 @@ export class AdminBotFlowController {
   // ── Button CRUD ───────────────────────────────────────────────────────────
 
   @Post('buttons')
+  @RequirePermission('bot_config', 'edit')
   @ApiOperation({ summary: 'Add a button to a screen' })
   public createButton(@Body() dto: CreateButtonDto) {
     return this.screenService.createButton(dto);
   }
 
   @Put('buttons/:id')
+  @RequirePermission('bot_config', 'edit')
   @ApiOperation({ summary: 'Update a button' })
   public updateButton(@Param('id') id: string, @Body() dto: UpdateButtonDto) {
     return this.screenService.updateButton(id, dto);
   }
 
   @Delete('buttons/:id')
+  @RequirePermission('bot_config', 'edit')
   @ApiOperation({ summary: 'Delete a button' })
   public deleteButton(@Param('id') id: string) {
     return this.screenService.deleteButton(id);
@@ -289,6 +303,7 @@ export class AdminBotFlowController {
   // ── Media Upload ──────────────────────────────────────────────────────────
 
   @Post('screens/:id/media')
+  @RequirePermission('bot_config', 'edit')
   @ApiOperation({ summary: 'Upload media for a screen' })
   @UseInterceptors(FileInterceptor('file', {
     limits: { fileSize: 20 * 1024 * 1024 }, // 20MB

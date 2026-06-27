@@ -39,6 +39,8 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
 import { RawCacheService } from '../../../common/cache/raw-cache.service';
 import { CurrentAdmin } from '../../auth/decorators/current-admin.decorator';
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.interface';
 import { PasswordHashService } from '../../auth/services/password-hash.service';
 import { extractRequestMetadata } from '../../auth/utils/request-metadata.util';
@@ -56,7 +58,8 @@ const TEMPORARY_PASSWORD_TTL_HOURS = 24;
 const TEMPORARY_PASSWORD_LENGTH = 16;
 
 @Controller('admin/users')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('users', 'view')
 export class AdminUserWebController {
   public constructor(
     private readonly prismaService: PrismaService,
@@ -76,6 +79,7 @@ export class AdminUserWebController {
    */
   @Post(':telegramId/web/reset-password')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('users', 'edit')
   public async resetWebPassword(
     @Param('telegramId') telegramId: string,
     @CurrentAdmin() admin: CurrentAdminInterface,
@@ -167,6 +171,7 @@ export class AdminUserWebController {
    * Conflicts on `loginNormalized` surface as a 409.
    */
   @Patch(':telegramId/web/login')
+  @RequirePermission('users', 'edit')
   public async renameWebLogin(
     @Param('telegramId') telegramId: string,
     @Body() body: RenameWebLoginDto,
@@ -220,6 +225,7 @@ export class AdminUserWebController {
    * surfaces as a 409.
    */
   @Patch(':telegramId/telegram-binding')
+  @RequirePermission('users', 'edit')
   public async bindTelegramId(
     @Param('telegramId') telegramId: string,
     @Body() body: BindTelegramIdDto,

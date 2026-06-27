@@ -2,6 +2,8 @@ import { Controller, Get, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import { BotMapComposerService } from '../services/bot-map-composer.service';
 import type { BotMapPayload } from '../interfaces/bot-map-payload.interface';
 
@@ -20,7 +22,8 @@ import type { BotMapPayload } from '../interfaces/bot-map-payload.interface';
  */
 @ApiTags('Bot Map')
 @ApiBearerAuth('JWT')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('bot_config', 'view')
 @Controller('admin/bot-map')
 export class AdminBotMapController {
   public constructor(private readonly composer: BotMapComposerService) {}

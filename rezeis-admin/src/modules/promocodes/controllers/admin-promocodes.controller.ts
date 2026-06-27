@@ -14,6 +14,8 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import { CreatePromocodeDto } from '../dto/create-promocode.dto';
 import { ListPromocodeActivationsQueryDto } from '../dto/list-promocode-activations-query.dto';
 import { UpdatePromocodeDto } from '../dto/update-promocode.dto';
@@ -30,7 +32,8 @@ interface PromocodeActivationListResponse {
 
 @ApiTags('admin/promocodes')
 @ApiBearerAuth('JWT')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('promocodes', 'view')
 @Controller('admin/promocodes')
 export class AdminPromocodesController {
   public constructor(
@@ -50,12 +53,14 @@ export class AdminPromocodesController {
   }
 
   @Post()
+  @RequirePermission('promocodes', 'create')
   @ApiOperation({ summary: 'Create a promocode' })
   public create(@Body() dto: CreatePromocodeDto): Promise<PromocodeInterface> {
     return this.lifecycleService.create(dto);
   }
 
   @Patch(':promocodeId')
+  @RequirePermission('promocodes', 'edit')
   @ApiOperation({ summary: 'Patch a promocode' })
   public update(
     @Param('promocodeId') promocodeId: string,
@@ -66,6 +71,7 @@ export class AdminPromocodesController {
 
   @Delete(':promocodeId')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission('promocodes', 'delete')
   @ApiOperation({ summary: 'Delete a promocode' })
   public async delete(@Param('promocodeId') promocodeId: string): Promise<void> {
     await this.lifecycleService.delete(promocodeId);
@@ -73,6 +79,7 @@ export class AdminPromocodesController {
 
   @Post('generate-code')
   @HttpCode(HttpStatus.OK)
+  @RequirePermission('promocodes', 'edit')
   @ApiOperation({ summary: 'Generate a random unique promocode code' })
   public async generateCode(): Promise<{ readonly code: string }> {
     return this.lifecycleService.generateUniqueCode();

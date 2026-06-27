@@ -17,6 +17,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
+import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
+import { RbacGuard } from '../../rbac/guards/rbac.guard';
 import {
   FAQ_MEDIA_MAX_FILE_SIZE,
   FaqMediaUploadService,
@@ -56,7 +58,8 @@ interface UpdateFaqItemBody {
  */
 @ApiTags('admin/faq')
 @ApiBearerAuth('JWT')
-@UseGuards(AdminJwtAuthGuard)
+@UseGuards(AdminJwtAuthGuard, RbacGuard)
+@RequirePermission('faq', 'view')
 @Controller('admin/faq')
 export class AdminFaqController {
   public constructor(
@@ -71,6 +74,7 @@ export class AdminFaqController {
   }
 
   @Post()
+  @RequirePermission('faq', 'create')
   @ApiOperation({ summary: 'Create a new FAQ entry' })
   public create(@Body() body: CreateFaqItemBody): Promise<FaqItemInterface> {
     return this.faqService.create({
@@ -84,6 +88,7 @@ export class AdminFaqController {
   }
 
   @Patch(':id')
+  @RequirePermission('faq', 'edit')
   @ApiOperation({ summary: 'Update an existing FAQ entry' })
   public update(
     @Param('id') id: string,
@@ -107,12 +112,14 @@ export class AdminFaqController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermission('faq', 'delete')
   @ApiOperation({ summary: 'Delete a FAQ entry (attached media files are NOT cleaned up)' })
   public async delete(@Param('id') id: string): Promise<void> {
     await this.faqService.delete(id);
   }
 
   @Post('uploads')
+  @RequirePermission('faq', 'edit')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: FAQ_MEDIA_MAX_FILE_SIZE },

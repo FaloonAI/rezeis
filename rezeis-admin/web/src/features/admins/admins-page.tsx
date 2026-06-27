@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { api } from '@/lib/api'
 import { formatDateTime } from '@/lib/utils'
 import { useTabSync } from '@/lib/use-tab-sync'
+import { listRoles, type RbacRoleListItem } from '@/features/rbac'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -82,12 +83,19 @@ type AdminsTab = (typeof ALLOWED_TABS)[number]
 type AdminRole = 'DEV' | 'ADMIN'
 const ROLES: readonly AdminRole[] = ['DEV', 'ADMIN'] as const
 
+/** Select sentinel for "no custom RBAC role" (Radix Select needs a value). */
+const NO_RBAC_ROLE = '__legacy__'
+
 interface Admin {
   readonly id: string
   readonly username: string
   readonly name: string | null
   readonly role: AdminRole
   readonly isActive: boolean
+  readonly rbacRoleId: string | null
+  readonly rbacRoleName: string | null
+  readonly mustChangePassword: boolean
+  readonly twoFactorEnabled: boolean
   readonly lastLoginAt: string | null
   readonly createdAt: string
   readonly updatedAt: string
@@ -97,6 +105,13 @@ interface Admin {
 
 function roleBadgeVariant(role: AdminRole): 'default' | 'secondary' {
   return role === 'DEV' ? 'default' : 'secondary'
+}
+
+const ROLES_QUERY_KEY = ['admin', 'rbac', 'roles'] as const
+
+/** Shared roles fetch for the RBAC-role selector in the create/edit dialogs. */
+function useRolesList() {
+  return useQuery({ queryKey: ROLES_QUERY_KEY, queryFn: listRoles })
 }
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
@@ -110,6 +125,8 @@ const adminSchema = z.object({
   password: z.string().min(8).max(128),
   role: z.enum(['DEV', 'ADMIN']),
   name: z.string().max(120).optional(),
+  rbacRoleId: z.string().optional(),
+  mustChangePassword: z.boolean().optional(),
 })
 type AdminFormValues = z.infer<typeof adminSchema>
 
@@ -118,6 +135,8 @@ const editAdminSchema = z.object({
   role: z.enum(['DEV', 'ADMIN']).optional(),
   isActive: z.boolean().optional(),
   name: z.string().max(120).optional(),
+  rbacRoleId: z.string().optional(),
+  mustChangePassword: z.boolean().optional(),
 })
 type EditAdminFormValues = z.infer<typeof editAdminSchema>
 
@@ -127,7 +146,25 @@ async function fetchAdmins(): Promise<readonly Admin[]> {
   return (await api.get<readonly Admin[]>('/admin/admins')).data
 }
 
-async function createAdmin(data: AdminFormValues): Promise<Admin> {
+interface CreateAdminPayload {
+  username: string
+  password: string
+  role: AdminRole
+  name?: string
+  rbacRoleId?: string | null
+  mustChangePassword?: boolean
+}
+
+interface UpdateAdminPayload {
+  password?: string
+  role?: AdminRole
+  isActive?: boolean
+  name?: string
+  rbacRoleId?: string | null
+  mustChangePassword?: boolean
+}
+
+async function createAdmin(data: CreateAdminPayload): Promise<Admin> {
   return (await api.post<Admin>('/admin/admins', data)).data
 }
 
@@ -136,7 +173,7 @@ async function updateAdmin({
   data,
 }: {
   id: string
-  data: Partial<EditAdminFormValues>
+  data: UpdateAdminPayload
 }): Promise<Admin> {
   return (await api.patch<Admin>(`/admin/admins/${id}`, data)).data
 }
@@ -156,9 +193,10 @@ function CreateAdminDialog({
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const rolesQuery = useRolesList()
   const form = useForm<AdminFormValues>({
     resolver: zodResolver(adminSchema),
-    defaultValues: { username: '', password: '', role: 'ADMIN', name: '' },
+    defaultValues: { username: '', password: '', role: 'ADMIN', name: '', rbacRoleId: NO_RBAC_ROLE, mustChangePassword: false },
   })
 
   const mutation = useMutation({
@@ -167,7 +205,7 @@ function CreateAdminDialog({
       toast.success(t('adminsPage.toast.created'))
       void queryClient.invalidateQueries({ queryKey: ['admins'] })
       onOpenChange(false)
-      form.reset({ username: '', password: '', role: 'ADMIN', name: '' })
+      form.reset({ username: '', password: '', role: 'ADMIN', name: '', rbacRoleId: NO_RBAC_ROLE, mustChangePassword: false })
     },
     onError: (err: unknown) => {
       const message =
@@ -175,6 +213,17 @@ function CreateAdminDialog({
       toast.error(message ?? t('adminsPage.toast.createFailed'))
     },
   })
+
+  function submit(values: AdminFormValues): void {
+    mutation.mutate({
+      username: values.username,
+      password: values.password,
+      role: values.role,
+      name: values.name,
+      rbacRoleId: values.rbacRoleId && values.rbacRoleId !== NO_RBAC_ROLE ? values.rbacRoleId : null,
+      mustChangePassword: values.mustChangePassword ?? false,
+    })
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -184,7 +233,7 @@ function CreateAdminDialog({
           <DialogDescription>{t('adminsPage.create.description')}</DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit((v) => mutation.mutate(v))} className="space-y-4">
+          <form onSubmit={form.handleSubmit(submit)} className="space-y-4">
             <FormField
               control={form.control}
               name="username"
@@ -257,6 +306,56 @@ function CreateAdminDialog({
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name="rbacRoleId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('adminsPage.fields.rbacRole')}</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value ?? NO_RBAC_ROLE}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value={NO_RBAC_ROLE}>{t('adminsPage.fields.rbacRoleNone')}</SelectItem>
+                      {(rolesQuery.data ?? []).map((r: RbacRoleListItem) => (
+                        <SelectItem key={r.id} value={r.id}>
+                          {r.displayName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">{t('adminsPage.fields.rbacRoleHint')}</p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="mustChangePassword"
+              render={({ field }) => (
+                <FormItem>
+                  <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="create-mcp-switch" className="cursor-pointer font-medium">
+                        {t('adminsPage.fields.mustChangePassword')}
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        {t('adminsPage.fields.mustChangePasswordHint')}
+                      </p>
+                    </div>
+                    <Switch
+                      id="create-mcp-switch"
+                      checked={field.value ?? false}
+                      onCheckedChange={field.onChange}
+                    />
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <DialogFooter className="pt-2">
               <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>
                 {t('common.cancel')}
@@ -285,6 +384,7 @@ function EditAdminDialog({
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const rolesQuery = useRolesList()
 
   const form = useForm<EditAdminFormValues>({
     resolver: zodResolver(editAdminSchema),
@@ -293,6 +393,8 @@ function EditAdminDialog({
       role: admin.role,
       isActive: admin.isActive,
       name: admin.name ?? '',
+      rbacRoleId: admin.rbacRoleId ?? NO_RBAC_ROLE,
+      mustChangePassword: admin.mustChangePassword,
     },
   })
 
@@ -303,13 +405,15 @@ function EditAdminDialog({
         role: admin.role,
         isActive: admin.isActive,
         name: admin.name ?? '',
+        rbacRoleId: admin.rbacRoleId ?? NO_RBAC_ROLE,
+        mustChangePassword: admin.mustChangePassword,
       })
     }
     onOpenChange(o)
   }
 
   const mutation = useMutation({
-    mutationFn: (data: Partial<EditAdminFormValues>) => updateAdmin({ id: admin.id, data }),
+    mutationFn: (data: UpdateAdminPayload) => updateAdmin({ id: admin.id, data }),
     onSuccess: () => {
       toast.success(t('adminsPage.toast.updated', { username: admin.username }))
       void queryClient.invalidateQueries({ queryKey: ['admins'] })
@@ -323,7 +427,7 @@ function EditAdminDialog({
   })
 
   function onSubmit(values: EditAdminFormValues): void {
-    const payload: Partial<EditAdminFormValues> = {}
+    const payload: UpdateAdminPayload = {}
     if (values.password && values.password.length > 0) {
       payload.password = values.password
     }
@@ -335,6 +439,14 @@ function EditAdminDialog({
     }
     if (typeof values.name === 'string' && values.name !== (admin.name ?? '')) {
       payload.name = values.name
+    }
+    const nextRbacRoleId =
+      values.rbacRoleId && values.rbacRoleId !== NO_RBAC_ROLE ? values.rbacRoleId : null
+    if (nextRbacRoleId !== (admin.rbacRoleId ?? null)) {
+      payload.rbacRoleId = nextRbacRoleId
+    }
+    if (typeof values.mustChangePassword === 'boolean' && values.mustChangePassword !== admin.mustChangePassword) {
+      payload.mustChangePassword = values.mustChangePassword
     }
     if (Object.keys(payload).length === 0) {
       toast.info(t('adminsPage.toast.noChanges'))
@@ -424,6 +536,56 @@ function EditAdminDialog({
                       ))}
                     </SelectContent>
                   </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="rbacRoleId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('adminsPage.fields.rbacRole')}</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value ?? NO_RBAC_ROLE}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value={NO_RBAC_ROLE}>{t('adminsPage.fields.rbacRoleNone')}</SelectItem>
+                      {(rolesQuery.data ?? []).map((r: RbacRoleListItem) => (
+                        <SelectItem key={r.id} value={r.id}>
+                          {r.displayName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">{t('adminsPage.fields.rbacRoleHint')}</p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="mustChangePassword"
+              render={({ field }) => (
+                <FormItem>
+                  <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="edit-mcp-switch" className="cursor-pointer font-medium">
+                        {t('adminsPage.fields.mustChangePassword')}
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        {t('adminsPage.fields.mustChangePasswordHint')}
+                      </p>
+                    </div>
+                    <Switch
+                      id="edit-mcp-switch"
+                      checked={field.value ?? false}
+                      onCheckedChange={field.onChange}
+                    />
+                  </div>
                   <FormMessage />
                 </FormItem>
               )}
@@ -644,6 +806,7 @@ function AdminsListTab() {
                 <TableRow>
                   <TableHead>{t('adminsPage.columns.admin')}</TableHead>
                   <TableHead>{t('adminsPage.columns.role')}</TableHead>
+                  <TableHead>{t('adminsPage.columns.access')}</TableHead>
                   <TableHead>{t('adminsPage.columns.status')}</TableHead>
                   <TableHead>{t('adminsPage.columns.lastLogin')}</TableHead>
                   <TableHead>{t('adminsPage.columns.created')}</TableHead>
@@ -672,6 +835,30 @@ function AdminsListTab() {
                       <Badge variant={roleBadgeVariant(admin.role)}>
                         {t(`adminsPage.roles.${admin.role}`)}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-1">
+                        {admin.rbacRoleName ? (
+                          <Badge variant="outline" className="gap-1">
+                            <ShieldCheck className="h-3 w-3" />
+                            {admin.rbacRoleName}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            {t('adminsPage.access.legacy')}
+                          </span>
+                        )}
+                        {admin.twoFactorEnabled && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            {t('adminsPage.access.twoFactor')}
+                          </Badge>
+                        )}
+                        {admin.mustChangePassword && (
+                          <Badge variant="outline" className="text-[10px] text-amber-600 dark:text-amber-400 border-amber-500/40">
+                            {t('adminsPage.access.mustChange')}
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       {admin.isActive ? (
