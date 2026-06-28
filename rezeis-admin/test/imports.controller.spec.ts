@@ -27,6 +27,7 @@ describe('AdminImportsController', () => {
     assertRoute(RequestMethod.POST, 'stealthnet', AdminImportsController.prototype.importFromStealthnet, 'import');
     assertRoute(RequestMethod.POST, 'assign-plan', AdminImportsController.prototype.assignPlanToImported, 'run');
     assertRoute(RequestMethod.POST, ':importId/cancel', AdminImportsController.prototype.cancelImport, 'run');
+    assertRoute(RequestMethod.POST, ':importId/rollback', AdminImportsController.prototype.rollbackImport, 'run');
     assertRoute(RequestMethod.GET, ':importId/plan-preview', AdminImportsController.prototype.previewPlanClone, 'view');
     assertRoute(RequestMethod.POST, ':importId/clone-plans', AdminImportsController.prototype.clonePlans, 'run');
   });

@@ -6,7 +6,7 @@ import {
 import type { MapInfoNodeData } from './components/MapInfoNode'
 import { MAP_INFO_NODE_TYPE } from './components/MapInfoNode'
 import type { BotMapNode, BotMapEdge } from '@/features/bot-map/types'
-import type { BotFlow, BotFlowButton, BotScreenNodeData } from './types'
+import type { BotFlow, BotFlowButton, BotScreenNodeData, SystemButtonPreview } from './types'
 
 /** Group buttons by row index. */
 export function groupButtonsByRow(buttons: BotFlowButton[]): BotFlowButton[][] {
@@ -20,6 +20,44 @@ export function groupButtonsByRow(buttons: BotFlowButton[]): BotFlowButton[][] {
   return [...rows.entries()]
     .sort(([a], [b]) => a - b)
     .map(([, btns]) => btns.sort((a, b) => a.col - b.col))
+}
+
+/**
+ * Preview the buttons reiwa injects at RUNTIME for a screen — they are not
+ * stored in `bot_flow_buttons`, so without this the canvas showed nothing for
+ * built-in screens and no "back to menu" path. Mirrors:
+ *   • `ScreenEditorPanel`'s system-button preview for invite / rules / help,
+ *   • `dynamic-screen.ts`'s auto `[◀️ В меню]` row appended to ANY non-root
+ *     screen that has zero configured buttons.
+ * The `isBack` entry anchors the dashed edge to the root screen.
+ */
+export function computeSystemButtons(screen: BotFlow['screens'][number]): SystemButtonPreview[] {
+  const lower = screen.name.trim().toLowerCase()
+  if (lower === 'invite') {
+    return [
+      { key: 'invite-share', labelKey: 'botFlow.systemButtons.invite.share', isBack: false },
+      { key: 'invite-copy', labelKey: 'botFlow.systemButtons.invite.copy', isBack: false },
+      { key: 'invite-back', labelKey: 'botFlow.systemButtons.back', isBack: true },
+    ]
+  }
+  if (lower === 'rules') {
+    return [
+      { key: 'rules-open', labelKey: 'botFlow.systemButtons.rules.open', isBack: false },
+      { key: 'rules-back', labelKey: 'botFlow.systemButtons.back', isBack: true },
+    ]
+  }
+  if (lower === 'help') {
+    return [
+      { key: 'help-contact', labelKey: 'botFlow.systemButtons.help.contact', isBack: false },
+      { key: 'help-back', labelKey: 'botFlow.systemButtons.back', isBack: true },
+    ]
+  }
+  // Any other non-root screen with no configured buttons gets a runtime
+  // back-to-menu row (see dynamic-screen.ts).
+  if (!screen.isRoot && screen.buttons.length === 0) {
+    return [{ key: 'auto-back', labelKey: 'botFlow.systemButtons.back', isBack: true }]
+  }
+  return []
 }
 
 const EDGE_COLORS = [
@@ -49,6 +87,7 @@ export function flowToReactFlow(flow: BotFlow): { nodes: Node[]; edges: Edge[] }
       mediaUrl: screen.mediaUrl,
       isRoot: screen.isRoot,
       buttons: groupButtonsByRow(screen.buttons),
+      systemButtons: computeSystemButtons(screen),
     } satisfies BotScreenNodeData,
   }))
 
@@ -169,17 +208,17 @@ export interface BotButtonLite {
 }
 
 /**
- * Built-in screens (help / invite / rules) reiwa renders with a single
- * runtime "◀️ В меню" button that returns to the welcome (`menu:main`).
- * That button is not a `BotFlowButton`, so the canvas shows no outgoing edge
- * for these screens. Draw a dashed back-edge from each system screen to the
- * root (welcome) screen so the round-trip routing is visible. Skipped when no
- * root screen exists (reiwa then falls back to the built-in welcome, which has
- * no canvas node).
+ * Build dashed edges to the root (welcome) screen for every "back to menu"
+ * path, so the canvas shows where these return:
+ *   1. Explicit stored `BACK` / `START_OVER` buttons — anchored to their own
+ *      button chip handle (`btn-<id>`).
+ *   2. The runtime-injected back button on built-in screens (help/invite/rules)
+ *      and on any non-root screen with no configured buttons — anchored to the
+ *      synthetic system-back chip handle (`<screenId>-sysback`).
+ * Skipped when no root screen exists (reiwa then falls back to the built-in
+ * welcome, which has no canvas node).
  */
-const SYSTEM_BACK_SCREENS: ReadonlySet<string> = new Set(['help', 'invite', 'rules'])
-
-export function buildSystemScreenBackEdges(
+export function buildBackToMenuEdges(
   flow: BotFlow | undefined,
   backLabel: string,
 ): Edge[] {
@@ -188,13 +227,16 @@ export function buildSystemScreenBackEdges(
   if (root === undefined) return []
   const color = '#94a3b8'
   const edges: Edge[] = []
-  for (const screen of flow.screens) {
-    if (screen.id === root.id) continue
-    if (!SYSTEM_BACK_SCREENS.has(screen.name.trim().toLowerCase())) continue
-    edges.push({
-      id: `sysback-${screen.id}`,
-      source: screen.id,
-      sourceHandle: `${screen.id}-source`,
+  const makeBackEdge = (
+    id: string,
+    source: string,
+    sourceHandle: string,
+    label: string,
+  ): Edge =>
+    ({
+      id,
+      source,
+      sourceHandle,
       target: root.id,
       targetHandle: `${root.id}-target`,
       type: 'smoothstep',
@@ -202,12 +244,28 @@ export function buildSystemScreenBackEdges(
       deletable: false,
       style: { stroke: color, strokeWidth: 1.5, strokeDasharray: '2 4' },
       markerEnd: { type: 'arrowclosed' as const, color },
-      label: backLabel,
+      label,
       labelStyle: { fill: '#ffffff', fontSize: 9, fontWeight: 600 },
       labelBgStyle: { fill: color, fillOpacity: 0.9 },
       labelBgPadding: [4, 2] as [number, number],
       labelBgBorderRadius: 4,
-    } as Edge)
+    }) as Edge
+  for (const screen of flow.screens) {
+    if (screen.id === root.id) continue
+    for (const btn of screen.buttons) {
+      if (btn.actionType !== 'BACK' && btn.actionType !== 'START_OVER') continue
+      edges.push(
+        makeBackEdge(
+          `backbtn-${btn.id}`,
+          screen.id,
+          `btn-${btn.id}`,
+          btn.labelRu || btn.labelEn || backLabel,
+        ),
+      )
+    }
+    if (computeSystemButtons(screen).some((b) => b.isBack)) {
+      edges.push(makeBackEdge(`sysback-${screen.id}`, screen.id, `${screen.id}-sysback`, backLabel))
+    }
   }
   return edges
 }

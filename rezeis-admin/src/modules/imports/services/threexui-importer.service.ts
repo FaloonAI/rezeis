@@ -82,6 +82,7 @@ export class ThreeXuiImporterService {
     let skipped = 0;
     let subscriptionsCreated = 0;
     let subscriptionsUpdated = 0;
+    const createdUserIds: string[] = [];
 
     for (const client of clients) {
       try {
@@ -94,6 +95,7 @@ export class ThreeXuiImporterService {
         const wasCreated = await this.wasJustCreated(userId);
         if (wasCreated) {
           created += 1;
+          createdUserIds.push(userId);
         } else {
           updated += 1;
         }
@@ -119,6 +121,7 @@ export class ThreeXuiImporterService {
       subscriptionsCreated,
       subscriptionsUpdated,
       errors,
+      rollback: { createdUserIds },
     } satisfies Prisma.InputJsonValue;
     const errorMessage = errors.length === 0 ? null : errors.slice(0, 5).join('; ');
 

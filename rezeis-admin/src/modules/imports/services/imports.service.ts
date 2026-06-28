@@ -74,9 +74,70 @@ export class ImportsService {
     if (record.status !== ImportStatus.COMMITTED) {
       throw new BadRequestException('Only COMMITTED imports can be rolled back');
     }
+    const createdUserIds = extractCreatedUserIds(record.result);
+    if (createdUserIds === null) {
+      throw new BadRequestException(
+        'This import has no rollback plan (it predates undo support), so it cannot be safely undone.',
+      );
+    }
+
+    // Delete in one transaction. `Transaction.user` is `onDelete: Restrict`,
+    // so a created user that carries imported transactions can't be removed
+    // until those transactions are gone — delete them first (their line items
+    // cascade), then the users. Subscriptions, web accounts, profile-sync
+    // jobs, referrals and partner rows all cascade from `User`.
+    //
+    // Remnawave panel profiles are intentionally left untouched: they are the
+    // SOURCE of the import (the backup/panel we read from), not data this
+    // import created — deleting them would destroy the operator's real panel.
+    // Only users this run CREATED are removed; users it merely matched and
+    // UPDATED are left as-is (we keep no pre-import snapshot to restore).
+    let deletedUsers = 0;
+    if (createdUserIds.length > 0) {
+      await this.prismaService.$transaction(async (tx) => {
+        await tx.transaction.deleteMany({ where: { userId: { in: createdUserIds } } });
+        const deleted = await tx.user.deleteMany({ where: { id: { in: createdUserIds } } });
+        deletedUsers = deleted.count;
+      });
+    }
+
     return this.prismaService.importRecord.update({
       where: { id: importId },
-      data: { status: ImportStatus.ROLLED_BACK, rolledBackAt: new Date() },
+      data: {
+        status: ImportStatus.ROLLED_BACK,
+        rolledBackAt: new Date(),
+        result: mergeRollbackOutcome(record.result, deletedUsers) as Prisma.InputJsonValue,
+      },
     });
   }
+}
+
+/**
+ * Read `result.rollback.createdUserIds` back out of the persisted JSON.
+ * Returns `null` when no rollback plan was recorded (imports created before
+ * undo support) so the caller can refuse rather than silently no-op.
+ */
+function extractCreatedUserIds(result: unknown): string[] | null {
+  if (result === null || typeof result !== 'object' || Array.isArray(result)) return null;
+  const rollback = (result as Record<string, unknown>).rollback;
+  if (rollback === null || typeof rollback !== 'object' || Array.isArray(rollback)) return null;
+  const ids = (rollback as Record<string, unknown>).createdUserIds;
+  if (!Array.isArray(ids)) return null;
+  return ids.filter((id): id is string => typeof id === 'string');
+}
+
+/** Annotate the stored result with the rollback outcome for the audit trail. */
+function mergeRollbackOutcome(result: unknown, deletedUsers: number): Record<string, unknown> {
+  const base =
+    result !== null && typeof result === 'object' && !Array.isArray(result)
+      ? { ...(result as Record<string, unknown>) }
+      : {};
+  const rollback =
+    base.rollback !== null && typeof base.rollback === 'object' && !Array.isArray(base.rollback)
+      ? { ...(base.rollback as Record<string, unknown>) }
+      : {};
+  rollback.deletedUsers = deletedUsers;
+  rollback.rolledBackAt = new Date().toISOString();
+  base.rollback = rollback;
+  return base;
 }

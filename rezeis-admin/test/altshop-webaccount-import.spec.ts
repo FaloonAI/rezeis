@@ -33,7 +33,7 @@ describe('AltshopImporterService — claim-pending web account', () => {
   it('creates a claim-pending web account for a migrated web-only user', async () => {
     const created: Array<Record<string, unknown>> = [];
     const prisma = buildPrisma({ created, existingWebAccount: null });
-    const service = new AltshopImporterService(prisma as never);
+    const service = new AltshopImporterService(prisma as never, { getAllPanelUsers: async () => [] } as never);
 
     await service.run({
       mode: 'import',
@@ -55,7 +55,7 @@ describe('AltshopImporterService — claim-pending web account', () => {
   it('skips when the user already has a web account', async () => {
     const created: Array<Record<string, unknown>> = [];
     const prisma = buildPrisma({ created, existingWebAccount: { id: 'wa-existing' } });
-    const service = new AltshopImporterService(prisma as never);
+    const service = new AltshopImporterService(prisma as never, { getAllPanelUsers: async () => [] } as never);
 
     await service.run({
       mode: 'import',
@@ -71,7 +71,7 @@ describe('AltshopImporterService — claim-pending web account', () => {
   it('creates no web account in sync mode', async () => {
     const created: Array<Record<string, unknown>> = [];
     const prisma = buildPrisma({ created, existingWebAccount: null, telegramMatch: true });
-    const service = new AltshopImporterService(prisma as never);
+    const service = new AltshopImporterService(prisma as never, { getAllPanelUsers: async () => [] } as never);
 
     await service.run({
       mode: 'sync',

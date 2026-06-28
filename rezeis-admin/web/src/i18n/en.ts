@@ -1638,6 +1638,7 @@ export const en = {
       requireTelegram: 'Require Telegram link',
       requireTelegramHint: 'A trial (free or paid) can be activated only after linking a Telegram account. A web user without Telegram links it in the cabinet first.',
       telegramNote: 'Reminder: connecting and using the subscription happens via the Telegram bot. A web-only user without a linked Telegram can link the account in the cabinet (Privacy → "Open bot") — the trial is then available to them.',
+      telegramNoteAria: 'More about the trial subscription',
     },
     validation: {
       nameRequired: 'Enter a plan name.',
@@ -3113,6 +3114,7 @@ export const en = {
     title: 'Bot Navigation',
     subtitle: 'Visual editor for Telegram bot screens and buttons',
     systemBackEdge: '◀️ To menu',
+    systemButtonsCanvasLabel: 'System buttons',
     screenTexts: {
       title: 'Bot texts for this screen',
       hint: 'The real copy the bot shows on this screen (title, description, stats, button labels). Applies immediately — reiwa picks it up on the next refresh.',

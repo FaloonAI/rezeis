@@ -43,17 +43,47 @@ describe('DashboardService', () => {
             calls.push(['transaction.aggregate', input]);
             return { _sum: { amount: { toString: () => '25.50' } } };
           },
+          findMany: async (input: unknown) => {
+            calls.push(['transaction.findMany', input]);
+            return [];
+          },
         },
         broadcast: {
           count: async (input: unknown) => {
             calls.push(['broadcast.count', input]);
             return 6;
           },
+          findMany: async (input: unknown) => {
+            calls.push(['broadcast.findMany', input]);
+            return [];
+          },
         },
         importRecord: {
           count: async (input: unknown) => {
             calls.push(['importRecord.count', input]);
             return 1;
+          },
+          findMany: async (input: unknown) => {
+            calls.push(['importRecord.findMany', input]);
+            return [];
+          },
+        },
+        adminAuditLog: {
+          findMany: async (input: unknown) => {
+            calls.push(['adminAuditLog.findMany', input]);
+            return [];
+          },
+        },
+        partnerWithdrawal: {
+          count: async (input: unknown) => {
+            calls.push(['partnerWithdrawal.count', input]);
+            return 0;
+          },
+        },
+        paymentWebhookEvent: {
+          count: async (input: unknown) => {
+            calls.push(['paymentWebhookEvent.count', input]);
+            return 0;
           },
         },
       } as never,
@@ -91,7 +121,16 @@ describe('DashboardService', () => {
     assert.equal(result.metrics.length, 13);
     assert.deepStrictEqual(result.operationsTimeline, []);
     assert.deepStrictEqual(result.financeOpsTimeline, []);
-    assert.deepStrictEqual(result.attentionItems, []);
+    // Attention list is now populated from the live counters: expiring7d=8 (>0
+    // → INFO), pending=2 (<10 → not surfaced), withdrawals/webhooks=0.
+    assert.deepStrictEqual(
+      result.attentionItems.map((item) => ({
+        kind: item.kind,
+        severity: item.severity,
+        count: item.count,
+      })),
+      [{ kind: 'SUBSCRIPTION_EXPIRING', severity: 'INFO', count: 8 }],
+    );
     assert.deepStrictEqual(calls[0], ['cache.getOrSet', { key: 'dashboard:summary', ttlSeconds: 60 }]);
     assert.equal(calls.some((call) => Array.isArray(call) && call[0] === 'transaction.aggregate'), true);
   });

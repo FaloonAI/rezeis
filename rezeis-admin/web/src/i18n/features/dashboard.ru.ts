@@ -263,6 +263,24 @@ export const ru = {
       title: 'Требует внимания',
       description: 'Детализация по вниманию',
       empty: 'Сейчас ничего не требует внимания.',
+      kinds: {
+        SUBSCRIPTION_EXPIRING: {
+          title: 'Истекают подписки: {{count}}',
+          description: 'Активные подписки истекут в ближайшие 7 дней.',
+        },
+        PAYMENT_PENDING: {
+          title: 'Платежи в ожидании: {{count}}',
+          description: 'Необычно много платежей зависло в статусе «ожидание».',
+        },
+        WITHDRAWAL_PENDING: {
+          title: 'Заявки на вывод: {{count}}',
+          description: 'Заявки партнёров на вывод ждут решения оператора.',
+        },
+        WEBHOOK_FAILED: {
+          title: 'Сбойные вебхуки: {{count}}',
+          description: 'Платёжные вебхуки не обработались — сверка может быть остановлена.',
+        },
+      },
     },
     timelines: {
       operationsTitle: 'Лента операционной активности',
@@ -281,6 +299,27 @@ export const ru = {
         SUCCESS: 'SUCCESS',
         PENDING: 'PENDING',
         ERROR: 'ERROR',
+      },
+      entries: {
+        import: {
+          title: 'Импорт: {{source}}',
+          description: 'обработано {{ok}}/{{total}}, ошибок {{failed}}',
+        },
+        broadcast: {
+          title: 'Рассылка: {{audience}}',
+          description: 'доставлено {{success}}/{{total}}, ошибок {{failed}}',
+        },
+        payment: {
+          title: 'Платёж: {{status}}',
+          description: '{{purchaseType}} через {{channel}} · {{amount}} {{currency}}',
+          statuses: {
+            COMPLETED: 'завершён',
+            PENDING: 'в ожидании',
+            FAILED: 'ошибка',
+            CANCELED: 'отменён',
+            REFUNDED: 'возврат',
+          },
+        },
       },
     },
   },

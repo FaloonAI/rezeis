@@ -37,6 +37,25 @@ export type DashboardTimelineStatus =
   | 'PENDING'
   | 'ERROR'
 
+export type DashboardTimelineKind = 'IMPORT' | 'BROADCAST' | 'AUDIT' | 'PAYMENT'
+
+export interface DashboardTimelineMetaInterface {
+  readonly sourceType?: string
+  readonly recordsOk?: number
+  readonly recordsTotal?: number
+  readonly recordsFailed?: number
+  readonly audience?: string
+  readonly successCount?: number
+  readonly totalCount?: number
+  readonly failedCount?: number
+  readonly action?: string
+  readonly paymentStatus?: string
+  readonly purchaseType?: string
+  readonly channel?: string | null
+  readonly amount?: string
+  readonly currency?: string
+}
+
 export interface DashboardTimelineEntryInterface {
   readonly id: string
   readonly source: DashboardOperationsTimelineSource
@@ -44,6 +63,8 @@ export interface DashboardTimelineEntryInterface {
   readonly description: string
   readonly createdAt: string
   readonly status: DashboardTimelineStatus
+  readonly kind?: DashboardTimelineKind
+  readonly meta?: DashboardTimelineMetaInterface
 }
 
 export type DashboardAttentionKind =
@@ -60,6 +81,8 @@ export interface DashboardAttentionItemInterface {
   readonly severity: DashboardAttentionSeverity
   readonly title: string
   readonly description: string
+  /** Count behind the item — drives the localized SPA copy. */
+  readonly count: number
   readonly occurredAt: string
   readonly status: 'ACTIVE' | 'PENDING' | 'RESOLVED'
 }

@@ -60,4 +60,21 @@ export interface BotScreenNodeData extends Record<string, unknown> {
   mediaUrl: string | null
   isRoot: boolean
   buttons: BotFlowButton[][]  // grouped by row
+  /**
+   * Read-only preview of buttons reiwa injects at runtime (not stored in
+   * `bot_flow_buttons`): the per-screen system buttons of built-in screens
+   * (invite / rules / help) and the auto "◀️ В меню" row added to any screen
+   * with no buttons. Rendered as muted chips so the operator sees the full
+   * keyboard; the `isBack` chip anchors a dashed edge to the root screen.
+   */
+  systemButtons?: readonly SystemButtonPreview[]
+}
+
+/** One runtime-injected system button preview shown on the canvas. */
+export interface SystemButtonPreview {
+  readonly key: string
+  /** i18n key for the chip label. */
+  readonly labelKey: string
+  /** True for the "back to menu" button — anchors the dashed edge to root. */
+  readonly isBack: boolean
 }

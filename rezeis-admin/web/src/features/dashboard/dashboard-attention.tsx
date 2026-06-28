@@ -42,12 +42,22 @@ export function DashboardAttentionSection({
               className="flex flex-col gap-1 rounded-md border p-3"
             >
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">{item.title}</span>
+                <span className="text-sm font-medium">
+                  {t(`dashboardPage.attention.kinds.${item.kind}.title`, {
+                    count: item.count,
+                    defaultValue: item.title,
+                  })}
+                </span>
                 <Badge variant={SEVERITY_BADGE_VARIANT[item.severity]}>
                   {String(t(`dashboardPage.severities.${item.severity}`, item.severity))}
                 </Badge>
               </div>
-              <p className="text-sm text-muted-foreground">{item.description}</p>
+              <p className="text-sm text-muted-foreground">
+                {t(`dashboardPage.attention.kinds.${item.kind}.description`, {
+                  count: item.count,
+                  defaultValue: item.description,
+                })}
+              </p>
               <p className="text-xs text-muted-foreground">
                 {new Date(item.occurredAt).toLocaleString()}
               </p>

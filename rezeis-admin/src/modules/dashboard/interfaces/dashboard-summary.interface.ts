@@ -35,6 +35,36 @@ export type DashboardOperationsTimelineSource = 'BROADCAST' | 'IMPORT' | 'AUDIT'
 
 export type DashboardTimelineStatus = 'INFO' | 'WARNING' | 'SUCCESS' | 'PENDING' | 'ERROR';
 
+/** Discriminator that lets the SPA compose localized timeline copy. */
+export type DashboardTimelineKind = 'IMPORT' | 'BROADCAST' | 'AUDIT' | 'PAYMENT';
+
+/**
+ * Operator-safe structured values backing the localized timeline copy. Every
+ * field is a bounded counter, enum code, or short label — never a user id,
+ * payment id, or raw payload. The SPA interpolates these into i18n templates;
+ * `title`/`description` stay as English fallbacks for the async-load gap/tests.
+ */
+export interface DashboardTimelineMetaInterface {
+  // IMPORT
+  readonly sourceType?: string;
+  readonly recordsOk?: number;
+  readonly recordsTotal?: number;
+  readonly recordsFailed?: number;
+  // BROADCAST
+  readonly audience?: string;
+  readonly successCount?: number;
+  readonly totalCount?: number;
+  readonly failedCount?: number;
+  // AUDIT / OPS (raw English action identifier — kept verbatim)
+  readonly action?: string;
+  // PAYMENT
+  readonly paymentStatus?: string;
+  readonly purchaseType?: string;
+  readonly channel?: string | null;
+  readonly amount?: string;
+  readonly currency?: string;
+}
+
 export interface DashboardTimelineEntryInterface {
   readonly id: string;
   readonly source: DashboardOperationsTimelineSource;
@@ -42,6 +72,10 @@ export interface DashboardTimelineEntryInterface {
   readonly description: string;
   readonly createdAt: string;
   readonly status: DashboardTimelineStatus;
+  /** Discriminator for client-side localization (falls back to title/description). */
+  readonly kind?: DashboardTimelineKind;
+  /** Structured, operator-safe values for client-side i18n interpolation. */
+  readonly meta?: DashboardTimelineMetaInterface;
 }
 
 export type DashboardAttentionKind =
@@ -58,6 +92,8 @@ export interface DashboardAttentionItemInterface {
   readonly severity: DashboardAttentionSeverity;
   readonly title: string;
   readonly description: string;
+  /** Count behind the item (e.g. number of expiring subs) — drives the SPA copy. */
+  readonly count: number;
   readonly occurredAt: string;
   readonly status: 'ACTIVE' | 'PENDING' | 'RESOLVED';
 }

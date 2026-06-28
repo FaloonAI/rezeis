@@ -8,13 +8,20 @@ import {
   PurchaseChannel,
   PurchaseType,
   SubscriptionStatus,
-  SyncAction,
   TransactionStatus,
 } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { RemnawaveApiService } from '../../remnawave/services/remnawave-api.service';
 import { loginPolicy } from '../../auth/utils/login-policy.util';
 import { ImportSummary } from '../interfaces/import-summary.interface';
+import {
+  buildPanelLookup,
+  panelSubscriptionState,
+  reconcileMissingPanelStatus,
+  resolvePanelProfile,
+  type PanelLookup,
+} from '../utils/remnawave-overlay.util';
 import {
   AltshopPlan,
   AltshopPlanDuration,
@@ -173,7 +180,10 @@ interface RunInput {
 export class AltshopImporterService {
   private readonly logger = new Logger(AltshopImporterService.name);
 
-  public constructor(private readonly prismaService: PrismaService) {}
+  public constructor(
+    private readonly prismaService: PrismaService,
+    private readonly remnawaveApiService: RemnawaveApiService,
+  ) {}
 
   public async run(input: RunInput): Promise<ImportSummary> {
     const { users, subscriptions, transactions, mode, createdBy, importRecordId, plans, planDurations, planPrices } = input;
@@ -198,6 +208,10 @@ export class AltshopImporterService {
       subsByTelegramId.set(sub.user_telegram_id, existing);
     }
 
+    // Live Remnawave snapshot for the read-only cross-check (scales past the
+    // bulk ceiling via per-UUID fallback; fail-soft to backup if unreachable).
+    const panelLookup = await buildPanelLookup(() => this.remnawaveApiService.getAllPanelUsers());
+
     // Index transactions by telegram_id
     const txsByTelegramId = new Map<number, AltshopTransaction[]>();
     for (const tx of transactions ?? []) {
@@ -212,6 +226,7 @@ export class AltshopImporterService {
     let skipped = 0;
     let subscriptionsCreated = 0;
     let subscriptionsUpdated = 0;
+    const createdUserIds: string[] = [];
 
     for (const altshopUser of users) {
       try {
@@ -224,6 +239,7 @@ export class AltshopImporterService {
         const wasCreated = await this.wasJustCreated(userId);
         if (wasCreated) {
           created += 1;
+          createdUserIds.push(userId);
         } else {
           updated += 1;
         }
@@ -231,7 +247,7 @@ export class AltshopImporterService {
         // Sync subscriptions for this user
         const userSubs = subsByTelegramId.get(altshopUser.telegram_id) ?? [];
         for (const sub of userSubs) {
-          const subResult = await this.syncSubscription(userId, sub);
+          const subResult = await this.syncSubscription(userId, sub, panelLookup);
           if (subResult === 'created') subscriptionsCreated += 1;
           if (subResult === 'updated') subscriptionsUpdated += 1;
         }
@@ -270,6 +286,7 @@ export class AltshopImporterService {
       subscriptionsUpdated,
       transactionsProcessed: (transactions ?? []).length,
       errors,
+      rollback: { createdUserIds },
       // Catalog snapshot — drives the optional "Clone plans" post-import
       // step. Stored as-is; the cloner reads it back and adapts shapes
       // there. Total payload is small (a few KB even on real boxes).
@@ -393,6 +410,7 @@ export class AltshopImporterService {
   private async syncSubscription(
     userId: string,
     sub: AltshopSubscription,
+    panelLookup: PanelLookup,
   ): Promise<'created' | 'updated' | 'skipped'> {
     if (sub.user_remna_id) {
       const existing = await this.prismaService.subscription.findFirst({
@@ -400,18 +418,34 @@ export class AltshopImporterService {
         select: { id: true, userId: true },
       });
 
-      const status = this.mapStatus(sub.status);
-      const expiresAt = sub.expire_at ? new Date(sub.expire_at) : null;
+      // Remnawave is the truth: if the panel still has this profile, overlay
+      // its FRESH state (active subscriptions become accurate). If it's gone,
+      // keep the backup's own (stale) state as-is — the user re-buys via bot.
+      const { panel, known } = await resolvePanelProfile(
+        sub.user_remna_id,
+        panelLookup,
+        (uuid) => this.remnawaveApiService.getPanelUser(uuid),
+      );
+      const fresh = panel ? panelSubscriptionState(panel) : null;
+      const status = fresh
+        ? fresh.status
+        : reconcileMissingPanelStatus(known, this.mapStatus(sub.status));
+      const expiresAt = fresh ? fresh.expiresAt : sub.expire_at ? new Date(sub.expire_at) : null;
+      const trafficLimit = fresh ? fresh.trafficLimit : sub.traffic_limit > 0 ? sub.traffic_limit : null;
+      const deviceLimit = fresh ? fresh.deviceLimit : sub.device_limit;
+      const internalSquads = fresh ? fresh.internalSquads : (sub.internal_squads ?? []);
+      const externalSquad = fresh ? fresh.externalSquad : (sub.external_squad ?? null);
+      const configUrl = fresh ? fresh.configUrl : (sub.url || null);
 
       const subscriptionData: Prisma.SubscriptionUpdateInput = {
         status,
         isTrial: sub.is_trial,
-        trafficLimit: sub.traffic_limit > 0 ? sub.traffic_limit : null,
-        deviceLimit: sub.device_limit,
-        configUrl: sub.url || null,
+        trafficLimit,
+        deviceLimit,
+        configUrl,
         expiresAt,
-        internalSquads: sub.internal_squads ?? [],
-        externalSquad: sub.external_squad ?? null,
+        internalSquads,
+        externalSquad,
         planSnapshot: {
           importedFrom: 'altshop',
           tag: sub.tag,
@@ -441,13 +475,13 @@ export class AltshopImporterService {
           remnawaveId: sub.user_remna_id,
           status,
           isTrial: sub.is_trial,
-          trafficLimit: sub.traffic_limit > 0 ? sub.traffic_limit : null,
-          deviceLimit: sub.device_limit,
-          configUrl: sub.url || null,
+          trafficLimit,
+          deviceLimit,
+          configUrl,
           expiresAt,
           startedAt: sub.created_at ? new Date(sub.created_at) : new Date(),
-          internalSquads: sub.internal_squads ?? [],
-          externalSquad: sub.external_squad ?? null,
+          internalSquads,
+          externalSquad,
           planSnapshot: {
             importedFrom: 'altshop',
             tag: sub.tag,
@@ -458,20 +492,9 @@ export class AltshopImporterService {
         },
       });
 
-      // Create a ProfileSyncJob so the worker syncs with Remnawave.
-      // Altshop subscriptions already have remnawaveId → UPDATE to ensure consistency.
-      if (status === SubscriptionStatus.ACTIVE || status === SubscriptionStatus.LIMITED) {
-        await this.prismaService.profileSyncJob.create({
-          data: {
-            subscriptionId: newSub.id,
-            action: sub.user_remna_id ? SyncAction.UPDATE : SyncAction.CREATE,
-            payload: {
-              importedFrom: 'altshop',
-              originalId: sub.id,
-            } satisfies Prisma.InputJsonValue,
-          },
-        });
-      }
+      // No ProfileSyncJob: import is READ-ONLY toward Remnawave (the truth) —
+      // it never pushes the backup's possibly-stale state back, and gone/expired
+      // profiles are not re-provisioned (the user re-buys via the bot).
 
       // Set as current subscription if user doesn't have one
       const user = await this.prismaService.user.findUnique({

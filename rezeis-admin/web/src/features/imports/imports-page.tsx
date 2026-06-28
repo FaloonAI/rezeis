@@ -26,6 +26,7 @@ import {
   FileUp,
   Loader2,
   RefreshCw,
+  RotateCcw,
   Upload,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -33,6 +34,17 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { adminQueryKeys } from '@/lib/admin-query-keys'
 import { formatDateTime } from '@/lib/utils'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import {
   Card,
   CardContent,
@@ -83,6 +95,15 @@ interface ImportRecord {
   errorMessage: string | null
   createdAt: string
   committedAt: string | null
+  result?: Record<string, unknown> | null
+}
+
+/** Number of users an import created and can therefore delete on rollback. */
+function rollbackableUserCount(record: ImportRecord): number {
+  const rollback = record.result?.rollback
+  if (rollback === null || typeof rollback !== 'object' || Array.isArray(rollback)) return 0
+  const ids = (rollback as Record<string, unknown>).createdUserIds
+  return Array.isArray(ids) ? ids.length : 0
 }
 
 interface ImportEnqueuedResponse {
@@ -494,6 +515,7 @@ function FileUploadTab({ source, onStart, onRecordId }: FileUploadTabProps): JSX
 
 function ImportHistory(): JSX.Element {
   const { t } = useTranslation()
+  const canRunImports = useHasPermission('imports', 'run')
 
   const { data, isLoading } = useQuery({
     queryKey: adminQueryKeys.imports.all,
@@ -541,6 +563,9 @@ function ImportHistory(): JSX.Element {
                 <TableHead>{t('importsPage.columns.processed')}</TableHead>
                 <TableHead>{t('importsPage.columns.errors')}</TableHead>
                 <TableHead>{t('importsPage.columns.created')}</TableHead>
+                {canRunImports ? (
+                  <TableHead className="text-right">{t('importsPage.columns.actions')}</TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -564,6 +589,18 @@ function ImportHistory(): JSX.Element {
                   <TableCell className="text-xs text-muted-foreground">
                     {formatDateTime(record.createdAt)}
                   </TableCell>
+                  {canRunImports ? (
+                    <TableCell className="text-right">
+                      {record.status === 'COMMITTED' && rollbackableUserCount(record) > 0 ? (
+                        <RollbackButton
+                          importId={record.id}
+                          createdCount={rollbackableUserCount(record)}
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                  ) : null}
                 </TableRow>
               ))}
             </TableBody>
@@ -571,5 +608,77 @@ function ImportHistory(): JSX.Element {
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * Per-row "undo import" control in the history table. Deletes exactly the
+ * users the import created (cascading their subscriptions / web accounts);
+ * updated users and the Remnawave panel are left intact. Guarded behind an
+ * explicit confirm because it is irreversible.
+ */
+function RollbackButton({
+  importId,
+  createdCount,
+}: {
+  readonly importId: string
+  readonly createdCount: number
+}): JSX.Element {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [open, setOpen] = useState(false)
+
+  const mutation = useMutation({
+    mutationFn: async () =>
+      (await api.post<{ deletedUsers: number }>(`/admin/imports/${importId}/rollback`)).data,
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: adminQueryKeys.imports.all })
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+      toast.success(t('importsPage.progressDialog.rollbackDone', { count: result.deletedUsers }))
+      setOpen(false)
+    },
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      toast.error(message ?? t('importsPage.errorGeneric'))
+    },
+  })
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 text-destructive hover:text-destructive"
+        >
+          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+          {t('importsPage.progressDialog.rollback')}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('importsPage.progressDialog.rollback')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('importsPage.progressDialog.rollbackConfirm', { count: createdCount })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={mutation.isPending}>
+            {t('importsPage.progressDialog.rollbackConfirmNo')}
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => {
+              e.preventDefault()
+              mutation.mutate()
+            }}
+            disabled={mutation.isPending}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {mutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+            {t('importsPage.progressDialog.rollbackConfirmYes')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

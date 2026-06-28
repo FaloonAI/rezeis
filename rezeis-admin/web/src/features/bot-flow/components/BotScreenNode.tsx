@@ -106,18 +106,53 @@ function BotScreenNodeComponent({ data, id, selected }: NodeProps) {
                     )}
                     {btn.labelRu || btn.labelEn}
                   </div>
-                  {/* Source handle per navigable button */}
-                  {btn.actionType === 'NAVIGATE' && (
+                  {/* Source handle per navigable / back button so its edge
+                      originates from the button chip. NAVIGATE → another
+                      screen (blue); BACK / START_OVER → root menu (slate). */}
+                  {(btn.actionType === 'NAVIGATE' ||
+                    btn.actionType === 'BACK' ||
+                    btn.actionType === 'START_OVER') && (
                     <Handle
                       type="source"
                       position={Position.Bottom}
                       id={`btn-${btn.id}`}
-                      className="!w-2.5 !h-2.5 !bg-blue-500 !border-2 !border-background !-bottom-1.5"
+                      className={cn(
+                        '!w-2.5 !h-2.5 !border-2 !border-background !-bottom-1.5',
+                        btn.actionType === 'NAVIGATE' ? '!bg-blue-500' : '!bg-slate-400',
+                      )}
                       style={{ left: '50%', transform: 'translateX(-50%)' }}
                     />
                   )}
                 </div>
               ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Runtime-injected system buttons (read-only preview): the per-screen
+          built-in buttons of invite/rules/help and the auto "◀️ В меню" row.
+          Muted dashed chips so the operator sees the full keyboard; the back
+          chip anchors the dashed edge to the root screen. */}
+      {nodeData.systemButtons && nodeData.systemButtons.length > 0 && (
+        <div className="px-2 pb-2 pt-1.5 space-y-1 border-t border-dashed border-border/60">
+          <p className="px-1 text-[8px] font-medium uppercase tracking-wider text-muted-foreground/60">
+            {t('botFlow.systemButtonsCanvasLabel')}
+          </p>
+          {nodeData.systemButtons.map((sb) => (
+            <div key={sb.key} className="relative">
+              <div className="truncate rounded-md border border-dashed border-border/70 bg-muted/30 px-2 py-1 text-center text-[10px] font-medium text-muted-foreground">
+                {t(sb.labelKey)}
+              </div>
+              {sb.isBack && (
+                <Handle
+                  type="source"
+                  position={Position.Bottom}
+                  id={`${id}-sysback`}
+                  className="!w-2.5 !h-2.5 !bg-slate-400 !border-2 !border-background !-bottom-1.5"
+                  style={{ left: '50%', transform: 'translateX(-50%)' }}
+                />
+              )}
             </div>
           ))}
         </div>

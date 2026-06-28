@@ -82,6 +82,10 @@ export class RemnawaveImporterService {
     let subscriptionsCreated = 0;
     let subscriptionsUpdated = 0;
     let descriptionWritebacks = 0;
+    // Ids of users this run newly created (not matched/updated) — persisted in
+    // `result.rollback.createdUserIds` so an operator can undo the import,
+    // deleting exactly these users (and their cascaded subs/web-accounts).
+    const createdUserIds: string[] = [];
 
     for (const panelUser of panelUsers) {
       try {
@@ -95,6 +99,7 @@ export class RemnawaveImporterService {
         const wasCreated = await this.wasJustCreated(userId);
         if (wasCreated) {
           created += 1;
+          createdUserIds.push(userId);
         } else {
           updated += 1;
         }
@@ -126,6 +131,7 @@ export class RemnawaveImporterService {
       subscriptionsUpdated,
       descriptionWritebacks,
       errors,
+      rollback: { createdUserIds },
     } satisfies Prisma.InputJsonValue;
     const errorMessage = errors.length === 0 ? null : errors.slice(0, 5).join('; ');
 

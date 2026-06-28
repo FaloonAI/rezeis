@@ -8,12 +8,19 @@ import {
   PurchaseChannel,
   PurchaseType,
   SubscriptionStatus,
-  SyncAction,
   TransactionStatus,
 } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { RemnawaveApiService } from '../../remnawave/services/remnawave-api.service';
 import { ImportSummary } from '../interfaces/import-summary.interface';
+import {
+  buildPanelLookup,
+  panelSubscriptionState,
+  reconcileMissingPanelStatus,
+  resolvePanelProfile,
+  type PanelLookup,
+} from '../utils/remnawave-overlay.util';
 import {
   StealthnetClient,
   StealthnetPayment,
@@ -67,7 +74,10 @@ interface RunInput {
 export class StealthnetImporterService {
   private readonly logger = new Logger(StealthnetImporterService.name);
 
-  public constructor(private readonly prismaService: PrismaService) {}
+  public constructor(
+    private readonly prismaService: PrismaService,
+    private readonly remnawaveApiService: RemnawaveApiService,
+  ) {}
 
   public async run(input: RunInput): Promise<ImportSummary> {
     const {
@@ -104,6 +114,12 @@ export class StealthnetImporterService {
     const tariffById = new Map<string, StealthnetTariff>();
     for (const tariff of tariffs) tariffById.set(tariff.id, tariff);
 
+    // Cross-check every backup subscription against the LIVE Remnawave panel:
+    // profiles the panel still has get refreshed from it (the truth), profiles
+    // it no longer has become EXPIRED. Scales past the bulk ceiling via a
+    // targeted per-UUID fallback; fail-soft to backup values if unreachable.
+    const panelLookup = await buildPanelLookup(() => this.remnawaveApiService.getAllPanelUsers());
+
     const errors: string[] = [];
     let created = 0;
     let updated = 0;
@@ -111,6 +127,7 @@ export class StealthnetImporterService {
     let subscriptionsCreated = 0;
     let subscriptionsUpdated = 0;
     let transactionsCreated = 0;
+    const createdUserIds: string[] = [];
 
     for (const client of clients) {
       const identifier = client.telegram_id ?? client.email ?? client.id;
@@ -122,13 +139,17 @@ export class StealthnetImporterService {
         }
 
         const wasJustCreated = await this.wasJustCreated(userId);
-        if (wasJustCreated) created += 1;
-        else updated += 1;
+        if (wasJustCreated) {
+          created += 1;
+          createdUserIds.push(userId);
+        } else {
+          updated += 1;
+        }
 
         // Subscriptions
         const userSubs = subsByOwner.get(client.id) ?? [];
         for (const sub of userSubs) {
-          const result = await this.syncSubscription(userId, sub, tariffById);
+          const result = await this.syncSubscription(userId, sub, tariffById, panelLookup);
           if (result === 'created') subscriptionsCreated += 1;
           else if (result === 'updated') subscriptionsUpdated += 1;
         }
@@ -158,6 +179,7 @@ export class StealthnetImporterService {
       transactionsProcessed: payments.length,
       transactionsCreated,
       errors,
+      rollback: { createdUserIds },
       // Catalog snapshot — reused by BackupPlanClonerService for the
       // optional second-step clone. We pre-translate STEALTHNET rows
       // into the same shape altshop emits so the cloner doesn't need
@@ -347,6 +369,7 @@ export class StealthnetImporterService {
     userId: string,
     sub: StealthnetSubscription,
     tariffById: ReadonlyMap<string, StealthnetTariff>,
+    panelLookup: PanelLookup,
   ): Promise<'created' | 'updated' | 'skipped'> {
     if (!sub.remnawave_uuid) return 'skipped';
 
@@ -356,10 +379,7 @@ export class StealthnetImporterService {
     });
 
     const tariff = sub.tariff_id ? tariffById.get(sub.tariff_id) : undefined;
-    const trafficLimit = tariff?.traffic_limit_bytes && tariff.traffic_limit_bytes > 0
-      ? Number(tariff.traffic_limit_bytes)
-      : null;
-    const deviceLimit = tariff?.device_limit ?? tariff?.included_devices ?? 0;
+    const tariffSquads = tariff?.internal_squad_uuids ? [...tariff.internal_squad_uuids] : [];
 
     const planSnapshot: Prisma.InputJsonValue = {
       importedFrom: 'stealthnet',
@@ -375,14 +395,42 @@ export class StealthnetImporterService {
       durationDays: tariff?.duration_days ?? null,
     };
 
-    const dataShared = {
-      status: SubscriptionStatus.ACTIVE,
-      isTrial: false,
-      trafficLimit,
-      deviceLimit,
-      internalSquads: tariff?.internal_squad_uuids ? [...tariff.internal_squad_uuids] : [],
-      planSnapshot,
-    };
+    // Remnawave is the source of truth. If the panel still has this profile,
+    // overlay its FRESH state (active subscriptions become accurate). If it's
+    // gone from the panel, the subscription is no longer live → EXPIRED, kept
+    // locally so the user can re-buy through the bot.
+    const { panel, known } = await resolvePanelProfile(
+      sub.remnawave_uuid,
+      panelLookup,
+      (uuid) => this.remnawaveApiService.getPanelUser(uuid),
+    );
+    const dataShared = panel
+      ? (() => {
+          const fresh = panelSubscriptionState(panel);
+          return {
+            status: fresh.status,
+            isTrial: false,
+            trafficLimit: fresh.trafficLimit,
+            deviceLimit: fresh.deviceLimit,
+            internalSquads: fresh.internalSquads.length > 0 ? fresh.internalSquads : tariffSquads,
+            externalSquad: fresh.externalSquad,
+            configUrl: fresh.configUrl,
+            expiresAt: fresh.expiresAt,
+            planSnapshot,
+          };
+        })()
+      : {
+          status: reconcileMissingPanelStatus(known, SubscriptionStatus.ACTIVE),
+          isTrial: false,
+          trafficLimit:
+            tariff?.traffic_limit_bytes && tariff.traffic_limit_bytes > 0
+              ? Math.max(1, Math.round(Number(tariff.traffic_limit_bytes) / 1024 ** 3))
+              : null,
+          deviceLimit: tariff?.device_limit ?? tariff?.included_devices ?? 0,
+          internalSquads: tariffSquads,
+          expiresAt: null,
+          planSnapshot,
+        };
 
     if (existing) {
       await this.prismaService.subscription.update({
@@ -407,17 +455,10 @@ export class StealthnetImporterService {
       },
     });
 
-    // Queue a Remnawave sync so the panel reflects the imported state.
-    await this.prismaService.profileSyncJob.create({
-      data: {
-        subscriptionId: newSub.id,
-        action: SyncAction.UPDATE,
-        payload: {
-          importedFrom: 'stealthnet',
-          sourceSubscriptionId: sub.id,
-        } satisfies Prisma.InputJsonValue,
-      },
-    });
+    // No ProfileSyncJob: the import READS from Remnawave (the truth) and must
+    // never push the backup's possibly-stale state back, which would clobber
+    // live profiles. Expired/gone profiles are intentionally not re-provisioned
+    // — the user re-buys through the bot to get a fresh subscription.
 
     // Fill in `currentSubscriptionId` if the user has none yet —
     // otherwise leave the operator's existing pick alone.

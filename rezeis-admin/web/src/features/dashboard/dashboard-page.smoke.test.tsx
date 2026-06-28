@@ -61,6 +61,7 @@ describe('DashboardPage', () => {
           severity: 'WARNING',
           title: 'Subscription expiry attention',
           description: 'Paid subscription expires soon. Subscription identifier hidden.',
+          count: 3,
           occurredAt: '2026-04-25T12:00:00.000Z',
           status: 'ACTIVE',
         },
@@ -70,6 +71,7 @@ describe('DashboardPage', () => {
           severity: 'INFO',
           title: 'Pending payment attention',
           description: 'NEW via WEB. Amount 12.50 USD. Payment identifier hidden.',
+          count: 1,
           occurredAt: '2026-04-24T10:00:00.000Z',
           status: 'PENDING',
         },
@@ -94,10 +96,10 @@ describe('DashboardPage', () => {
     expect((await screen.findAllByText('4')).length).toBeGreaterThan(0)
     expect(await screen.findByText('Failed payments')).toBeInTheDocument()
     expect(await screen.findByText('Attention drill-down')).toBeInTheDocument()
-    expect(await screen.findByText('Subscription expiry attention')).toBeInTheDocument()
-    expect(await screen.findByText('Paid subscription expires soon. Subscription identifier hidden.')).toBeInTheDocument()
-    expect(await screen.findByText('Pending payment attention')).toBeInTheDocument()
-    expect(await screen.findByText('NEW via WEB. Amount 12.50 USD. Payment identifier hidden.')).toBeInTheDocument()
+    expect(await screen.findByText('3 subscription(s) expiring soon')).toBeInTheDocument()
+    expect(await screen.findByText('Active subscriptions will expire within the next 7 days.')).toBeInTheDocument()
+    expect(await screen.findByText('1 payments pending')).toBeInTheDocument()
+    expect(await screen.findByText('An unusual number of payments are stuck in the pending state.')).toBeInTheDocument()
     expect(screen.queryByText('raw-subscription-id-sensitive-001')).not.toBeInTheDocument()
     expect(screen.queryByText('raw-user-id-sensitive-001')).not.toBeInTheDocument()
     expect(screen.queryByText('raw-provider-uuid-sensitive-001')).not.toBeInTheDocument()

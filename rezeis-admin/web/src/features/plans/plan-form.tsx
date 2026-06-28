@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, Trash2, Archive, ArrowUpRight, Users, Check, ChevronDown } from 'lucide-react'
+import { Plus, Trash2, Archive, ArrowUpRight, Users, Check, ChevronDown, Info } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useForm, type FieldErrors, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -22,6 +22,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { remnawaveApi } from '@/features/remnawave/remnawave-api'
 import { IconPicker } from '@/features/settings/icon-picker'
@@ -313,11 +314,28 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
         <>
           <Separator />
           <div className="space-y-4 rounded-lg border border-dashed p-4">
-            <Label className="text-base font-medium">{t('planForm.trial.title')}</Label>
+            <div className="flex items-center gap-2">
+              <Label className="text-base font-medium">{t('planForm.trial.title')}</Label>
+              {/* The Telegram-flow reminder is tucked behind an info icon (hover)
+                  instead of a always-on banner, to keep the form compact. */}
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t('planForm.trial.telegramNoteAria')}
+                      className="inline-flex text-amber-500 transition-colors hover:text-amber-400"
+                    >
+                      <Info className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs leading-snug">
+                    {t('planForm.trial.telegramNote')}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
             <p className="text-xs text-muted-foreground">{t('planForm.trial.hint')}</p>
-            <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-snug text-amber-700 dark:text-amber-400">
-              {t('planForm.trial.telegramNote')}
-            </p>
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
                 <Label className="text-sm">{t('planForm.trial.maxClaims')}</Label>

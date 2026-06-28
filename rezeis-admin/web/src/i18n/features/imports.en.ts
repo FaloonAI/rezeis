@@ -99,6 +99,7 @@ export const en = {
       processed: 'Processed',
       errors: 'Errors',
       created: 'When',
+      actions: 'Actions',
     },
     progressDialog: {
       title: 'Import from {{source}}',
@@ -131,6 +132,14 @@ export const en = {
       assignPlan: 'Assign plan to all',
       skipAssign: 'Skip for now',
       clonePlans: 'Clone source plans',
+      cancel: 'Cancel import',
+      cancelDone: 'Import canceled — job removed from the queue.',
+      cancelTooLate: 'The import is already running and cannot be canceled. Wait for it to finish, then roll it back if needed.',
+      rollback: 'Undo import',
+      rollbackConfirm: 'Delete {{count}} created user(s)? This cannot be undone.',
+      rollbackConfirmYes: 'Delete',
+      rollbackConfirmNo: 'Cancel',
+      rollbackDone: 'Import rolled back — {{count}} user(s) deleted.',
       timeoutWarning:
         'Import is taking longer than usual — still tracking in background. You can close this dialog, progress will appear in the history below.',
     },

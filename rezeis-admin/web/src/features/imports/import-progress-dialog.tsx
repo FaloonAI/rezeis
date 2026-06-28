@@ -29,15 +29,19 @@
  */
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertTriangle,
+  Ban,
   CheckCircle2,
   Loader2,
+  RotateCcw,
   XCircle,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
+import { adminQueryKeys } from '@/lib/admin-query-keys'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -132,6 +136,42 @@ export function ImportProgressDialog({
   onClonePlans,
 }: ImportProgressDialogProps): JSX.Element {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  // Inline confirm gate for the destructive "undo import" action — the first
+  // click arms it, the second performs the rollback.
+  const [confirmRollback, setConfirmRollback] = useState(false)
+
+  // Cancel a still-queued import job so it never applies (no-op once the
+  // worker has already started writing — the backend reports that).
+  const cancelMutation = useMutation({
+    mutationFn: async (id: string) => (await api.post(`/admin/imports/${id}/cancel`)).data,
+    onSuccess: (data: { canceled?: boolean; message?: string }) => {
+      void queryClient.invalidateQueries({ queryKey: adminQueryKeys.imports.all })
+      if (data?.canceled) toast.success(t('importsPage.progressDialog.cancelDone'))
+      else toast.message(t('importsPage.progressDialog.cancelTooLate'))
+      onClose()
+    },
+    onError: () => toast.error(t('importsPage.errorGeneric')),
+  })
+
+  // Undo a committed import: deletes exactly the users this run created
+  // (and their cascaded subscriptions / web accounts). Updated users and the
+  // Remnawave panel are left intact.
+  const rollbackMutation = useMutation({
+    mutationFn: async (id: string) =>
+      (await api.post<{ deletedUsers: number }>(`/admin/imports/${id}/rollback`)).data,
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({ queryKey: adminQueryKeys.imports.all })
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+      toast.success(t('importsPage.progressDialog.rollbackDone', { count: data.deletedUsers }))
+      setConfirmRollback(false)
+      onClose()
+    },
+    onError: (err: unknown) => {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      toast.error(message ?? t('importsPage.errorGeneric'))
+    },
+  })
 
   // Cosmetic stage cycler — runs while the job is live, just for visual
   // feedback. The real progress comes from the polling query below.
@@ -140,6 +180,7 @@ export function ImportProgressDialog({
     useEffect(() => {
     if (!open) return
     setStageIndex(0)
+    setConfirmRollback(false)
     const handle = window.setInterval(() => {
       setStageIndex((i) => (i + 1) % STAGE_KEYS.length)
     }, STAGE_INTERVAL_MS)
@@ -228,6 +269,21 @@ export function ImportProgressDialog({
         )}
 
         <DialogFooter className="gap-2 sm:gap-0">
+          {!isTerminal && importRecordId !== null ? (
+            <Button
+              variant="outline"
+              onClick={() => cancelMutation.mutate(importRecordId)}
+              disabled={cancelMutation.isPending}
+              className="w-full sm:w-auto"
+            >
+              {cancelMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Ban className="mr-2 h-4 w-4" />
+              )}
+              {t('importsPage.progressDialog.cancel')}
+            </Button>
+          ) : null}
           {isTerminal ? (
             <DoneFooter
               record={record!}
@@ -235,6 +291,10 @@ export function ImportProgressDialog({
               mode={mode}
               source={source}
               onClose={onClose}
+              onRollback={() => rollbackMutation.mutate(record!.id)}
+              rollbackPending={rollbackMutation.isPending}
+              confirmRollback={confirmRollback}
+              setConfirmRollback={setConfirmRollback}
               onAssignPlan={
                 onAssignPlan
                   ? () => {
@@ -434,6 +494,10 @@ function DoneFooter({
   onClose,
   onAssignPlan,
   onClonePlans,
+  onRollback,
+  rollbackPending,
+  confirmRollback,
+  setConfirmRollback,
 }: {
   readonly record: ImportRecordPayload
   readonly summary: FlattenedSummary | null
@@ -442,6 +506,10 @@ function DoneFooter({
   readonly onClose: () => void
   readonly onAssignPlan?: () => void
   readonly onClonePlans?: () => void
+  readonly onRollback?: () => void
+  readonly rollbackPending: boolean
+  readonly confirmRollback: boolean
+  readonly setConfirmRollback: (next: boolean) => void
 }): JSX.Element {
   const { t } = useTranslation()
 
@@ -468,29 +536,72 @@ function DoneFooter({
     summary !== null &&
     summary.created + summary.updated > 0
 
-  if (!offerPlanAssignment && !offerClone) {
-    return (
+  // Undo is offered only when the run actually created users — there is
+  // nothing to delete otherwise. Updated users / the panel are never touched.
+  const createdCount = summary?.created ?? 0
+  const offerRollback =
+    mode === 'import' &&
+    record.status === 'COMMITTED' &&
+    onRollback !== undefined &&
+    createdCount > 0
+
+  const rollbackNode = offerRollback ? (
+    confirmRollback ? (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">
+          {t('importsPage.progressDialog.rollbackConfirm', { count: createdCount })}
+        </span>
+        <Button size="sm" variant="destructive" onClick={onRollback} disabled={rollbackPending}>
+          {rollbackPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+          {t('importsPage.progressDialog.rollbackConfirmYes')}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setConfirmRollback(false)}
+          disabled={rollbackPending}
+        >
+          {t('importsPage.progressDialog.rollbackConfirmNo')}
+        </Button>
+      </div>
+    ) : (
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-destructive hover:text-destructive"
+        onClick={() => setConfirmRollback(true)}
+      >
+        <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+        {t('importsPage.progressDialog.rollback')}
+      </Button>
+    )
+  ) : null
+
+  const actions =
+    !offerPlanAssignment && !offerClone ? (
       <Button onClick={onClose} className="w-full sm:w-auto">
         {t('importsPage.progressDialog.close')}
       </Button>
+    ) : (
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button variant="outline" onClick={onClose}>
+          {t('importsPage.progressDialog.skipAssign')}
+        </Button>
+        {offerClone ? (
+          <Button variant="secondary" onClick={onClonePlans}>
+            {t('importsPage.progressDialog.clonePlans')}
+          </Button>
+        ) : null}
+        {offerPlanAssignment ? (
+          <Button onClick={onAssignPlan}>{t('importsPage.progressDialog.assignPlan')}</Button>
+        ) : null}
+      </div>
     )
-  }
 
   return (
-    <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-      <Button variant="outline" onClick={onClose}>
-        {t('importsPage.progressDialog.skipAssign')}
-      </Button>
-      {offerClone ? (
-        <Button variant="secondary" onClick={onClonePlans}>
-          {t('importsPage.progressDialog.clonePlans')}
-        </Button>
-      ) : null}
-      {offerPlanAssignment ? (
-        <Button onClick={onAssignPlan}>
-          {t('importsPage.progressDialog.assignPlan')}
-        </Button>
-      ) : null}
+    <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">{rollbackNode}</div>
+      <div className="sm:ml-auto">{actions}</div>
     </div>
   )
 }

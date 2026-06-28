@@ -144,20 +144,90 @@ function TimelineEntries({
   const { t } = useTranslation()
   return (
     <ul className="space-y-3">
-      {entries.map((entry) => (
-        <li key={entry.id} className="rounded-md border p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">{entry.title}</span>
-            <Badge variant="outline">
-              {String(t(`dashboardPage.timelines.financeStatuses.${entry.status}`, entry.status))}
-            </Badge>
-          </div>
-          <p className="text-sm text-muted-foreground">{entry.description}</p>
-          <p className="text-xs text-muted-foreground">
-            {new Date(entry.createdAt).toLocaleString()}
-          </p>
-        </li>
-      ))}
+      {entries.map((entry) => {
+        const copy = composeTimelineCopy(entry, t)
+        return (
+          <li key={entry.id} className="rounded-md border p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">{copy.title}</span>
+              <Badge variant="outline">
+                {String(t(`dashboardPage.timelines.financeStatuses.${entry.status}`, entry.status))}
+              </Badge>
+            </div>
+            {copy.description ? (
+              <p className="text-sm text-muted-foreground">{copy.description}</p>
+            ) : null}
+            <p className="text-xs text-muted-foreground">
+              {new Date(entry.createdAt).toLocaleString()}
+            </p>
+          </li>
+        )
+      })}
     </ul>
   )
+}
+
+/**
+ * Compose localized title/description for a timeline entry from its structured
+ * `kind` + `meta`. Falls back to the backend-composed English `title` /
+ * `description` (passed as `defaultValue`) so copy stays deterministic during
+ * the async i18n-bundle load gap and for entries without structured meta.
+ * Audit action codes are English identifiers and are shown verbatim.
+ */
+function composeTimelineCopy(
+  entry: DashboardTimelineEntryInterface,
+  t: ReturnType<typeof useTranslation>['t'],
+): { title: string; description: string } {
+  const meta = entry.meta ?? {}
+  const base = 'dashboardPage.timelines.entries'
+
+  switch (entry.kind) {
+    case 'IMPORT':
+      return {
+        title: String(t(`${base}.import.title`, { source: meta.sourceType ?? '', defaultValue: entry.title })),
+        description: String(
+          t(`${base}.import.description`, {
+            ok: meta.recordsOk ?? 0,
+            total: meta.recordsTotal ?? 0,
+            failed: meta.recordsFailed ?? 0,
+            defaultValue: entry.description,
+          }),
+        ),
+      }
+    case 'BROADCAST':
+      return {
+        title: String(t(`${base}.broadcast.title`, { audience: meta.audience ?? '', defaultValue: entry.title })),
+        description: String(
+          t(`${base}.broadcast.description`, {
+            success: meta.successCount ?? 0,
+            total: meta.totalCount ?? 0,
+            failed: meta.failedCount ?? 0,
+            defaultValue: entry.description,
+          }),
+        ),
+      }
+    case 'PAYMENT': {
+      const statusCode = (meta.paymentStatus ?? '').toUpperCase()
+      const statusWord = String(
+        t(`${base}.payment.statuses.${statusCode}`, (meta.paymentStatus ?? '').toLowerCase()),
+      )
+      return {
+        title: String(t(`${base}.payment.title`, { status: statusWord, defaultValue: entry.title })),
+        description: String(
+          t(`${base}.payment.description`, {
+            purchaseType: meta.purchaseType ?? '',
+            channel: meta.channel ?? '—',
+            amount: meta.amount ?? '0',
+            currency: meta.currency ?? '',
+            defaultValue: entry.description,
+          }),
+        ),
+      }
+    }
+    case 'AUDIT':
+      // Raw dotted action code — an English identifier, shown verbatim.
+      return { title: meta.action ?? entry.title, description: entry.description }
+    default:
+      return { title: entry.title, description: entry.description }
+  }
 }

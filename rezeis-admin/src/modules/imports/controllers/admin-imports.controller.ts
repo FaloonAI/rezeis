@@ -302,6 +302,28 @@ export class AdminImportsController {
     };
   }
 
+  // ── Rollback (undo a committed import) ───────────────────────────────────
+
+  @Post(':importId/rollback')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('imports', 'run')
+  public async rollbackImport(
+    @Param('importId') importId: string,
+  ): Promise<{ rolledBack: boolean; deletedUsers: number; message: string }> {
+    const record = await this.importsService.rollback(importId);
+    const result = serializeImportResult(record.result);
+    const rollback =
+      result !== null && typeof result.rollback === 'object' && result.rollback !== null
+        ? (result.rollback as Record<string, unknown>)
+        : {};
+    const deletedUsers = typeof rollback.deletedUsers === 'number' ? rollback.deletedUsers : 0;
+    return {
+      rolledBack: true,
+      deletedUsers,
+      message: `Import rolled back — ${deletedUsers} imported user(s) removed`,
+    };
+  }
+
   // ── Plan Catalog Cloning (altshop / remnashop) ─────────────────────────
 
   @Get(':importId/plan-preview')

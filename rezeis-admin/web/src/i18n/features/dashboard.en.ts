@@ -263,6 +263,24 @@ export const en = {
       title: 'Needs attention',
       description: 'Attention drill-down',
       empty: 'Nothing requires attention right now.',
+      kinds: {
+        SUBSCRIPTION_EXPIRING: {
+          title: '{{count}} subscription(s) expiring soon',
+          description: 'Active subscriptions will expire within the next 7 days.',
+        },
+        PAYMENT_PENDING: {
+          title: '{{count}} payments pending',
+          description: 'An unusual number of payments are stuck in the pending state.',
+        },
+        WITHDRAWAL_PENDING: {
+          title: '{{count}} partner withdrawal(s) pending',
+          description: 'Partner withdrawal requests are awaiting an operator decision.',
+        },
+        WEBHOOK_FAILED: {
+          title: '{{count}} failed payment webhook(s)',
+          description: 'Payment webhooks failed to process — reconciliation may be stuck.',
+        },
+      },
     },
     timelines: {
       operationsTitle: 'Operations activity timeline',
@@ -281,6 +299,27 @@ export const en = {
         SUCCESS: 'SUCCESS',
         PENDING: 'PENDING',
         ERROR: 'ERROR',
+      },
+      entries: {
+        import: {
+          title: 'Import: {{source}}',
+          description: '{{ok}}/{{total}} processed, {{failed}} failed',
+        },
+        broadcast: {
+          title: 'Broadcast: {{audience}}',
+          description: '{{success}}/{{total}} delivered, {{failed}} failed',
+        },
+        payment: {
+          title: 'Payment {{status}}',
+          description: '{{purchaseType}} via {{channel}} · {{amount}} {{currency}}',
+          statuses: {
+            COMPLETED: 'completed',
+            PENDING: 'pending',
+            FAILED: 'failed',
+            CANCELED: 'canceled',
+            REFUNDED: 'refunded',
+          },
+        },
       },
     },
   },

@@ -1,8 +1,16 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { ImportStatus, Locale, Prisma, SyncAction, SubscriptionStatus } from '@prisma/client';
+import { ImportStatus, Locale, Prisma, SubscriptionStatus } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { RemnawaveApiService } from '../../remnawave/services/remnawave-api.service';
 import { ImportSummary } from '../interfaces/import-summary.interface';
+import {
+  buildPanelLookup,
+  panelSubscriptionState,
+  reconcileMissingPanelStatus,
+  resolvePanelProfile,
+  type PanelLookup,
+} from '../utils/remnawave-overlay.util';
 import {
   RemnashopPlan,
   RemnashopPlanDuration,
@@ -114,7 +122,10 @@ interface RunInput {
 export class RemnashopImporterService {
   private readonly logger = new Logger(RemnashopImporterService.name);
 
-  public constructor(private readonly prismaService: PrismaService) {}
+  public constructor(
+    private readonly prismaService: PrismaService,
+    private readonly remnawaveApiService: RemnawaveApiService,
+  ) {}
 
   public async run(input: RunInput): Promise<ImportSummary> {
     const { users, subscriptions, mode, createdBy, importRecordId, plans, planDurations, planPrices } = input;
@@ -131,12 +142,17 @@ export class RemnashopImporterService {
       subsByTelegramId.set(sub.user_telegram_id, existing);
     }
 
+    // Live Remnawave snapshot for the read-only cross-check (scales past the
+    // bulk ceiling via per-UUID fallback; fail-soft to backup if unreachable).
+    const panelLookup = await buildPanelLookup(() => this.remnawaveApiService.getAllPanelUsers());
+
     const errors: string[] = [];
     let created = 0;
     let updated = 0;
     let skipped = 0;
     let subscriptionsCreated = 0;
     let subscriptionsUpdated = 0;
+    const createdUserIds: string[] = [];
 
     for (const remnashopUser of users) {
       try {
@@ -149,6 +165,7 @@ export class RemnashopImporterService {
         const wasCreated = await this.wasJustCreated(userId);
         if (wasCreated) {
           created += 1;
+          createdUserIds.push(userId);
         } else {
           updated += 1;
         }
@@ -156,7 +173,7 @@ export class RemnashopImporterService {
         // Sync subscriptions for this user
         const userSubs = subsByTelegramId.get(remnashopUser.telegram_id) ?? [];
         for (const sub of userSubs) {
-          const subResult = await this.syncSubscription(userId, sub);
+          const subResult = await this.syncSubscription(userId, sub, panelLookup);
           if (subResult === 'created') subscriptionsCreated += 1;
           if (subResult === 'updated') subscriptionsUpdated += 1;
         }
@@ -178,6 +195,7 @@ export class RemnashopImporterService {
       subscriptionsCreated,
       subscriptionsUpdated,
       errors,
+      rollback: { createdUserIds },
       // Catalog snapshot — see altshop-importer.service.ts.
       catalog: JSON.parse(JSON.stringify({
         plans: plans ?? [],
@@ -298,6 +316,7 @@ export class RemnashopImporterService {
   private async syncSubscription(
     userId: string,
     sub: RemnashopSubscription,
+    panelLookup: PanelLookup,
   ): Promise<'created' | 'updated' | 'skipped'> {
     // If subscription has a Remnawave UUID, use it as the unique key
     if (sub.user_remna_id) {
@@ -306,18 +325,34 @@ export class RemnashopImporterService {
         select: { id: true, userId: true },
       });
 
-      const status = this.mapStatus(sub.status);
-      const expiresAt = sub.expire_at ? new Date(sub.expire_at) : null;
+      // Remnawave is the truth: if the panel still has this profile, overlay
+      // its FRESH state (active subscriptions become accurate). If it's gone,
+      // keep the backup's own (stale) state as-is — the user re-buys via bot.
+      const { panel, known } = await resolvePanelProfile(
+        sub.user_remna_id,
+        panelLookup,
+        (uuid) => this.remnawaveApiService.getPanelUser(uuid),
+      );
+      const fresh = panel ? panelSubscriptionState(panel) : null;
+      const status = fresh
+        ? fresh.status
+        : reconcileMissingPanelStatus(known, this.mapStatus(sub.status));
+      const expiresAt = fresh ? fresh.expiresAt : sub.expire_at ? new Date(sub.expire_at) : null;
+      const trafficLimit = fresh ? fresh.trafficLimit : sub.traffic_limit > 0 ? sub.traffic_limit : null;
+      const deviceLimit = fresh ? fresh.deviceLimit : sub.device_limit;
+      const internalSquads = fresh ? fresh.internalSquads : (sub.internal_squads ?? []);
+      const externalSquad = fresh ? fresh.externalSquad : (sub.external_squad ?? null);
+      const configUrl = fresh ? fresh.configUrl : (sub.url || null);
 
       const subscriptionData: Prisma.SubscriptionUpdateInput = {
         status,
         isTrial: sub.is_trial,
-        trafficLimit: sub.traffic_limit > 0 ? sub.traffic_limit : null,
-        deviceLimit: sub.device_limit,
-        configUrl: sub.url || null,
+        trafficLimit,
+        deviceLimit,
+        configUrl,
         expiresAt,
-        internalSquads: sub.internal_squads ?? [],
-        externalSquad: sub.external_squad ?? null,
+        internalSquads,
+        externalSquad,
         planSnapshot: {
           importedFrom: 'remnashop',
           tag: sub.tag,
@@ -346,13 +381,13 @@ export class RemnashopImporterService {
           remnawaveId: sub.user_remna_id,
           status,
           isTrial: sub.is_trial,
-          trafficLimit: sub.traffic_limit > 0 ? sub.traffic_limit : null,
-          deviceLimit: sub.device_limit,
-          configUrl: sub.url || null,
+          trafficLimit,
+          deviceLimit,
+          configUrl,
           expiresAt,
           startedAt: sub.created_at ? new Date(sub.created_at) : new Date(),
-          internalSquads: sub.internal_squads ?? [],
-          externalSquad: sub.external_squad ?? null,
+          internalSquads,
+          externalSquad,
           planSnapshot: {
             importedFrom: 'remnashop',
             tag: sub.tag,
@@ -362,21 +397,9 @@ export class RemnashopImporterService {
         },
       });
 
-      // Create a ProfileSyncJob so the worker syncs with Remnawave.
-      // If remnawaveId exists, UPDATE to ensure consistency.
-      // If not, CREATE to provision a new profile.
-      if (status === SubscriptionStatus.ACTIVE || status === SubscriptionStatus.LIMITED) {
-        await this.prismaService.profileSyncJob.create({
-          data: {
-            subscriptionId: newSub.id,
-            action: sub.user_remna_id ? SyncAction.UPDATE : SyncAction.CREATE,
-            payload: {
-              importedFrom: 'remnashop',
-              originalId: sub.id,
-            } satisfies Prisma.InputJsonValue,
-          },
-        });
-      }
+      // No ProfileSyncJob: import is READ-ONLY toward Remnawave (the truth) —
+      // it never pushes the backup's possibly-stale state back, and gone/expired
+      // profiles are not re-provisioned (the user re-buys via the bot).
 
       // Set as current subscription if user doesn't have one
       const user = await this.prismaService.user.findUnique({
