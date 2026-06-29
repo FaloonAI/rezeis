@@ -16,6 +16,39 @@ export const BRANDING_APP_BG_TEXTURES = [
   'noise',
 ] as const
 
+/** Cabinet nav destinations (mirrors backend `NAV_DESTINATIONS`). */
+export const BRANDING_NAV_DESTINATIONS = [
+  'subscriptions',
+  'plans',
+  'referrals',
+  'devices',
+  'activity',
+  'promo',
+  'support',
+  'settings',
+] as const
+export type NavDestinationId = (typeof BRANDING_NAV_DESTINATIONS)[number]
+/** Destinations that can never be hidden from the nav. */
+export const BRANDING_NAV_ESSENTIALS: readonly NavDestinationId[] = ['subscriptions', 'settings']
+
+/** One nav entry draft (mirrors backend `NavItemSetting`). */
+export interface NavItemDraft {
+  readonly id: NavDestinationId
+  readonly visible: boolean
+}
+
+/** Default nav layout — current 3-tab cabinet, with the rest available to enable. */
+export const DEFAULT_NAV_ITEMS: readonly NavItemDraft[] = [
+  { id: 'subscriptions', visible: true },
+  { id: 'referrals', visible: true },
+  { id: 'settings', visible: true },
+  { id: 'plans', visible: false },
+  { id: 'devices', visible: false },
+  { id: 'activity', visible: false },
+  { id: 'promo', visible: false },
+  { id: 'support', visible: false },
+]
+
 export interface BrandingFormDraft {
   readonly brandName: string
   readonly tagline: string | null
@@ -40,6 +73,7 @@ export interface BrandingFormDraft {
   readonly borderRadius: string
   readonly fontFamily: string
   readonly planCardStyles?: Record<string, PlanCardStyleDraft>
+  readonly navItems?: readonly NavItemDraft[]
 }
 
 /** Per-plan tariff-card style draft (mirrors backend `PlanCardStyle`). */
@@ -135,6 +169,7 @@ const DEFAULT_BRANDING_DRAFT: BrandingFormDraft = {
   borderRadius: 'rounded-2xl',
   fontFamily: 'Geist Variable, system-ui, sans-serif',
   planCardStyles: {},
+  navItems: DEFAULT_NAV_ITEMS,
 }
 
 export function createBrandingFormSchema(messages: BrandingFormValidationMessages) {
@@ -196,6 +231,14 @@ export function createBrandingFormSchema(messages: BrandingFormValidationMessage
           }),
         )
         .optional(),
+      navItems: z
+        .array(
+          z.object({
+            id: z.enum(BRANDING_NAV_DESTINATIONS),
+            visible: z.boolean(),
+          }),
+        )
+        .optional(),
     })
     .transform((values): BrandingFormData => ({
       ...values,
@@ -204,6 +247,7 @@ export function createBrandingFormSchema(messages: BrandingFormValidationMessage
       appBackground: values.appBackground ?? DEFAULT_APP_BACKGROUND_DRAFT,
       iconColors: values.iconColors ?? {},
       planCardStyles: values.planCardStyles ?? {},
+      navItems: values.navItems ?? DEFAULT_NAV_ITEMS,
     }))
 }
 
@@ -223,6 +267,7 @@ export function createInitialBrandingDraft(input?: Partial<BrandingFormDraft> | 
     planCardStyles: isPlainRecordUnknown(input?.planCardStyles)
       ? (input.planCardStyles as Record<string, PlanCardStyleDraft>)
       : {},
+    navItems: Array.isArray(input?.navItems) ? input.navItems : DEFAULT_NAV_ITEMS,
   }
 }
 

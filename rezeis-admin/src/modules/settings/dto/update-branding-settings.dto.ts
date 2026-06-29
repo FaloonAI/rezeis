@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsHexColor,
   IsIn,
   IsNumber,
@@ -30,6 +31,8 @@ import {
   CardLogoPreset,
   ICON_COLOR_MODES,
   IconColorMode,
+  NAV_DESTINATIONS,
+  NavDestinationId,
 } from '../interfaces/branding-settings.interface';
 
 /**
@@ -148,6 +151,19 @@ export class ProfileNamingDto {
   @IsString()
   @MaxLength(32)
   public suffixBase?: string;
+}
+
+/**
+ * One cabinet navigation entry (`navItems`): a destination id + visibility.
+ * Strict id allowlist; ordering is the array order. Essentials are forced
+ * visible by the reader, so the UI can't strand the user.
+ */
+export class NavItemDto {
+  @IsIn(NAV_DESTINATIONS as readonly string[])
+  public id!: NavDestinationId;
+
+  @IsBoolean()
+  public visible!: boolean;
 }
 
 export class UpdateBrandingSettingsDto {
@@ -277,6 +293,17 @@ export class UpdateBrandingSettingsDto {
   @IsOptional()
   @IsObject()
   public planCardStyles?: Record<string, unknown>;
+
+  /**
+   * Cabinet bottom-navigation layout (ordered destinations + visibility).
+   * Normalized in `readNavItems` (allowlist, dedupe, essentials forced
+   * visible, visible-count cap).
+   */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => NavItemDto)
+  public navItems?: NavItemDto[];
 
   @IsOptional()
   @ValidateNested()

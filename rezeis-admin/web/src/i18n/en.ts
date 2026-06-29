@@ -2739,8 +2739,27 @@ export const en = {
       appbg: 'App background',
       icons: 'Menu icons',
       planCards: 'Tariff cards',
+      nav: 'Navigation',
     },
     sections: {
+      nav: {
+        title: 'Cabinet navigation',
+        description: 'Choose which sections appear in the cabinet bottom navigation and in what order. Hidden sections stay reachable from Settings.',
+        maxHint: 'Up to {{count}} sections can be shown in the navigation.',
+        locked: 'always',
+        moveUp: 'Move up',
+        moveDown: 'Move down',
+        dest: {
+          subscriptions: 'Subscriptions',
+          plans: 'Plans',
+          referrals: 'Referrals / Partner',
+          devices: 'Devices',
+          activity: 'Activity',
+          promo: 'Promo codes',
+          support: 'Support',
+          settings: 'Settings',
+        },
+      },
       presets: {
         title: 'Theme Presets',
         description: 'Apply a full palette in one click, then fine-tune colors if you want.',

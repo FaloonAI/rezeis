@@ -275,6 +275,11 @@ describe('SettingsController', () => {
       borderRadius: '1rem',
       fontFamily: 'Inter',
       planCardStyles: {},
+      navItems: [
+        { id: 'subscriptions', visible: true },
+        { id: 'referrals', visible: true },
+        { id: 'settings', visible: true },
+      ],
       profileNaming: { prefix: 'rz', separator: '_', suffixBase: 'sub' },
     };
     const icons: CustomIconInterface[] = [{ id: 'icon-1', name: 'Rocket', url: '/uploads/icons/rocket.svg', color: '#ffffff' }];

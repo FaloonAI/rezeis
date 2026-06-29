@@ -10,7 +10,19 @@
 
 import { Suspense, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Wifi, WalletCards, Share2, Settings, Sparkles } from 'lucide-react'
+import {
+  Wifi,
+  WalletCards,
+  Settings,
+  Sparkles,
+  Tag,
+  UserPlus,
+  MonitorSmartphone,
+  Activity,
+  TicketPercent,
+  LifeBuoy,
+  type LucideIcon,
+} from 'lucide-react'
 
 import { ReiwaMark } from './reiwa-mark'
 import { CardLogoMark, type CardLogoPreset } from './card-logo-mark'
@@ -22,11 +34,18 @@ import {
 import { usePlans, type Plan } from '@/features/plans/plans-api'
 import { autoPlanGradient } from './plan-card-styles-section'
 import { buildTextureCss } from './app-texture'
-import type { PlanCardStyleDraft, BrandingAppBackgroundDraft } from './branding-form-schema'
+import {
+  DEFAULT_NAV_ITEMS,
+  type PlanCardStyleDraft,
+  type BrandingAppBackgroundDraft,
+  type NavItemDraft,
+  type NavDestinationId,
+} from './branding-form-schema'
 
 interface BrandingPreviewProps {
   values: {
     brandName?: string
+    tagline?: string | null
     logoUrl?: string | null
     primary?: string
     primaryFg?: string
@@ -43,6 +62,7 @@ interface BrandingPreviewProps {
     borderRadius?: string
     planCardStyles?: Record<string, PlanCardStyleDraft>
     appBackground?: BrandingAppBackgroundDraft
+    navItems?: readonly NavItemDraft[]
   }
   /** Active configurator tab — drives a context-aware preview view. */
   focus?: string
@@ -79,10 +99,23 @@ const RADIUS_MAP: Record<string, string> = {
   'rounded-full': '9999px',
 }
 
+/** Bottom-nav destination → preview glyph (mirrors the reiwa `useNavTabs`). */
+const NAV_ICONS: Record<NavDestinationId, LucideIcon> = {
+  subscriptions: WalletCards,
+  plans: Tag,
+  referrals: UserPlus,
+  devices: MonitorSmartphone,
+  activity: Activity,
+  promo: TicketPercent,
+  support: LifeBuoy,
+  settings: Settings,
+}
+
 export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
   const { t } = useTranslation()
   const {
     brandName = 'Reiwa',
+    tagline,
     logoUrl,
     primary = '#22c55e',
     primaryFg = '#0a0a0a',
@@ -99,6 +132,7 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
     borderRadius = 'rounded-2xl',
     planCardStyles = {},
     appBackground,
+    navItems,
   } = values
 
   const radius = RADIUS_MAP[borderRadius] ?? '1rem'
@@ -125,6 +159,10 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
   }, [AppBgEffect, appBackground, primary])
   const appBgTextureCss =
     appBackground?.kind === 'texture' ? buildTextureCss(appBackground.texture) : null
+
+  // Configured bottom navigation (Навигация tab) → live preview pill.
+  const navSource = navItems && navItems.length > 0 ? navItems : DEFAULT_NAV_ITEMS
+  const visibleNav = navSource.filter((i) => i.visible).slice(0, 5)
 
   // Resolve the live effect component + merged params, mirroring the SPA: the
   // default Aurora is auto-tinted to the brand colour unless the operator has
@@ -199,8 +237,8 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
               )}
               <div className="leading-tight">
                 <p className="text-xs font-semibold text-white">{brandName}</p>
-                <p className="text-[9px] text-white/40">
-                  {t('brandingPage.sections.preview.welcome')}
+                <p className="truncate text-[9px] text-white/40">
+                  {tagline?.trim() || t('brandingPage.sections.preview.welcome')}
                 </p>
               </div>
             </div>
@@ -327,22 +365,29 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
             ))}
           </div>
 
-          {/* Bottom nav pill */}
+          {/* Bottom nav pill — reflects the configured navItems (Навигация tab) */}
           <div
-            className="mt-4 flex items-center justify-between rounded-full border border-white/10 px-1.5 py-1.5"
+            className="mt-4 flex items-center justify-between gap-1 rounded-full border border-white/10 px-1.5 py-1.5"
             style={{ backgroundColor: `${bgSecondary}e6` }}
           >
-            <div
-              className="flex items-center gap-1.5 rounded-full px-3 py-1.5"
-              style={{ backgroundColor: primary }}
-            >
-              <WalletCards className="h-3.5 w-3.5" style={{ color: primaryFg }} />
-              <span className="text-[9px] font-medium" style={{ color: primaryFg }}>
-                {t('brandingPage.sections.preview.nav')}
-              </span>
-            </div>
-            <Share2 className="mx-3 h-3.5 w-3.5 text-white/40" />
-            <Settings className="mr-3 h-3.5 w-3.5 text-white/40" />
+            {visibleNav.map((item, i) => {
+              const Icon = NAV_ICONS[item.id];
+              const active = i === 0;
+              return active ? (
+                <div
+                  key={item.id}
+                  className="flex items-center gap-1.5 rounded-full px-3 py-1.5"
+                  style={{ backgroundColor: primary }}
+                >
+                  <Icon className="h-3.5 w-3.5" style={{ color: primaryFg }} />
+                  <span className="text-[9px] font-medium" style={{ color: primaryFg }}>
+                    {t(`brandingPage.sections.nav.dest.${item.id}`)}
+                  </span>
+                </div>
+              ) : (
+                <Icon key={item.id} className="mx-2 h-3.5 w-3.5 text-white/40" />
+              );
+            })}
           </div>
             </>
           )}

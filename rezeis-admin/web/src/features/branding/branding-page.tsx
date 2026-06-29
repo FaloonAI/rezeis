@@ -38,6 +38,7 @@ import {
   type BrandingFormDraft,
   type BrandingFormValidationMessages,
   type PlanCardStyleDraft,
+  type NavItemDraft,
 } from "./branding-form-schema";
 import { CardEffectSection } from "./card-effect-section";
 import { AppBackgroundSection } from "./app-background-section";
@@ -45,6 +46,7 @@ import { CardEffectSlotsSection, type CardEffectSlot } from "./card-effect-slots
 import { GradientBuilder } from "./gradient-builder";
 import { IconColorsSection } from "./icon-colors-section";
 import { PlanCardStylesSection } from "./plan-card-styles-section";
+import { NavConfigSection } from "./nav-config-section";
 import { FONT_OPTIONS, THEME_PRESETS, CARD_GRADIENT_PRESETS, gradientFromPrimary, type ThemePreset } from "./theme-presets";
 
 // ── Schema ──────────────────────────────────────────────────────────────────
@@ -59,7 +61,7 @@ const BORDER_RADIUS_VALUES = [
 ] as const;
 
 /** Configurator tabs (category grouping). */
-const BRANDING_TABS = ['brand', 'colors', 'card', 'appbg', 'icons', 'planCards'] as const;
+const BRANDING_TABS = ['brand', 'colors', 'card', 'appbg', 'icons', 'planCards', 'nav'] as const;
 type BrandingTab = (typeof BRANDING_TABS)[number];
 
 // ── API ─────────────────────────────────────────────────────────────────────
@@ -667,6 +669,24 @@ export default function WebReiwaPage() {
                     value={(field.value ?? {}) as Record<string, PlanCardStyleDraft>}
                     onChange={(next) => field.onChange(next)}
                     primary={watchedValues.primary}
+                  />
+                ) : (
+                  <></>
+                )
+              }
+            />
+          </div>
+
+          {/* ── Navigation tab ────────────────────────────────────────── */}
+          <div className={gate('nav')}>
+            <Controller
+              name="navItems"
+              control={form.control}
+              render={({ field }) =>
+                tab === 'nav' ? (
+                  <NavConfigSection
+                    value={(field.value ?? []) as NavItemDraft[]}
+                    onChange={(next) => field.onChange(next)}
                   />
                 ) : (
                   <></>

@@ -25,6 +25,11 @@ import {
   DEFAULT_BRANDING,
   ICON_COLOR_MODES,
   IconColorMode,
+  NAV_DESTINATIONS,
+  NAV_ESSENTIAL_DESTINATIONS,
+  NAV_MAX_VISIBLE,
+  NavDestinationId,
+  NavItemSetting,
   PlanCardStyle,
   ProfileNamingSettings,
 } from '../interfaces/branding-settings.interface';
@@ -59,6 +64,7 @@ export function readBrandingSettings(value: unknown): BrandingSettingsInterface 
     borderRadius: readString(record, 'borderRadius', DEFAULT_BRANDING.borderRadius),
     fontFamily: readString(record, 'fontFamily', DEFAULT_BRANDING.fontFamily),
     planCardStyles: readPlanCardStyles(record),
+    navItems: readNavItems(record),
     profileNaming: readProfileNaming(record),
   };
 }
@@ -378,6 +384,49 @@ function readPlanCardStyles(
     count += 1;
   }
   return out;
+}
+
+/**
+ * Reads the cabinet navigation layout. Keeps only known destination ids
+ * (deduped, preserving operator order), defaults `visible` to true, appends
+ * any not-yet-listed destinations (hidden) so the admin always sees the full
+ * set, forces essentials (`subscriptions`/`settings`) visible, and caps the
+ * visible count to `NAV_MAX_VISIBLE` (overflow → hidden, essentials exempt).
+ * Absent/non-array → the built-in default nav.
+ */
+function readNavItems(record: Record<string, unknown>): NavItemSetting[] {
+  const value = record['navItems'];
+  if (!Array.isArray(value)) {
+    return DEFAULT_BRANDING.navItems.map((item) => ({ ...item }));
+  }
+  const seen = new Set<NavDestinationId>();
+  const out: NavItemSetting[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue;
+    const slot = entry as Record<string, unknown>;
+    const id = slot['id'];
+    if (typeof id !== 'string' || !(NAV_DESTINATIONS as readonly string[]).includes(id)) continue;
+    const did = id as NavDestinationId;
+    if (seen.has(did)) continue;
+    seen.add(did);
+    const visible = typeof slot['visible'] === 'boolean' ? slot['visible'] : true;
+    out.push({ id: did, visible });
+  }
+  // Append destinations not present yet (canonical order), hidden by default.
+  for (const id of NAV_DESTINATIONS) {
+    if (!seen.has(id)) out.push({ id, visible: false });
+  }
+  // Force essentials visible + cap the visible count (essentials exempt).
+  let visibleCount = 0;
+  return out.map((item) => {
+    const essential = (NAV_ESSENTIAL_DESTINATIONS as readonly string[]).includes(item.id);
+    let visible = essential ? true : item.visible;
+    if (visible) {
+      visibleCount += 1;
+      if (visibleCount > NAV_MAX_VISIBLE && !essential) visible = false;
+    }
+    return { id: item.id, visible };
+  });
 }
 
 function readProfileNaming(record: Record<string, unknown>): ProfileNamingSettings {

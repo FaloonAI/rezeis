@@ -1409,6 +1409,7 @@ function extractUpdatedBrandingFields(
     'borderRadius',
     'fontFamily',
     'planCardStyles',
+    'navItems',
     'profileNaming',
   ];
   return fields.filter((field) => hasOwnField(dto, field)).map((f) => String(f));

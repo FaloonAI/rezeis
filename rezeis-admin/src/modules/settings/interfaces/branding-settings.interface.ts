@@ -211,6 +211,41 @@ export interface ProfileNamingSettings {
   readonly suffixBase: string;
 }
 
+/**
+ * Cabinet bottom-navigation destinations the operator can surface or hide.
+ * `subscriptions` and `settings` are ESSENTIAL — always visible, never
+ * hideable (hiding them would strand the user). The `referrals` slot is
+ * context-aware in the cabinet (swaps to Partner once partner mode activates).
+ *
+ * Adding a destination requires updates in three places:
+ *   1. `NAV_DESTINATIONS` here,
+ *   2. the reiwa `useNavTabs` registry (route + icon + label),
+ *   3. the admin "Навигация" configurator list.
+ */
+export const NAV_DESTINATIONS = [
+  'subscriptions',
+  'plans',
+  'referrals',
+  'devices',
+  'activity',
+  'promo',
+  'support',
+  'settings',
+] as const;
+export type NavDestinationId = (typeof NAV_DESTINATIONS)[number];
+
+/** Destinations that must always stay visible in the navigation. */
+export const NAV_ESSENTIAL_DESTINATIONS: readonly NavDestinationId[] = ['subscriptions', 'settings'];
+
+/** Max destinations shown in the bottom nav before it gets too crowded. */
+export const NAV_MAX_VISIBLE = 5;
+
+/** One navigation entry: a destination id + whether it shows in the nav bar. */
+export interface NavItemSetting {
+  readonly id: NavDestinationId;
+  readonly visible: boolean;
+}
+
 export interface BrandingSettingsInterface {
   /** Display name shown on the subscription card and headers. */
   readonly brandName: string;
@@ -318,6 +353,15 @@ export interface BrandingSettingsInterface {
   readonly planCardStyles: Record<string, PlanCardStyle>;
 
   /**
+   * Cabinet bottom-navigation layout: an ordered list of destinations with a
+   * `visible` flag each. Drives which icons appear in the reiwa bottom nav /
+   * side nav and in what order. Hidden destinations stay reachable from
+   * Settings. Essentials (`subscriptions`, `settings`) are forced visible by
+   * the reader. Empty/absent → the cabinet uses its built-in default nav.
+   */
+  readonly navItems: readonly NavItemSetting[];
+
+  /**
    * Remnawave profile-naming template (prefix / separator / suffix base).
    * Read by `RemnawaveProfileNamingService` when provisioning panel profiles.
    */
@@ -361,5 +405,15 @@ export const DEFAULT_BRANDING: BrandingSettingsInterface = {
   borderRadius: 'rounded-2xl',
   fontFamily: 'Inter, system-ui, sans-serif',
   planCardStyles: {},
+  navItems: [
+    { id: 'subscriptions', visible: true },
+    { id: 'referrals', visible: true },
+    { id: 'settings', visible: true },
+    { id: 'plans', visible: false },
+    { id: 'devices', visible: false },
+    { id: 'activity', visible: false },
+    { id: 'promo', visible: false },
+    { id: 'support', visible: false },
+  ],
   profileNaming: { prefix: 'rz', separator: '_', suffixBase: 'sub' },
 };
