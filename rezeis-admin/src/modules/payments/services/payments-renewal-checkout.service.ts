@@ -32,6 +32,8 @@ export interface RenewalCheckoutInput {
   readonly failUrl?: string | null;
   /** Optional per-subscription chosen renewal duration (days). */
   readonly durations?: ReadonlyMap<string, number>;
+  /** Optional per-subscription chosen plan id (for plan-less subscriptions). */
+  readonly plans?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -89,6 +91,7 @@ export class PaymentsRenewalCheckoutService {
       gatewayType: input.gatewayType,
       channel,
       durations: input.durations,
+      plans: input.plans,
     });
 
     const transaction =

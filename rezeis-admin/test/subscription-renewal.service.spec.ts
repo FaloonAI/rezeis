@@ -20,6 +20,10 @@ interface SubFixture {
   readonly durations?: readonly number[];
   /** When true, the discovery quote returns no available plans (not renewable). */
   readonly notRenewable?: boolean;
+  /** When true, the subscription has no plan snapshot (panel-imported). */
+  readonly planLess?: boolean;
+  /** Catalog plan ids offered for a plan-less subscription's renewal. */
+  readonly catalogPlanIds?: readonly string[];
 }
 
 const GATEWAY = PaymentGatewayType.YOOKASSA;
@@ -192,6 +196,67 @@ describe('SubscriptionRenewalService duration selection', () => {
   });
 });
 
+describe('SubscriptionRenewalService plan-less (panel-imported) subscriptions', () => {
+  it('lists a plan-less sub as renewable but requiring plan selection (no price yet)', async () => {
+    const service = createService([
+      sub({ id: 'p1', planLess: true, catalogPlanIds: ['cat-a', 'cat-b'] }),
+    ]);
+    const result = await service.getRenewalOptions({ identity: { userId: 'u' }, gatewayType: GATEWAY });
+    const item = result.items[0];
+    assert.equal(item?.renewable, true);
+    assert.equal(item?.requiresPlanSelection, true);
+    assert.equal(item?.amount, null);
+    assert.equal(item?.planId, null);
+    // Not priced → not counted in the combined total.
+    assert.equal(result.total, null);
+  });
+
+  it('prices a plan-less sub once a plan is chosen', async () => {
+    const service = createService([
+      sub({ id: 'p1', planLess: true, catalogPlanIds: ['cat-a', 'cat-b'], price: '12.00' }),
+    ]);
+    const result = await service.getRenewalOptions({
+      identity: { userId: 'u' },
+      gatewayType: GATEWAY,
+      plans: new Map([['p1', 'cat-b']]),
+    });
+    const item = result.items[0];
+    assert.equal(item?.renewable, true);
+    assert.equal(item?.requiresPlanSelection, false);
+    assert.equal(item?.planId, 'cat-b');
+    assert.equal(item?.amount, '12.00');
+  });
+
+  it('checkout pricing of a plan-less sub requires a chosen plan', async () => {
+    const service = createService([sub({ id: 'p1', planLess: true })]);
+    await assert.rejects(
+      () =>
+        service.priceRenewalItems({
+          identity: { userId: 'u' },
+          subscriptionIds: ['p1'],
+          gatewayType: GATEWAY,
+        }),
+      (e: unknown) => e instanceof BadRequestException && e.message === 'RENEWAL_ITEM_NOT_PRICEABLE',
+    );
+  });
+
+  it('checkout prices a plan-less sub with a chosen plan + duration', async () => {
+    const service = createService([
+      sub({ id: 'p1', planLess: true, catalogPlanIds: ['cat-a', 'cat-b'], durations: [30, 90], price: '9.00' }),
+    ]);
+    const result = await service.priceRenewalItems({
+      identity: { userId: 'u' },
+      subscriptionIds: ['p1'],
+      gatewayType: GATEWAY,
+      plans: new Map([['p1', 'cat-a']]),
+      durations: new Map([['p1', 90]]),
+    });
+    assert.equal(result.items[0]?.planId, 'cat-a');
+    assert.equal(result.items[0]?.durationDays, 90);
+    assert.equal(result.items[0]?.amount, '9.00');
+  });
+});
+
 function sub(input: {
   readonly id: string;
   readonly planId?: string;
@@ -201,6 +266,8 @@ function sub(input: {
   readonly discountPercent?: number;
   readonly durations?: readonly number[];
   readonly notRenewable?: boolean;
+  readonly planLess?: boolean;
+  readonly catalogPlanIds?: readonly string[];
 }): SubFixture {
   return {
     id: input.id,
@@ -211,6 +278,8 @@ function sub(input: {
     discountPercent: input.discountPercent ?? 0,
     durations: input.durations,
     notRenewable: input.notRenewable ?? false,
+    planLess: input.planLess ?? false,
+    catalogPlanIds: input.catalogPlanIds,
   };
 }
 
@@ -224,16 +293,33 @@ function createService(fixtures: readonly SubFixture[]): SubscriptionRenewalServ
         return ids
           .map((id) => byId.get(id))
           .filter((f): f is SubFixture => f !== undefined)
-          .map((f) => ({ id: f.id, planSnapshot: { id: f.planId, selectedDurationDays: f.durationDays } }));
+          .map((f) => ({
+            id: f.id,
+            planSnapshot: f.planLess ? {} : { id: f.planId, selectedDurationDays: f.durationDays },
+          }));
       },
       findUnique: async (args: { where: { id: string } }) => {
         const f = byId.get(args.where.id);
         if (f === undefined) return null;
-        return { id: f.id, planSnapshot: { id: f.planId, selectedDurationDays: f.durationDays } };
+        return {
+          id: f.id,
+          planSnapshot: f.planLess ? {} : { id: f.planId, selectedDurationDays: f.durationDays },
+        };
       },
     },
     user: { findUnique: async () => ({ id: 'user-1' }) },
   };
+
+  const buildPlan = (id: string, days: readonly number[]) => ({
+    id,
+    name: `Plan ${id}`,
+    tag: null,
+    type: 'BOTH',
+    trafficLimit: 1024,
+    deviceLimit: 1,
+    trafficLimitStrategy: 'NO_RESET',
+    durations: days.map((d) => ({ id: `d${d}`, days: d })),
+  });
 
   const quoteService = {
     getQuote: async (input: { subscriptionId?: string; planId?: string; durationDays?: number }) => {
@@ -251,16 +337,11 @@ function createService(fixtures: readonly SubFixture[]): SubscriptionRenewalServ
       }
       const durationDaysList =
         f.durations !== undefined && f.durations.length > 0 ? f.durations : [f.durationDays];
-      const plan = {
-        id: f.planId,
-        name: `Plan ${f.id}`,
-        tag: null,
-        type: 'BOTH',
-        trafficLimit: 1024,
-        deviceLimit: 1,
-        trafficLimitStrategy: 'NO_RESET',
-        durations: durationDaysList.map((d) => ({ id: `d${d}`, days: d })),
-      };
+      // Plan-less subscriptions: the discovery quote offers a catalog of plans
+      // (mirrors the real getSourceSelection fallback) the user must choose from.
+      const availablePlans = f.planLess
+        ? (f.catalogPlanIds ?? ['cat-a', 'cat-b']).map((id) => buildPlan(id, durationDaysList))
+        : [buildPlan(f.planId, durationDaysList)];
       if (input.planId === undefined) {
         // discovery pass
         return {
@@ -269,11 +350,12 @@ function createService(fixtures: readonly SubFixture[]): SubscriptionRenewalServ
           selectedPlan: null,
           selectedDuration: null,
           selectedSubscriptionId: f.id,
-          availablePlans: [plan],
-          warnings: [],
+          availablePlans,
+          warnings: f.planLess ? [{ code: 'PLAN_SELECTION_REQUIRED', message: 'choose' }] : [],
         };
       }
-      // pricing pass — echo the requested duration so callers can assert it.
+      // pricing pass — resolve the requested plan + echo the requested duration.
+      const plan = availablePlans.find((p) => p.id === input.planId) ?? availablePlans[0]!;
       const requestedDays = input.durationDays ?? durationDaysList[0]!;
       return {
         isEligible: true,
@@ -288,7 +370,7 @@ function createService(fixtures: readonly SubFixture[]): SubscriptionRenewalServ
         selectedPlan: plan,
         selectedDuration: { id: `d${requestedDays}`, days: requestedDays },
         selectedSubscriptionId: f.id,
-        availablePlans: [plan],
+        availablePlans,
         warnings: [],
       };
     },

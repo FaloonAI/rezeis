@@ -36,6 +36,7 @@ interface SingleRenewalQuote {
   readonly amount: string | null;
   readonly discountPercent: number;
   readonly renewable: boolean;
+  readonly requiresPlanSelection: boolean;
   readonly warnings: readonly SubscriptionQuoteWarningInterface[];
 }
 
@@ -74,6 +75,8 @@ export class SubscriptionRenewalService {
     readonly channel?: PurchaseChannel;
     /** Optional per-subscription chosen renewal duration (days). */
     readonly durations?: ReadonlyMap<string, number>;
+    /** Optional per-subscription chosen plan id (for plan-less subscriptions). */
+    readonly plans?: ReadonlyMap<string, string>;
   }): Promise<RenewalOptionsInterface> {
     const userId = await this.resolveUserId(input.identity);
     const channel = input.channel ?? PurchaseChannel.WEB;
@@ -88,6 +91,7 @@ export class SubscriptionRenewalService {
           gatewayType: input.gatewayType,
           channel,
           chosenDurationDays: input.durations?.get(subscription.id) ?? null,
+          chosenPlanId: input.plans?.get(subscription.id) ?? null,
         }),
       );
     }
@@ -102,6 +106,7 @@ export class SubscriptionRenewalService {
       amount: quote.amount,
       discountPercent: quote.discountPercent,
       renewable: quote.renewable,
+      requiresPlanSelection: quote.requiresPlanSelection,
       warnings: quote.warnings,
     }));
 
@@ -132,6 +137,8 @@ export class SubscriptionRenewalService {
     readonly channel?: PurchaseChannel;
     /** Optional per-subscription chosen renewal duration (days). */
     readonly durations?: ReadonlyMap<string, number>;
+    /** Optional per-subscription chosen plan id (for plan-less subscriptions). */
+    readonly plans?: ReadonlyMap<string, string>;
   }): Promise<PricedRenewalInterface> {
     if (input.subscriptionIds.length === 0) {
       throw new BadRequestException('RENEWAL_NO_ITEMS');
@@ -152,6 +159,7 @@ export class SubscriptionRenewalService {
         gatewayType: input.gatewayType,
         channel,
         chosenDurationDays: input.durations?.get(subscription.id) ?? null,
+        chosenPlanId: input.plans?.get(subscription.id) ?? null,
       });
       if (
         !quote.renewable ||
@@ -207,6 +215,7 @@ export class SubscriptionRenewalService {
     readonly gatewayType?: PaymentGatewayType;
     readonly channel: PurchaseChannel;
     readonly chosenDurationDays?: number | null;
+    readonly chosenPlanId?: string | null;
   }): Promise<SingleRenewalQuote> {
     const subscription = await this.prismaService.subscription.findUnique({
       where: { id: input.subscriptionId },
@@ -224,7 +233,32 @@ export class SubscriptionRenewalService {
       gatewayType: input.gatewayType,
     });
 
-    const targetPlan = pickTargetPlan(discovery.availablePlans, original.planId);
+    // Plan-less (panel-imported) subscription: the catalog is offered as the
+    // renewal target set. Until the user picks a plan we report the sub as
+    // renewable-but-needs-a-plan (no price yet); once chosen we price it like
+    // a normal renewal onto that plan.
+    const planLess = original.planId === null;
+    const chosenPlanId = input.chosenPlanId ?? null;
+    if (planLess && chosenPlanId === null) {
+      const canSelect = discovery.availablePlans.length > 0;
+      return {
+        subscriptionId: input.subscriptionId,
+        planId: null,
+        planName: null,
+        durationDays: null,
+        availableDurations: [],
+        currency: null,
+        amount: null,
+        discountPercent: 0,
+        renewable: canSelect,
+        requiresPlanSelection: canSelect,
+        warnings: discovery.warnings,
+      };
+    }
+
+    const targetPlan = planLess
+      ? (discovery.availablePlans.find((plan) => plan.id === chosenPlanId) ?? null)
+      : pickTargetPlan(discovery.availablePlans, original.planId);
     if (targetPlan === null) {
       return {
         subscriptionId: input.subscriptionId,
@@ -236,6 +270,7 @@ export class SubscriptionRenewalService {
         amount: null,
         discountPercent: 0,
         renewable: false,
+        requiresPlanSelection: false,
         warnings: discovery.warnings,
       };
     }
@@ -257,6 +292,7 @@ export class SubscriptionRenewalService {
         amount: null,
         discountPercent: 0,
         renewable: false,
+        requiresPlanSelection: false,
         warnings: discovery.warnings,
       };
     }
@@ -287,6 +323,7 @@ export class SubscriptionRenewalService {
         amount: null,
         discountPercent: 0,
         renewable: false,
+        requiresPlanSelection: false,
         warnings: mergeWarnings(warnings, priced.warnings),
       };
     }
@@ -301,6 +338,7 @@ export class SubscriptionRenewalService {
       amount: priced.price.price,
       discountPercent: priced.price.discountPercent,
       renewable: true,
+      requiresPlanSelection: false,
       warnings,
     };
   }

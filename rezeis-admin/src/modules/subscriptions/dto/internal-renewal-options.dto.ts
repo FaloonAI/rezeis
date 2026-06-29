@@ -13,6 +13,7 @@ import {
 } from 'class-validator';
 
 import { RenewalDurationDto } from './renewal-duration.dto';
+import { RenewalPlanDto } from './renewal-plan.dto';
 
 /**
  * Lists a user's renewable subscriptions with per-item renewal pricing.
@@ -53,4 +54,12 @@ export class InternalRenewalOptionsDto {
   @ValidateNested({ each: true })
   @Type(() => RenewalDurationDto)
   public durations?: RenewalDurationDto[];
+
+  /** Optional explicit plan choices (for plan-less subscriptions). */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => RenewalPlanDto)
+  public plans?: RenewalPlanDto[];
 }

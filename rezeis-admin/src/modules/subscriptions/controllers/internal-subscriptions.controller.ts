@@ -4,6 +4,7 @@ import { InternalAdminAuthGuard } from '../../auth/guards/internal-admin-auth.gu
 import { SubscriptionActionPolicyDto } from '../dto/subscription-action-policy.dto';
 import { InternalRenewalOptionsDto } from '../dto/internal-renewal-options.dto';
 import { toDurationMap } from '../dto/renewal-duration.dto';
+import { toPlanMap } from '../dto/renewal-plan.dto';
 import { InternalSubscriptionDeleteDto } from '../dto/internal-subscription-delete.dto';
 import { SubscriptionQuoteDto } from '../dto/subscription-quote.dto';
 import {
@@ -51,6 +52,7 @@ export class InternalSubscriptionsController {
       gatewayType: input.gatewayType,
       channel: input.channel,
       durations: toDurationMap(input.durations),
+      plans: toPlanMap(input.plans),
     });
   }
 

@@ -138,6 +138,8 @@ export class SubscriptionQuoteService {
     const sourceSelection = await this.getSourceSelection({
       sourceSubscription: context.sourceSubscription,
       purchaseType: PurchaseType.RENEW,
+      userId,
+      channel,
     });
     const upgradeSelection = await this.getSourceSelection({
       sourceSubscription: context.sourceSubscription,
@@ -462,6 +464,22 @@ export class SubscriptionQuoteService {
     }
     const sourcePlanId = readSnapshotPlanId(input.sourceSubscription.planSnapshot);
     if (sourcePlanId === null) {
+      // A panel-imported subscription carries no rezeis plan snapshot. For
+      // RENEW we don't dead-end: offer the active (non-trial) catalog so the
+      // user can pick a tariff to renew onto. UPGRADE keeps the old behaviour.
+      if (input.purchaseType === 'RENEW' && input.userId !== undefined) {
+        const catalog = await this.getCatalogOptionPlans({
+          userId: input.userId,
+          channel: input.channel ?? PurchaseChannel.WEB,
+        });
+        const targets = catalog.filter((plan) => plan.availability !== PlanAvailability.TRIAL);
+        if (targets.length > 0) {
+          // No persistent warning here: `getQuote` adds PLAN_SELECTION_REQUIRED
+          // on its own while no plan is chosen, and drops it once one is — so a
+          // priced plan-less renewal stays eligible.
+          return { plans: targets, warnings: [] };
+        }
+      }
       return { plans: [], warnings: [SOURCE_PLAN_MISSING] };
     }
     const sourcePlan = await this.prismaService.plan.findUnique({

@@ -15,6 +15,7 @@ import {
 } from 'class-validator';
 
 import { RenewalDurationDto } from '../../subscriptions/dto/renewal-duration.dto';
+import { RenewalPlanDto } from '../../subscriptions/dto/renewal-plan.dto';
 
 /**
  * Creates one combined provider checkout that renews several subscriptions.
@@ -71,4 +72,12 @@ export class InternalRenewalCheckoutDto {
   @ValidateNested({ each: true })
   @Type(() => RenewalDurationDto)
   public durations?: RenewalDurationDto[];
+
+  /** Optional explicit plan choices (for plan-less subscriptions). */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => RenewalPlanDto)
+  public plans?: RenewalPlanDto[];
 }

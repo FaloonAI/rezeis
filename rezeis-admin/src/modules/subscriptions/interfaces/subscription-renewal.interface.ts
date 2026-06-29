@@ -20,6 +20,13 @@ export interface RenewalItemInterface {
   readonly amount: string | null;
   readonly discountPercent: number;
   readonly renewable: boolean;
+  /**
+   * True when the subscription can be renewed but has no inherent plan
+   * (panel-imported, no rezeis plan snapshot) — the UI must let the user pick
+   * a tariff before pricing/checkout. `amount`/`currency` stay `null` until a
+   * plan is chosen.
+   */
+  readonly requiresPlanSelection: boolean;
   readonly warnings: readonly SubscriptionQuoteWarningInterface[];
 }
 

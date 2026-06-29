@@ -8,6 +8,7 @@ import { InternalPaymentCheckoutDto } from '../dto/internal-payment-checkout.dto
 import { InternalPartnerBalanceCheckoutDto } from '../dto/internal-partner-balance-checkout.dto';
 import { InternalRenewalCheckoutDto } from '../dto/internal-renewal-checkout.dto';
 import { toDurationMap } from '../../subscriptions/dto/renewal-duration.dto';
+import { toPlanMap } from '../../subscriptions/dto/renewal-plan.dto';
 import {
   InternalPaymentCheckoutInterface,
   InternalPaymentStatusInterface,
@@ -122,6 +123,7 @@ export class InternalPaymentsController {
       successUrl: input.successUrl ?? null,
       failUrl: input.failUrl ?? null,
       durations: toDurationMap(input.durations),
+      plans: toPlanMap(input.plans),
     });
   }
 
