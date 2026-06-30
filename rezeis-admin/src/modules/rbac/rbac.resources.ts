@@ -38,6 +38,10 @@ export const RBAC_ACTIONS = [
   /// `ip-control`. Separated from `resolve` because it is a destructive,
   /// session-killing action distinct from triaging the signal row.
   'enforce',
+  /// Advertising cabinet — approving / countering / rejecting partner-submitted
+  /// advertising requests. Separated from `edit` because it gates the partner
+  /// moderation queue specifically.
+  'moderate',
 ] as const;
 
 export type RbacAction = (typeof RBAC_ACTIONS)[number];
@@ -104,6 +108,9 @@ export const RBAC_RESOURCES: Readonly<Record<string, readonly RbacAction[]>> = {
   // Realtime / events (future fraud signals + automations)
   fraud_signals: ['view', 'resolve', 'enforce'],
   automations: ['view', 'create', 'edit', 'delete', 'run'],
+  /// Advertising cabinet — campaigns/placements CRUD (`view`/`create`/`edit`,
+  /// `delete` archives when used) and partner-request moderation (`moderate`).
+  advertising: ['view', 'create', 'edit', 'delete', 'moderate'],
   /// Phase 6 — outgoing webhook subscriptions and their delivery history.
   /// `view` covers reading subscriptions + deliveries; `edit` includes
   /// updating, regenerating secrets, testing, and replaying a delivery;

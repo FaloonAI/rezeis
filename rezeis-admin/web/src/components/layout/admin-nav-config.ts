@@ -91,6 +91,7 @@ export const navGroups: ReadonlyArray<NavGroup> = [
     items: [
       { key: 'referrals', path: '/referrals', icon: Share2 },
       { key: 'partners', path: '/partners', icon: Handshake },
+      { key: 'advertising', path: '/advertising', icon: Megaphone, requiredPermission: { resource: 'advertising', action: 'view' } },
     ],
   },
   {

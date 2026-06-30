@@ -67,6 +67,7 @@
       emojiPacks: 'Эмодзи-паки',
       referrals: 'Рефералы',
       partners: 'Партнёры',
+      advertising: 'Рекламный кабинет',
       withdrawals: 'Выводы',
       platform: 'Платформа',
       webReiwa: 'WEB Reiwa',

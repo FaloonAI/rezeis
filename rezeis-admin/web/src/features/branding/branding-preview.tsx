@@ -34,6 +34,7 @@ import {
 import { usePlans, type Plan } from '@/features/plans/plans-api'
 import { autoPlanGradient } from './plan-card-styles-section'
 import { buildTextureCss } from './app-texture'
+import { PlanIconView } from '@/features/plans/plan-icon-view'
 import {
   DEFAULT_NAV_ITEMS,
   type PlanCardStyleDraft,
@@ -484,8 +485,9 @@ function TariffPreviewCard({
           opacity: 0.5,
         })
       : null
-  // A raw emoji / shortcode icon (not a lucide key like "zap") renders as text.
-  const isEmoji = !!plan.icon && !/^[a-z0-9_-]+$/i.test(plan.icon)
+  // Icon resolves exactly like the cabinet tariff card: lucide preset →
+  // glyph, `custom:<id>` → uploaded icon, `:slug:`/unicode → emoji, else
+  // a Sparkles fallback. Centralised in PlanIconView (no local regex).
 
   return (
     <div
@@ -512,11 +514,7 @@ function TariffPreviewCard({
       />
       <div className="relative flex items-center gap-2.5 text-white">
         <span className="shrink-0 leading-none drop-shadow" style={{ color: accent }}>
-          {isEmoji ? (
-            <span className="text-xl leading-none">{plan.icon}</span>
-          ) : (
-            <Sparkles className="h-5 w-5" />
-          )}
+          <PlanIconView value={plan.icon} className="h-5 w-5 text-xl" />
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[12px] font-semibold drop-shadow">{plan.name}</p>

@@ -357,6 +357,7 @@ function createService(state: ReturnType<typeof createState>): PaymentReconcilia
     profileSyncQueueService as unknown as ProfileSyncQueueService,
     { warn: () => {}, info: () => {}, error: () => {}, emit: () => {} } as never,
     { enqueueRegisterIncome: async () => {} } as unknown as MoyNalogQueueService,
+    { recordFirstPurchase: async () => {}, revertConversion: async () => {} } as never,
   );
 }
 

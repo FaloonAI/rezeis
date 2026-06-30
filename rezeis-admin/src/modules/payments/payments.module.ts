@@ -4,6 +4,7 @@ import { Module } from '@nestjs/common';
 import { OutboundHttpModule } from '../../common/http/outbound-http.module';
 import { AuthModule } from '../auth/auth.module';
 import { PartnersModule } from '../partners/partners.module';
+import { AdvertisingModule } from '../advertising/advertising.module';
 import { PlansModule } from '../plans/plans.module';
 import { ProfileSyncModule } from '../profile-sync/profile-sync.module';
 import { ReferralsModule } from '../referrals/referrals.module';
@@ -51,6 +52,7 @@ import { TelegramStarsWebhookService } from './services/telegram-stars-webhook.s
     SubscriptionsModule,
     PlansModule,
     PartnersModule,
+    AdvertisingModule,
     ReferralsModule,
     SettingsModule,
     ProfileSyncModule,

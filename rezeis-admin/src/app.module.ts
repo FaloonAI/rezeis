@@ -13,6 +13,7 @@ import { authConfig } from './common/config/auth.config';
 import { databaseConfig } from './common/config/database.config';
 import { emailConfig } from './common/config/email.config';
 import { validateEnvironment } from './common/config/env.schema';
+import { advertisingConfig } from './common/config/advertising.config';
 import { paymentsConfig } from './common/config/payments.config';
 import { remnawaveConfig } from './common/config/remnawave.config';
 import { redisConfig } from './common/config/redis.config';
@@ -54,7 +55,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { OAuthModule } from './modules/oauth/oauth.module';
 import { EmailDeliveryModule } from './modules/email/email.module';
 import { PartnersModule } from './modules/partners/partners.module';
-import { PaymentAnalyticsModule } from './modules/payment-analytics/payment-analytics.module';
+import { AdvertisingModule } from './modules/advertising/advertising.module';import { PaymentAnalyticsModule } from './modules/payment-analytics/payment-analytics.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { PlansModule } from './modules/plans/plans.module';
 import { ProfileSyncModule } from './modules/profile-sync/profile-sync.module';
@@ -85,7 +86,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
       cache: true,
       expandVariables: true,
       validate: validateEnvironment,
-      load: [appConfig, authConfig, databaseConfig, emailConfig, paymentsConfig, redisConfig, remnawaveConfig, webhookConfig],
+      load: [appConfig, advertisingConfig, authConfig, databaseConfig, emailConfig, paymentsConfig, redisConfig, remnawaveConfig, webhookConfig],
     }),
     OutboundHttpModule,
     ServeStaticModule.forRoot({
@@ -119,6 +120,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     HealthModule,
     AuthModule,
     AntiFraudModule,
+    AdvertisingModule,
     ApiTokensModule,
     AuditModule,
     SystemEventsIngestModule,

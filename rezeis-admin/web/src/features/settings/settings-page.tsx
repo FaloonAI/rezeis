@@ -67,7 +67,7 @@ export default function SettingsPage() {
   if (isLoading) return <div className="space-y-4"><Skeleton className="h-8 w-48" /><Skeleton className="h-64 w-full" /></div>
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-4xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{t('settingsPage.title')}</h1>
         <p className="text-muted-foreground">{t('settingsPage.subtitle')}</p>

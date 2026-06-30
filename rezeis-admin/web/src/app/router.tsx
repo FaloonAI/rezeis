@@ -117,6 +117,9 @@ const ImportsPage = lazy(
 )
 const AuditPage = lazy(() => import('@/features/audit/audit-page'))
 const FraudSignalsPage = lazy(() => import('@/features/fraud/fraud-page'))
+const AdvertisingPage = lazy(
+  withFeatureBundle('advertising', () => import('@/features/advertising/advertising-page')),
+)
 const AutomationsPage = lazy(
   withFeatureBundle('automations', () => import('@/features/automations/automations-page')),
 )
@@ -204,6 +207,7 @@ export const router = createBrowserRouter([
           { path: 'imports', element: withSuspense(<ImportsPage />) },
           { path: 'audit', element: withSuspense(<AuditPage />) },
           { path: 'fraud', element: withSuspense(<FraudSignalsPage />) },
+          { path: 'advertising', element: withSuspense(<AdvertisingPage />) },
           { path: 'automations', element: withSuspense(<AutomationsPage />) },
           { path: 'blocked-ips', element: <Navigate to="/admins#blocked-ips" replace /> },
           { path: 'withdrawals', element: <Navigate to="/partners#withdrawals" replace /> },

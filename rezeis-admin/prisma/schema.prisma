@@ -968,6 +968,14 @@ model User {
   /// the "seen" state survives across devices/browsers (the SPA also keeps a
   /// localStorage hint for instant first paint).
   onboardingCompletedAt          DateTime? @map("onboarding_completed_at") @db.Timestamptz(3)
+  /// First-touch advertising attribution. Set once when the user first opens
+  /// the bot / Mini App through an advertising placement deep-link
+  /// (`ad_<code>`) and never overwritten. `acquisitionPlacementId` points at
+  /// `ad_placements.id` (scalar FK, no relation to keep User lean);
+  /// `acquisitionAt` is the moment of that first touch and anchors the
+  /// per-placement attribution window.
+  acquisitionPlacementId         String?   @map("acquisition_placement_id")
+  acquisitionAt                  DateTime? @map("acquisition_at") @db.Timestamptz(3)
   /// Optional pointer to the user's currently selected subscription.
   currentSubscriptionId          String?   @unique @map("current_subscription_id")
   createdAt                      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -998,6 +1006,7 @@ model User {
   @@index([pwaInstalledAt])
   @@index([lastSurface])
   @@index([lastSeenAt])
+  @@index([acquisitionPlacementId])
   @@map("users")
 }
 
@@ -1858,6 +1867,195 @@ model PartnerReferral {
   @@index([parentPartnerId])
   @@index([level])
   @@map("partner_referrals")
+}
+
+// =============================================================================
+//  ADVERTISING — marketing attribution / advertising cabinet
+// =============================================================================
+
+/// Platform an advertising placement runs on. The platform is known because
+/// each placement has its own tracking code, not because Telegram reports it.
+enum AdPlatform {
+  TELEGRAM
+  TELEGRAM_ADS
+  YOUTUBE
+  TIKTOK
+  INSTAGRAM
+  VK
+  WEBSITE
+  INFLUENCER
+  OTHER
+}
+
+/// Who runs (and funds) a placement. COMPANY = we promote and pay a budget;
+/// PARTNER = a material partner promotes with their own money and earns the
+/// existing partner commission (which becomes our cost).
+enum AdOwnerType {
+  COMPANY
+  PARTNER
+}
+
+enum AdPlacementStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+/// Lifecycle of a partner-submitted advertising request.
+enum AdRequestStatus {
+  PENDING
+  APPROVED
+  COUNTERED
+  ACCEPTED
+  ACTIVE
+  REJECTED
+  EXPIRED
+}
+
+enum AdSignupBonusType {
+  NONE
+  TRIAL
+  TARIFF
+}
+
+enum AdConversionStatus {
+  ATTRIBUTED
+  REVERTED
+}
+
+enum AdClickSurface {
+  BOT
+  MINIAPP
+  WEB
+}
+
+/// A marketing initiative grouping one or more placements.
+model AdCampaign {
+  id        String            @id @default(cuid()) @map("id")
+  name      String            @map("name")
+  status    AdPlacementStatus @default(DRAFT) @map("status")
+  notes     String?           @map("notes")
+  /// Admin cuid that created the campaign (scalar, no relation).
+  createdBy String?           @map("created_by")
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  placements AdPlacement[] @relation("AdCampaignPlacements")
+
+  @@index([status])
+  @@map("ad_campaigns")
+}
+
+/// One promotion on one platform/channel, with its own tracking code/link.
+/// One placement per platform keeps attribution clean.
+model AdPlacement {
+  id                    String            @id @default(cuid()) @map("id")
+  campaignId            String            @map("campaign_id")
+  platform              AdPlatform        @map("platform")
+  /// Channel handle / URL / blogger label.
+  channel               String?           @map("channel")
+  ownerType             AdOwnerType       @default(COMPANY) @map("owner_type")
+  /// `partners.id` when ownerType = PARTNER (scalar FK, no relation).
+  partnerId             String?           @map("partner_id")
+  /// The `<code>` carried in the deep-link as `ad_<code>` (unique).
+  trackingCode          String            @unique @map("tracking_code")
+  attributionWindowDays Int               @default(30) @map("attribution_window_days")
+  /// `promocodes.id` when the placement is bound to a promo (scalar FK).
+  promoCodeId           String?           @map("promo_code_id")
+  /// Manually entered budget in minor units — COMPANY placements only.
+  spendAmount           Int?              @map("spend_amount")
+  spendCurrency         String?           @map("spend_currency")
+  signupBonusType       AdSignupBonusType @default(NONE) @map("signup_bonus_type")
+  /// Type-specific bonus params (amount / trial duration·traffic·devices·squads
+  /// / tariffId·duration). Read via `readJsonObject()`.
+  signupBonus           Json?             @map("signup_bonus")
+  status                AdPlacementStatus @default(DRAFT) @map("status")
+  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  campaign    AdCampaign     @relation("AdCampaignPlacements", fields: [campaignId], references: [id], onDelete: Cascade)
+  clicks      AdClick[]      @relation("AdPlacementClicks")
+  conversions AdConversion[] @relation("AdPlacementConversions")
+
+  @@index([campaignId])
+  @@index([partnerId])
+  @@index([status])
+  @@index([platform])
+  @@map("ad_placements")
+}
+
+/// A partner-submitted advertising request, moderated by an operator.
+model AdPlacementRequest {
+  id                   String          @id @default(cuid()) @map("id")
+  /// `partners.id` of the requesting partner (scalar FK, no relation).
+  partnerId            String          @map("partner_id")
+  /// Platforms the partner intends to use; one placement is created per
+  /// platform on approval.
+  platforms            AdPlatform[]    @map("platforms")
+  channel              String?         @map("channel")
+  notes                String?         @map("notes")
+  proposedWindowDays   Int             @map("proposed_window_days")
+  approvedWindowDays   Int?            @map("approved_window_days")
+  /// Informational self-funded budget note (partner's own money, NOT our P&L).
+  selfFundedBudgetNote String?         @map("self_funded_budget_note")
+  status               AdRequestStatus @default(PENDING) @map("status")
+  /// Admin cuid that reviewed the request (scalar, no relation).
+  reviewedBy           String?         @map("reviewed_by")
+  reviewedAt           DateTime?       @map("reviewed_at") @db.Timestamptz(3)
+  /// Campaign created on approval (scalar FK, no relation).
+  campaignId           String?         @map("campaign_id")
+  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([partnerId])
+  @@index([status])
+  @@map("ad_placement_requests")
+}
+
+/// A bot/Mini-App open carrying an `ad_<code>` ("the bot was opened from this
+/// placement").
+model AdClick {
+  id          String         @id @default(cuid()) @map("id")
+  placementId String         @map("placement_id")
+  campaignId  String         @map("campaign_id")
+  telegramId  BigInt?        @map("telegram_id") @db.BigInt
+  /// `users.id` once resolved (scalar FK, no relation).
+  userId      String?        @map("user_id")
+  surface     AdClickSurface @default(BOT) @map("surface")
+  isNewUser   Boolean        @default(false) @map("is_new_user")
+  occurredAt  DateTime       @default(now()) @map("occurred_at") @db.Timestamptz(3)
+
+  placement AdPlacement @relation("AdPlacementClicks", fields: [placementId], references: [id], onDelete: Cascade)
+
+  @@index([placementId, occurredAt])
+  @@index([campaignId])
+  @@index([userId])
+  @@map("ad_clicks")
+}
+
+/// The attributed user's FIRST completed purchase, with its transaction
+/// revenue. One per user; reverted on refund.
+model AdConversion {
+  id            String             @id @default(cuid()) @map("id")
+  placementId   String             @map("placement_id")
+  campaignId    String             @map("campaign_id")
+  /// `users.id` — one first-purchase conversion per user (scalar FK).
+  userId        String             @unique @map("user_id")
+  /// `transactions.id` of the first purchase (scalar FK, unique).
+  transactionId String             @unique @map("transaction_id")
+  /// Revenue in minor units, sourced from the Transaction.
+  amount        Int                @map("amount")
+  currency      String             @map("currency")
+  status        AdConversionStatus @default(ATTRIBUTED) @map("status")
+  occurredAt    DateTime           @default(now()) @map("occurred_at") @db.Timestamptz(3)
+
+  placement AdPlacement @relation("AdPlacementConversions", fields: [placementId], references: [id], onDelete: Cascade)
+
+  @@index([placementId])
+  @@index([campaignId])
+  @@index([status])
+  @@map("ad_conversions")
 }
 
 // =============================================================================

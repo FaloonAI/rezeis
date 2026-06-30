@@ -67,6 +67,7 @@ export const en = {
       emojiPacks: 'Emoji packs',
       referrals: 'Referrals',
       partners: 'Partners',
+      advertising: 'Advertising',
       withdrawals: 'Withdrawals',
       platform: 'Platform',
       webReiwa: 'WEB Reiwa',

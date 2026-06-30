@@ -194,28 +194,90 @@ function SurfaceUsageCard() {
         {isLoading || !data ? (
           <Skeleton className="h-32 w-full" />
         ) : (
-          <>
-            <div className="flex flex-wrap gap-6">
-              <div>
-                <p className="text-2xl font-bold tabular-nums">{data.totalTracked.toLocaleString()}</p>
-                <p className="text-xs text-muted-foreground">{t('analyticsPage.surfaces.tracked')}</p>
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8">
+            <div className="min-w-0 flex-1 space-y-4">
+              <div className="flex flex-wrap gap-6">
+                <div>
+                  <p className="text-2xl font-bold tabular-nums">{data.totalTracked.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">{t('analyticsPage.surfaces.tracked')}</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold tabular-nums text-emerald-600">{data.activeLast30d.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">{t('analyticsPage.surfaces.active30d')}</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold tabular-nums text-sky-600">{data.pwaInstalls.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">{t('analyticsPage.surfaces.pwaInstalls')}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-2xl font-bold tabular-nums text-emerald-600">{data.activeLast30d.toLocaleString()}</p>
-                <p className="text-xs text-muted-foreground">{t('analyticsPage.surfaces.active30d')}</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold tabular-nums text-sky-600">{data.pwaInstalls.toLocaleString()}</p>
-                <p className="text-xs text-muted-foreground">{t('analyticsPage.surfaces.pwaInstalls')}</p>
-              </div>
+              <SurfaceBreakdownRow label={t('analyticsPage.surfaces.bySurface')} items={data.surfaces} labelFor={(k) => labelFor('surface', k)} />
+              <SurfaceBreakdownRow label={t('analyticsPage.surfaces.byForm')} items={data.formFactors} labelFor={(k) => labelFor('form', k)} />
+              <SurfaceBreakdownRow label={t('analyticsPage.surfaces.byOs')} items={data.operatingSystems} labelFor={(k) => labelFor('os', k)} />
             </div>
-            <SurfaceBreakdownRow label={t('analyticsPage.surfaces.bySurface')} items={data.surfaces} labelFor={(k) => labelFor('surface', k)} />
-            <SurfaceBreakdownRow label={t('analyticsPage.surfaces.byForm')} items={data.formFactors} labelFor={(k) => labelFor('form', k)} />
-            <SurfaceBreakdownRow label={t('analyticsPage.surfaces.byOs')} items={data.operatingSystems} labelFor={(k) => labelFor('os', k)} />
-          </>
+            <SurfaceDonut
+              label={t('analyticsPage.surfaces.bySurface')}
+              items={data.surfaces}
+              labelFor={(k) => labelFor('surface', k)}
+            />
+          </div>
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * Donut breakdown of cabinet surfaces (Mini App / Browser / PWA) shown to the
+ * right of the surface stats. Mirrors the revenue-donut style used elsewhere on
+ * this page. Renders nothing when there is no surface telemetry yet.
+ */
+function SurfaceDonut({
+  label,
+  items,
+  labelFor,
+}: {
+  label: string
+  items: readonly SurfaceCount[]
+  labelFor: (key: string) => string
+}) {
+  if (items.length === 0) {
+    return null
+  }
+  const total = items.reduce((sum, i) => sum + i.count, 0)
+  const chartData = items.map((item) => ({
+    key: item.key,
+    name: labelFor(item.key),
+    value: item.count,
+  }))
+  return (
+    <div className="mx-auto w-full max-w-60 shrink-0 lg:mx-0">
+      <p className="mb-2 text-xs font-medium text-muted-foreground">{label}</p>
+      <div className="h-40 w-full">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+          <PieChart>
+            <Pie data={chartData} cx="50%" cy="50%" innerRadius={42} outerRadius={68} paddingAngle={2} dataKey="value" nameKey="name">
+              {chartData.map((_, i) => (
+                <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip formatter={(v) => [Number(v ?? 0).toLocaleString(), '']} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="mt-2 flex flex-col gap-1.5">
+        {chartData.map((item, i) => {
+          const pct = total > 0 ? Math.round((item.value / total) * 100) : 0
+          return (
+            <div key={item.key} className="flex items-center gap-2 text-sm">
+              <div className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: DONUT_COLORS[i % DONUT_COLORS.length] }} />
+              <span className="truncate text-muted-foreground">{item.name}</span>
+              <span className="ml-auto font-medium tabular-nums">{item.value.toLocaleString()}</span>
+              <span className="text-xs text-muted-foreground">· {pct}%</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 

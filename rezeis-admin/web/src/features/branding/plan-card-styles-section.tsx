@@ -26,6 +26,7 @@ import { GradientBuilder } from './gradient-builder'
 import { CARD_GRADIENT_PRESETS, gradientFromPrimary } from './theme-presets'
 import { APP_BG_TEXTURE_PATTERNS, buildTextureCss } from './app-texture'
 import type { PlanCardStyleDraft } from './branding-form-schema'
+import { PlanIconView } from '@/features/plans/plan-icon-view'
 
 type PlanCardStyleMap = Record<string, PlanCardStyleDraft>
 
@@ -378,8 +379,6 @@ function TariffCardThumb({
     })
   }, [style?.textureUrl, style?.texturePreset, style?.accent])
 
-  const isEmoji = !!planIcon && !/^[a-z0-9_-]+$/i.test(planIcon)
-
   return (
     <div
       className={cn('relative overflow-hidden rounded-lg ring-1 ring-white/10', className)}
@@ -399,7 +398,9 @@ function TariffCardThumb({
       ) : null}
       <div className="relative flex h-full flex-col justify-between p-1.5 text-white">
         <div className="flex items-center gap-1">
-          {isEmoji ? <span className="text-xs leading-none">{planIcon}</span> : null}
+          {planIcon ? (
+            <PlanIconView value={planIcon} className="h-3.5 w-3.5 text-xs" />
+          ) : null}
           <span className="truncate text-[9px] font-semibold opacity-95">{planName}</span>
         </div>
         <span

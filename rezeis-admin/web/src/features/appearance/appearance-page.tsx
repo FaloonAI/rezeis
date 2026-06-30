@@ -100,7 +100,7 @@ export default function AppearancePage() {
           <TabsTrigger value="preview">{t('appearancePage.tabs.preview')}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="presets" className="space-y-4">
+        <TabsContent value="presets" className="mx-auto w-full max-w-4xl space-y-4">
           <ModeCard />
           <PresetsCard />
           <RadiusCard />

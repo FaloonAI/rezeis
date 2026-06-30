@@ -15,7 +15,7 @@ import { readGatewaySettings } from '../utils/payment-gateway-settings.util';
 import { PaymentOpsAlertService } from './payment-ops-alert.service';
 import { PaymentSubscriptionMutationService } from './payment-subscription-mutation.service';
 import { MoyNalogQueueService } from './moy-nalog-queue.service';
-
+import { AdConversionService } from '../../advertising/services/ad-conversion.service';
 @Injectable()
 export class PaymentReconciliationService {
   private readonly logger = new Logger(PaymentReconciliationService.name);
@@ -30,6 +30,7 @@ export class PaymentReconciliationService {
     private readonly profileSyncQueueService: ProfileSyncQueueService,
     private readonly systemEvents: SystemEventsService,
     private readonly moyNalogQueueService: MoyNalogQueueService,
+    private readonly adConversionService: AdConversionService,
   ) {}
 
   public async reconcileWebhookEvent(eventId: string): Promise<void> {
@@ -98,6 +99,7 @@ export class PaymentReconciliationService {
         }
         await this.runReferralAndPartnerHooks(refreshedTransaction);
         await this.enqueueMoyNalogIncomeBestEffort(refreshedTransaction);
+        await this.recordAdConversionBestEffort(refreshedTransaction);
       }
 
       if (nextStatus === TransactionStatus.FAILED) {
@@ -204,6 +206,29 @@ export class PaymentReconciliationService {
     } catch (error: unknown) {
       this.logger.error(
         `МойНалог enqueue failed for transaction ${transaction.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Records the first-purchase advertising conversion for an attributed user.
+   * Best-effort: registering a marketing conversion must never block, delay, or
+   * roll back subscription fulfillment.
+   */
+  private async recordAdConversionBestEffort(transaction: Transaction): Promise<void> {
+    try {
+      await this.adConversionService.recordFirstPurchase({
+        id: transaction.id,
+        userId: transaction.userId,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        completedAt: transaction.updatedAt,
+      });
+    } catch (error: unknown) {
+      this.logger.error(
+        `ad conversion record failed for transaction ${transaction.id}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
