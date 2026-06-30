@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { FraudVersionInfo } from './fraud-version-info';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -223,6 +224,7 @@ export default function FraudSignalsPage() {
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <ShieldAlert className="h-6 w-6" />
             {t('fraudPage.title')}
+            <FraudVersionInfo />
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {t('fraudPage.subtitle')}

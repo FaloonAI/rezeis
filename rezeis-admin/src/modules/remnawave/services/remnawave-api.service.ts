@@ -41,6 +41,7 @@ import {
   mapInternalSquadDetails,
 } from './remnawave-squad-mappers';
 import { mapNode } from './remnawave-node-mapper';
+import { mapHost } from './remnawave-host-mapper';
 import {
   mapHwidTopUser,
   mapInfraProvider,
@@ -95,6 +96,12 @@ export interface RemnawaveHwidDevice {
   userAgent: string | null;
   createdAt: string;
   lastSeenAt: string | null;
+}
+
+/** Per-user bandwidth row from `bandwidth-stats/nodes/users` (2.8+). */
+export interface RemnawaveNodeUserBandwidth {
+  readonly username: string;
+  readonly total: number;
 }
 
 /**
@@ -797,6 +804,38 @@ export class RemnawaveApiService {
   }
 
   /**
+   * Per-user bandwidth across the given nodes (Remnawave 2.8+
+   * `POST /api/bandwidth-stats/nodes/users`). Returns the panel's "top users
+   * by traffic" list — `{ username, total }` (total = bytes over the panel's
+   * window). Used by the per-user node-traffic-abuse detector. Returns `[]` on
+   * any failure or on panels that don't expose the endpoint (pre-2.8).
+   */
+  public async getNodeUsersBandwidth(
+    nodeUuids: readonly string[],
+  ): Promise<readonly RemnawaveNodeUserBandwidth[]> {
+    try {
+      const result = await this.requestJsonWithBody<unknown>(
+        'post',
+        '/api/bandwidth-stats/nodes/users',
+        { nodesUuids: [...nodeUuids] },
+      );
+      const root = (result as { response?: unknown })?.response ?? result;
+      const top = (root as { topUsers?: unknown })?.topUsers;
+      if (!Array.isArray(top)) return [];
+      const out: RemnawaveNodeUserBandwidth[] = [];
+      for (const entry of top) {
+        const r = (entry ?? {}) as Record<string, unknown>;
+        const username = typeof r['username'] === 'string' ? r['username'] : null;
+        const total = this.coerceTrafficNumber(r['total']);
+        if (username !== null && total !== null) out.push({ username, total });
+      }
+      return out;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Returns all hosts from the panel.
    */
   public async getAllHosts(): Promise<RemnawaveHostInterface[]> {
@@ -807,11 +846,11 @@ export class RemnawaveApiService {
       });
       const root = (response as { response?: unknown })?.response ?? response;
       if (Array.isArray(root)) {
-        return root as RemnawaveHostInterface[];
+        return root.map(mapHost);
       }
       const wrapped = (root as { hosts?: unknown })?.hosts;
       if (Array.isArray(wrapped)) {
-        return wrapped as RemnawaveHostInterface[];
+        return wrapped.map(mapHost);
       }
       return [];
     } catch {

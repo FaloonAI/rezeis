@@ -207,6 +207,15 @@ function SortableHostRow({ host, countryCode }: SortableHostRowProps) {
           {host.address}:{host.port}
           {host.securityLayer && host.securityLayer !== 'DEFAULT' ? ` · ${host.securityLayer}` : null}
         </p>
+        {host.tags && host.tags.length > 0 ? (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {host.tags.map((tag) => (
+              <Badge key={tag} variant="secondary" className="px-1.5 text-[10px] font-normal">
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <StatusDot status={status} label={statusLabel} className="shrink-0" />

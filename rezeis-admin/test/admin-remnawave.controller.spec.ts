@@ -47,6 +47,7 @@ describe('AdminRemnawaveController', () => {
       } as never as RemnawaveApiService,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     const actualStatus = await controller.getStatus();

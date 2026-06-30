@@ -7,6 +7,7 @@
  */
 export const KEYS = {
   status: ['remnawave', 'status'] as const,
+  version: ['remnawave', 'version'] as const,
   health: ['remnawave', 'health'] as const,
   stats: ['remnawave', 'stats'] as const,
   recap: ['remnawave', 'recap'] as const,
@@ -28,4 +29,5 @@ export const KEYS = {
   nodePlugins: ['remnawave', 'node-plugins'] as const,
   geo: ['remnawave', 'geo-distribution'] as const,
   cleanupSettings: ['remnawave', 'cleanup-settings'] as const,
+  liveNode: (uuid: string) => ['remnawave', 'live-node', uuid] as const,
 } as const

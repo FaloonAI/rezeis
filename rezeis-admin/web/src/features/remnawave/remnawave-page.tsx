@@ -31,12 +31,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { remnawaveApi } from './remnawave-api'
 import { RemnawaveIcon } from './remnawave-icon'
 import { KEYS } from './remnawave-query-keys'
-import { SectionPlaceholder } from './shared/section-placeholder'
 
 import { CatalogTab } from './catalog/catalog-tab'
 import { CostsTab } from './costs/costs-tab'
 import { DashboardTab } from './dashboard/dashboard-tab'
 import { InfraTab } from './infra/infra-tab'
+import { LiveTab } from './live/live-tab'
 import { SettingsTab } from './settings/settings-tab'
 import { UsersTab } from './users/users-tab'
 
@@ -51,26 +51,16 @@ export default function RemnaWavePage() {
     refetchInterval: 60_000,
   })
 
-  // Live tab is hidden on Remnawave versions that don't expose
-  // `/api/ip-control/fetch-ips` — the backend probe lives below in a
-  // separate "live availability" query.
-  const { data: liveAvailable } = useQuery<boolean>({
-    queryKey: ['remnawave', 'live-available'],
-    queryFn: async () => {
-      // Cheap probe: success + array shape ⇒ available.
-      try {
-        // We piggyback on subscription-request-history which is reachable on
-        // the same versions where ip-control matures. Conservative heuristic:
-        // we always return false on 2.7.x for now and flip to true once 2.8+
-        // wiring lands. Operators can still see the tab by directly visiting
-        // the URL hash, but we don't promote it.
-        return false
-      } catch {
-        return false
-      }
-    },
+  // Detected panel version + capability flags. The Live tab (ip-control) only
+  // matured on 2.8+, so it auto-appears once the panel reports a 2.8 version —
+  // no manual toggle, no redeploy.
+  const { data: capabilities } = useQuery({
+    queryKey: KEYS.version,
+    queryFn: remnawaveApi.getCapabilities,
+    retry: 1,
     staleTime: 5 * 60_000,
   })
+  const liveAvailable = capabilities?.liveIpControl ?? false
 
   if (statusError) {
     return (
@@ -107,10 +97,27 @@ export default function RemnaWavePage() {
         <Badge variant={status?.isReachable ? 'success' : 'destructive'}>
           {status?.isReachable ? t('remnaWavePage.connected') : t('remnaWavePage.unreachable')}
         </Badge>
+        {capabilities?.version ? (
+          <Badge variant="outline" className="font-mono text-[11px]">
+            v{capabilities.version}
+          </Badge>
+        ) : null}
         {status?.branding?.title ? (
           <span className="text-sm text-muted-foreground">{status.branding.title}</span>
         ) : null}
       </div>
+
+      {/* Untested-version notice: the panel responded with a version outside
+          the range rezeis has been verified against (currently 2.7–2.8). */}
+      {capabilities && capabilities.reachable && !capabilities.supported ? (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>{t('remnaWavePage.versionWarning.title')}</AlertTitle>
+          <AlertDescription>
+            {t('remnaWavePage.versionWarning.description', { version: capabilities.version ?? '?' })}
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabKey)}>
         <TabsList className="flex-wrap">
@@ -150,10 +157,7 @@ export default function RemnaWavePage() {
           <DashboardTab />
         </TabsContent>
         <TabsContent value="live" className="mt-4">
-          <SectionPlaceholder
-            title={t('remnaWavePage.tabs.live')}
-            description={t('remnaWavePage.placeholder.live')}
-          />
+          <LiveTab />
         </TabsContent>
         <TabsContent value="infra" className="mt-4">
           <InfraTab />

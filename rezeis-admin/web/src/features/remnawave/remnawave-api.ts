@@ -50,6 +50,7 @@ export interface RemnawaveHost {
   isHidden: boolean;
   securityLayer: string;
   tag: string | null;
+  tags: string[];
   configProfileUuid: string | null;
   configProfileInboundUuid: string | null;
   nodes: string[];
@@ -466,8 +467,64 @@ async function updateCleanupSettings(
   return res.data;
 }
 
+// ── Panel version & capabilities (auto-detected; drives version-gated UI) ─────
+
+export interface RemnawaveCapabilities {
+  version: string | null;
+  major: number | null;
+  minor: number | null;
+  patch: number | null;
+  supported: boolean;
+  reachable: boolean;
+  liveIpControl: boolean;
+  hostsTagsArray: boolean;
+  usersStream: boolean;
+  hostsBulkUpdate: boolean;
+  tokenScopes: boolean;
+  bandwidthNodesUsers: boolean;
+}
+
+async function getCapabilities(): Promise<RemnawaveCapabilities> {
+  const res = await api.get<RemnawaveCapabilities>("/admin/remnawave/version");
+  return res.data;
+}
+
+// ── Live (ip-control: active sessions / source IPs) ───────────────────────────
+
+export interface RemnawaveIpSample {
+  ip: string;
+  lastSeen: string;
+}
+
+export interface RemnawaveNodeUserIps {
+  userId: string;
+  ips: RemnawaveIpSample[];
+}
+
+export interface RemnawaveUserNodeIps {
+  nodeUuid: string;
+  nodeName: string;
+  countryCode: string | null;
+  ips: RemnawaveIpSample[];
+}
+
+async function getNodeLiveSessions(nodeUuid: string): Promise<RemnawaveNodeUserIps[]> {
+  const res = await api.get<RemnawaveNodeUserIps[]>(
+    `/admin/remnawave/live/node/${encodeURIComponent(nodeUuid)}`,
+  );
+  return res.data;
+}
+
+async function getUserLiveSessions(userUuid: string): Promise<RemnawaveUserNodeIps[]> {
+  const res = await api.get<RemnawaveUserNodeIps[]>(
+    `/admin/remnawave/live/user/${encodeURIComponent(userUuid)}`,
+  );
+  return res.data;
+}
+
 export const remnawaveApi = {
   getStatus,
+  getCapabilities,
   getSystemStats,
   getSystemRecap,
   getBandwidthStats,
@@ -496,4 +553,6 @@ export const remnawaveApi = {
   getGeoDistribution,
   getCleanupSettings,
   updateCleanupSettings,
+  getNodeLiveSessions,
+  getUserLiveSessions,
 };

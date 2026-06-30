@@ -3,6 +3,7 @@ import { FraudSignalSeverity } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { RemnawaveApiService } from '../../remnawave/services/remnawave-api.service';
+import { RemnawaveVersionService } from '../../remnawave/services/remnawave-version.service';
 import { FraudSignalCandidate } from '../interfaces/fraud-signal.interface';
 import {
   resolveSharingDetectionConfig,
@@ -31,6 +32,7 @@ export class SharingDetectors {
   public constructor(
     private readonly prismaService: PrismaService,
     private readonly remnawaveApiService: RemnawaveApiService,
+    private readonly versionService: RemnawaveVersionService,
   ) {}
 
   // ── Detector: HWID device over-limit ───────────────────────────────────
@@ -89,15 +91,24 @@ export class SharingDetectors {
   public async detectConcurrentIpSharing(now: Date): Promise<readonly FraudSignalCandidate[]> {
     const config = resolveSharingDetectionConfig();
     if (!config.enableIpSharing) return [];
+    // ip-control matured on Remnawave 2.8+. On older panels the active-session
+    // data is unreliable/empty, so we skip the detector entirely there rather
+    // than hammer the nodes for nothing — it lights up automatically once the
+    // panel upgrades and the capability flips on.
+    const caps = await this.versionService.getCapabilities();
+    if (!caps.liveIpControl) {
+      this.logger.debug('Concurrent-IP detection skipped: panel lacks mature ip-control (need 2.8+)');
+      return [];
+    }
     try {
       const panelUsers = await this.remnawaveApiService.getAllPanelUsers();
       if (panelUsers.length === 0) return [];
 
-      // panelId → { uuid, limit } (ip-control keys online users by panel id)
-      const byPanelId = new Map<number, { uuid: string; limit: number }>();
+      // panelId → { uuid, username, limit } (ip-control keys online users by panel id)
+      const byPanelId = new Map<number, { uuid: string; username: string; limit: number }>();
       for (const u of panelUsers) {
         if (u.panelId !== null) {
-          byPanelId.set(u.panelId, { uuid: u.uuid, limit: u.hwidDeviceLimit ?? 0 });
+          byPanelId.set(u.panelId, { uuid: u.uuid, username: u.username, limit: u.hwidDeviceLimit ?? 0 });
         }
       }
 
@@ -136,6 +147,7 @@ export class SharingDetectors {
 
       const offenders: Array<{
         uuid: string;
+        username: string;
         limit: number;
         ips: IpAggregate[];
         distinctNetworks: number;
@@ -158,7 +170,7 @@ export class SharingDetectors {
         if (!isNetworkSharingOffender(distinctNetworks, meta.limit, config.ipOverageMargin)) {
           continue;
         }
-        offenders.push({ uuid: meta.uuid, limit: meta.limit, ips, distinctNetworks });
+        offenders.push({ uuid: meta.uuid, username: meta.username, limit: meta.limit, ips, distinctNetworks });
       }
       if (offenders.length === 0) return [];
 
@@ -191,6 +203,7 @@ export class SharingDetectors {
             networkGrouping: config.ipNetworkGrouping,
             windowMinutes: config.ipWindowMinutes,
             remnawaveUuid: o.uuid,
+            remnawaveUsername: o.username,
             ips: o.ips.slice(0, config.maxIpsInMetadata),
           },
         } satisfies FraudSignalCandidate;

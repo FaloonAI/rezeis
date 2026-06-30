@@ -3,7 +3,9 @@ import { FraudSignalSeverity } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { RemnawaveApiService } from '../../remnawave/services/remnawave-api.service';
+import { RemnawaveVersionService } from '../../remnawave/services/remnawave-version.service';
 import { FraudSignalCandidate } from '../interfaces/fraud-signal.interface';
+import { resolveTrafficAbuseConfig } from '../traffic-abuse.config';
 
 /**
  * Remnawave-specific fraud detectors.
@@ -24,6 +26,7 @@ export class RemnawaveDetectors {
   public constructor(
     private readonly prismaService: PrismaService,
     private readonly remnawaveApiService: RemnawaveApiService,
+    private readonly versionService: RemnawaveVersionService,
   ) {}
 
   // ── Detector: HWID Device Anomaly ──────────────────────────────────────
@@ -121,6 +124,81 @@ export class RemnawaveDetectors {
       return candidates;
     } catch (error) {
       this.logger.warn(`Node traffic abuse detection failed: ${(error as Error).message}`);
+      return [];
+    }
+  }
+
+  // ── Detector: Per-User Node Traffic Abuse (Remnawave 2.8+) ─────────────
+
+  /**
+   * Flags users whose bandwidth across the connected nodes is a clear outlier
+   * — heavy in absolute terms AND far above the cohort (median / share). On a
+   * VPN that usually means torrenting, bulk transfer, or a shared account.
+   *
+   * Uses the 2.8 `bandwidth-stats/nodes/users` endpoint, so it's gated behind
+   * the detected capability and self-activates once the panel upgrades. The
+   * panel returns usernames (not UUIDs), so the signal carries the username
+   * for the operator to action; `affectedUserIds` stays empty (like the other
+   * node-level detectors). Advisory only — LOW/MEDIUM, never HIGH.
+   */
+  public async detectPerUserNodeTrafficAbuse(now: Date): Promise<readonly FraudSignalCandidate[]> {
+    const config = resolveTrafficAbuseConfig();
+    if (!config.enabled) return [];
+    const caps = await this.versionService.getCapabilities();
+    if (!caps.bandwidthNodesUsers) {
+      this.logger.debug('Per-user traffic detection skipped: needs Remnawave 2.8+');
+      return [];
+    }
+    try {
+      const nodes = await this.remnawaveApiService.getAllNodes();
+      const connected = nodes
+        .filter((n) => n.isConnected && !n.isDisabled)
+        .slice(0, config.maxNodesPerRun);
+      if (connected.length === 0) return [];
+
+      const topUsers = await this.remnawaveApiService.getNodeUsersBandwidth(
+        connected.map((n) => n.uuid),
+      );
+      const valid = topUsers.filter((u) => u.total > 0);
+      // Need a cohort to compare against — a couple of users tells us nothing.
+      if (valid.length < 3) return [];
+
+      const totals = valid.map((u) => u.total).sort((a, b) => a - b);
+      const median = totals[Math.floor(totals.length / 2)] ?? 0;
+      const sum = totals.reduce((a, b) => a + b, 0);
+      const minBytes = config.minGb * 1024 ** 3;
+      const day = utcDay(now);
+
+      const candidates: FraudSignalCandidate[] = [];
+      for (const u of valid) {
+        if (u.total < minBytes) continue;
+        const sharePct = sum > 0 ? (u.total / sum) * 100 : 0;
+        const aboveMedian = median > 0 && u.total >= median * config.medianMultiplier;
+        const aboveShare = sharePct >= config.sharePercent;
+        if (!aboveMedian && !aboveShare) continue;
+        const extreme = aboveMedian && aboveShare;
+        candidates.push({
+          code: 'NODE_TRAFFIC_USER_ABUSE',
+          fingerprint: `${day}|${u.username}`,
+          severity: extreme ? FraudSignalSeverity.MEDIUM : FraudSignalSeverity.LOW,
+          title: 'Excessive per-user node traffic',
+          description: `User ${u.username} consumed ${formatGb(u.total)} (${sharePct.toFixed(0)}% of the top-users total) across ${connected.length} nodes — well above the ${formatGb(median)} cohort median.`,
+          score: clampScore(30 + Math.round(sharePct)),
+          confidence: 55,
+          affectedUserIds: [],
+          metadata: {
+            kind: 'node_traffic_user',
+            remnawaveUsername: u.username,
+            totalBytes: u.total,
+            sharePercent: Math.round(sharePct * 10) / 10,
+            medianBytes: median,
+            nodeCount: connected.length,
+          },
+        });
+      }
+      return candidates;
+    } catch (error) {
+      this.logger.warn(`Per-user node traffic detection failed: ${(error as Error).message}`);
       return [];
     }
   }
@@ -226,4 +304,22 @@ export class RemnawaveDetectors {
       return [];
     }
   }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function utcDay(now: Date): string {
+  return now.toISOString().slice(0, 10);
+}
+
+function clampScore(value: number): number {
+  if (value < 0) return 0;
+  if (value > 100) return 100;
+  return Math.round(value);
+}
+
+function formatGb(bytes: number): string {
+  const gb = bytes / 1024 ** 3;
+  if (gb >= 1024) return `${(gb / 1024).toFixed(1)} TB`;
+  return `${gb.toFixed(1)} GB`;
 }

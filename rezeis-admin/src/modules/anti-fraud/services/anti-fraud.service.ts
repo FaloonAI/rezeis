@@ -405,6 +405,7 @@ export class AntiFraudService {
       this.fraudDetectors.detectRapidChurn(now),
       this.remnawaveDetectors.detectHwidAnomalies(now),
       this.remnawaveDetectors.detectNodeTrafficAbuse(now),
+      this.remnawaveDetectors.detectPerUserNodeTrafficAbuse(now),
       this.remnawaveDetectors.detectGeoAnomalies(now),
       this.remnawaveDetectors.detectOfflineNodes(now),
       this.sharingDetectors.detectHwidOverage(now),

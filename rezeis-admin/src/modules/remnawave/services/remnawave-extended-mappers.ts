@@ -21,7 +21,8 @@ export function mapHwidTopUser(raw: unknown): RemnawaveHwidTopUserInterface {
   // level, no nested `user` block. We still tolerate the older nested shape.
   const user = (r['user'] ?? r) as Record<string, unknown>;
   return {
-    userUuid: toString(r['userUuid'] ?? user['uuid']),
+    // 2.8 renamed the row id `userUuid` → `userId`; accept both.
+    userUuid: toString(r['userUuid'] ?? r['userId'] ?? user['uuid']),
     username: toString(r['username'] ?? user['username']),
     telegramId: toNullableString(r['telegramId'] ?? user['telegramId']),
     devicesCount: toNumber(r['devicesCount'] ?? r['count'] ?? r['hwidDevicesCount']),
@@ -34,7 +35,10 @@ export function mapSubscriptionRequestEntry(raw: unknown): RemnawaveSubscription
   return {
     // `id` ships as a number on 2.7.x — stringify so the UI key stays consistent.
     id: toString(r['id'] ?? r['uuid']),
-    userUuid: toNullableString(r['userUuid'] ?? (r['user'] as Record<string, unknown> | undefined)?.['uuid']),
+    // 2.8 renamed `userUuid` → `userId`; accept both (and the nested user.uuid).
+    userUuid: toNullableString(
+      r['userUuid'] ?? r['userId'] ?? (r['user'] as Record<string, unknown> | undefined)?.['uuid'],
+    ),
     username: toNullableString(r['username'] ?? (r['user'] as Record<string, unknown> | undefined)?.['username']),
     clientType: toNullableString(r['clientType']),
     userAgent: toNullableString(r['userAgent']),

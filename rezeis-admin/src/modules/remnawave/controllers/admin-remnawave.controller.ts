@@ -32,12 +32,13 @@ import {
   RemnawaveSystemRecapInterface,
   RemnawaveSystemStatsInterface,
 } from '../interfaces/remnawave-system-stats.interface';
-import { RemnawaveApiService } from '../services/remnawave-api.service';
+import { RemnawaveApiService, type RemnawaveNodeUserIps, type RemnawaveUserNodeIps, type RemnawaveDropConnectionsInput } from '../services/remnawave-api.service';
 import {
   GeoDistribution,
   OnlineTrendPoint,
   RemnawaveMetricsCollectorService,
 } from '../services/remnawave-metrics-collector.service';
+import { RemnawaveCapabilities, RemnawaveVersionService } from '../services/remnawave-version.service';
 import {
   RemnawaveWebhookService,
   WebhookEventSummary,
@@ -51,7 +52,15 @@ export class AdminRemnawaveController {
     private readonly remnawaveApiService: RemnawaveApiService,
     private readonly metricsCollector: RemnawaveMetricsCollectorService,
     private readonly webhookService: RemnawaveWebhookService,
+    private readonly versionService: RemnawaveVersionService,
   ) {}
+
+  // ── Version & capabilities ──────────────────────────────────────────────────
+
+  @Get('version')
+  public async getCapabilities(): Promise<RemnawaveCapabilities> {
+    return this.versionService.getCapabilities();
+  }
 
   // ── Status ─────────────────────────────────────────────────────────────────
 
@@ -270,6 +279,34 @@ export class AdminRemnawaveController {
   public async reorderHosts(@Body() body: { readonly uuids: readonly string[] }): Promise<{ ok: true }> {
     await this.remnawaveApiService.reorderHosts(body?.uuids ?? []);
     return { ok: true };
+  }
+
+  // ── Live (ip-control: active sessions / source IPs) ─────────────────────────
+  //
+  // Matured on Remnawave 2.8+ (see RemnawaveVersionService.liveIpControl). The
+  // SPA only surfaces the Live tab when the capability is on, but the routes
+  // stay reachable so an operator can probe a single node/user on demand.
+
+  @Get('live/node/:uuid')
+  public async getNodeLiveSessions(
+    @Param('uuid') uuid: string,
+  ): Promise<readonly RemnawaveNodeUserIps[]> {
+    return this.remnawaveApiService.fetchUsersIpsForNode(uuid);
+  }
+
+  @Get('live/user/:uuid')
+  public async getUserLiveSessions(
+    @Param('uuid') uuid: string,
+  ): Promise<readonly RemnawaveUserNodeIps[]> {
+    return this.remnawaveApiService.fetchUserIps(uuid);
+  }
+
+  @Post('live/drop-connections')
+  @RequirePermission('remnawave', 'edit')
+  public async dropConnections(
+    @Body() body: RemnawaveDropConnectionsInput,
+  ): Promise<{ ok: boolean }> {
+    return this.remnawaveApiService.dropConnections(body);
   }
 }
 

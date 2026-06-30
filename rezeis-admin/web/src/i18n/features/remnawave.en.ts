@@ -13,6 +13,20 @@ export const en = {
     connectionErrorDescription: 'Could not connect to Remnawave panel. Check configuration.',
     connected: 'Connected',
     unreachable: 'Unreachable',
+    versionWarning: {
+      title: 'Untested panel version',
+      description: 'Detected panel version {{version}}. This integration is tested against 2.7–2.8. Some features may misbehave — update rezeis or the panel.',
+    },
+    live: {
+      subtitle: 'Active sessions and source IPs per node (panel ip-control).',
+      pickNode: 'Pick a node',
+      pickNodeHint: 'Choose a node to query its online users and their IPs.',
+      pickNodePlaceholder: 'Select a node…',
+      loadingNodes: 'Loading nodes…',
+      refresh: 'Refresh',
+      empty: 'No active sessions on this node (or the panel is still computing).',
+      online: 'Online: {{users}} users · {{ips}} IPs',
+    },
     tabs: {
       overview: 'Overview',
       dashboard: 'Dashboard',
@@ -253,6 +267,12 @@ export const en = {
       },
       hwid: {
         platforms: 'Platforms',
+      },
+      live: {
+        title: 'Active connections',
+        load: 'Show sessions',
+        empty: 'No active connections right now (or the panel is still computing).',
+        summary: 'Nodes: {{nodes}} · IPs: {{ips}}',
       },
       topAbusers: {
         title: 'Top devices per user',

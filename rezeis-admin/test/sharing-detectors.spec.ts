@@ -34,7 +34,13 @@ function makeDetectors(
       Promise.resolve(remna.usersIpsByNode?.[nodeUuid] ?? []),
   } as unknown as RemnawaveApiService;
 
-  return new SharingDetectors(prismaMock, remnaMock);
+  // ip-control detector is gated on the 2.8 `liveIpControl` capability; the
+  // tests assume a 2.8 panel so the detector actually runs.
+  const versionMock = {
+    getCapabilities: () => Promise.resolve({ liveIpControl: true, bandwidthNodesUsers: true }),
+  } as unknown as import('../src/modules/remnawave/services/remnawave-version.service').RemnawaveVersionService;
+
+  return new SharingDetectors(prismaMock, remnaMock, versionMock);
 }
 
 describe('SharingDetectors — HWID overage', () => {

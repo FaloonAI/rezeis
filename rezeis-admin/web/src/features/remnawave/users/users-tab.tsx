@@ -21,10 +21,12 @@ import {
   Hash,
   KeyRound,
   Loader2,
+  RadioTower,
   RotateCcw,
   Search,
   Smartphone,
   TriangleAlert,
+  Wifi,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -206,6 +208,82 @@ function UserSummaryPanel({ user }: { user: RemnawaveUserSummary }) {
           <span className="font-mono text-[11px]">{user.uuid}</span>
         }
       />
+      <div className="sm:col-span-3">
+        <UserLiveSessions uuid={user.uuid} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * On-demand "where is this user connecting from right now" drilldown. Uses the
+ * panel ip-control endpoint (matured on 2.8+), so it's gated behind the
+ * detected capability and only fetches when the operator clicks — the call
+ * runs an async panel job we poll, so we never fire it automatically.
+ */
+function UserLiveSessions({ uuid }: { uuid: string }) {
+  const { t } = useTranslation()
+  const [load, setLoad] = useState(false)
+  const { data: caps } = useQuery({ queryKey: KEYS.version, queryFn: remnawaveApi.getCapabilities, staleTime: 5 * 60_000 })
+
+  const { data: sessions, isFetching, refetch } = useQuery({
+    queryKey: ['remnawave', 'live-user', uuid],
+    queryFn: () => remnawaveApi.getUserLiveSessions(uuid),
+    enabled: load && caps?.liveIpControl === true,
+    staleTime: 10_000,
+  })
+
+  if (caps?.liveIpControl !== true) return null
+
+  const totalIps = (sessions ?? []).reduce((acc, n) => acc + n.ips.length, 0)
+
+  return (
+    <div className="mt-1 border-t border-border/60 pt-3">
+      <div className="flex items-center justify-between">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <RadioTower className="h-3.5 w-3.5" aria-hidden />
+          {t('remnaWavePage.users.live.title')}
+        </p>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={isFetching}
+          onClick={() => {
+            if (!load) setLoad(true)
+            else void refetch()
+          }}
+        >
+          {isFetching ? (
+            <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden />
+          ) : (
+            <Wifi className="mr-2 h-3.5 w-3.5" aria-hidden />
+          )}
+          {t('remnaWavePage.users.live.load')}
+        </Button>
+      </div>
+      {load && !isFetching && (sessions?.length ?? 0) === 0 ? (
+        <p className="mt-2 text-xs text-muted-foreground">{t('remnaWavePage.users.live.empty')}</p>
+      ) : null}
+      {sessions && sessions.length > 0 ? (
+        <div className="mt-2 space-y-2">
+          <p className="text-[11px] text-muted-foreground">
+            {t('remnaWavePage.users.live.summary', { nodes: sessions.length, ips: totalIps })}
+          </p>
+          {sessions.map((n) => (
+            <div key={n.nodeUuid} className="rounded-md border border-border/50 p-2">
+              <p className="text-xs font-medium">{n.nodeName || n.nodeUuid.slice(0, 8)}</p>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {n.ips.map((sample) => (
+                  <Badge key={sample.ip} variant="secondary" className="font-mono text-[10px]">
+                    {sample.ip}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }

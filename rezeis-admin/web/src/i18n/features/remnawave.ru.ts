@@ -13,6 +13,20 @@ export const ru = {
     connectionErrorDescription: 'Не удалось подключиться к панели Remnawave. Проверьте конфигурацию.',
     connected: 'Подключено',
     unreachable: 'Недоступно',
+    versionWarning: {
+      title: 'Непроверенная версия панели',
+      description: 'Обнаружена версия панели {{version}}. Интеграция протестирована на 2.7–2.8. Что-то может работать неверно — обновите rezeis или панель.',
+    },
+    live: {
+      subtitle: 'Активные сессии и исходящие IP по нодам (ip-control панели).',
+      pickNode: 'Выбор ноды',
+      pickNodeHint: 'Выберите ноду, чтобы запросить онлайн-пользователей и их IP.',
+      pickNodePlaceholder: 'Выберите ноду…',
+      loadingNodes: 'Загрузка нод…',
+      refresh: 'Обновить',
+      empty: 'Активных сессий на этой ноде нет (или панель ещё считает).',
+      online: 'Онлайн: {{users}} польз. · {{ips}} IP',
+    },
     tabs: {
       overview: 'Обзор',
       dashboard: 'Дашборд',
@@ -253,6 +267,12 @@ export const ru = {
       },
       hwid: {
         platforms: 'Платформы',
+      },
+      live: {
+        title: 'Активные подключения',
+        load: 'Показать сессии',
+        empty: 'Сейчас активных подключений нет (или панель ещё считает).',
+        summary: 'Нод: {{nodes}} · IP: {{ips}}',
       },
       topAbusers: {
         title: 'Топ по количеству устройств',
