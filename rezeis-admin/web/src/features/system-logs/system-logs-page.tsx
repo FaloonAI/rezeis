@@ -256,7 +256,7 @@ export default function SystemLogsPage({ embedded = false }: { readonly embedded
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="max-h-[60vh] overflow-y-auto font-mono text-xs">
+          <div className="max-h-[60vh] overflow-auto font-mono text-xs">
             {filtered.length === 0 ? (
               <p className="px-4 py-3 text-muted-foreground">
                 {t('systemLogsPage.tail.empty')}

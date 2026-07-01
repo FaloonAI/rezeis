@@ -101,6 +101,7 @@ export const RBAC_RESOURCES: Readonly<Record<string, readonly RbacAction[]>> = {
   rbac_roles: ['view', 'create', 'edit', 'delete'],
   api_tokens: ['view', 'create', 'delete'],
   auth_providers: ['view', 'edit'],
+  external_auth: ['view', 'edit'],
   appearance: ['view', 'edit'],
   branding: ['view', 'edit'],
   backups: ['view', 'create', 'delete', 'run'],

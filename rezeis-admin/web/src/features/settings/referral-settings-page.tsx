@@ -369,7 +369,7 @@ function ReferralSettingsForm({ referral }: ReferralSettingsFormProps) {
                   </FormItem>
                 )}
               />
-              <div className="grid gap-3 grid-cols-3">
+              <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
                 {(['level1Reward', 'level2Reward', 'level3Reward'] as const).map((name, idx) => (
                   <FormField
                     key={name}

@@ -525,13 +525,13 @@ function DeliveriesSection(props: {
         </div>
       </div>
       <Card>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {props.loading ? (
             <Skeleton className="h-32 w-full" />
           ) : props.deliveries.length === 0 ? (
             <p className="px-6 py-4 text-sm text-muted-foreground">{t('webhooksPage.deliveries.empty')}</p>
           ) : (
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[640px] text-sm">
               <thead className="border-b bg-muted/30 text-left text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2 w-10" />

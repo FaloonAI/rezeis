@@ -226,8 +226,8 @@ function ResultCard({ result }: { readonly result: BulkUserOperationResult }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="max-h-[420px] overflow-y-auto">
-          <table className="w-full text-sm">
+        <div className="max-h-[420px] overflow-auto">
+          <table className="w-full min-w-[480px] text-sm">
             <thead className="border-b bg-muted/30 text-left text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="px-3 py-2">{t('bulkUsersPage.result.userId')}</th>

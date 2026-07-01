@@ -27,6 +27,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { UpdateBanner } from '@/features/update-checker/update-banner'
+import { useAppearanceSync } from '@/lib/theme/appearance-sync'
 import { useGlassStore } from '@/lib/theme/glass-store'
 import { cn } from '@/lib/utils'
 import { useRealtimeUpdates } from '@/lib/realtime/use-realtime-updates'
@@ -46,6 +47,10 @@ export default function AdminShell() {
   const [searchOpen, setSearchOpen] = useState(false)
 
   const glassEnabled = useGlassStore((s) => s.glassEnabled)
+
+  // Persist the admin's active look (theme/presets/glass/effects/density) to
+  // the server per-admin so it follows them across devices and browsers.
+  useAppearanceSync(true)
 
   // Subscribe to admin realtime updates as soon as the shell is rendered
   // (i.e. the admin is authenticated). Toasts are limited to WARNING/ERROR

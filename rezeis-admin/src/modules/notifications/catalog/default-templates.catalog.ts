@@ -259,6 +259,13 @@ const SYSTEM_TEMPLATES: ReadonlyArray<DefaultNotificationTemplate> = [
     bodyEn: 'Web-portal sign-up: {{email}}.',
   },
   {
+    type: 'web_welcome',
+    title: '👋 Добро пожаловать',
+    titleEn: '👋 Welcome',
+    body: 'Ваш аккаунт готов. Ваш логин для входа: {{login}}. Пароль вы задали при регистрации — по соображениям безопасности мы его не отправляем.',
+    bodyEn: 'Your account is ready. Your login is {{login}}. You set your password during sign-up — for security we never email it.',
+  },
+  {
     type: 'web_account_linked',
     title: '🔗 Web-аккаунт привязан',
     titleEn: '🔗 Web account linked',

@@ -672,8 +672,10 @@ export default function BotFlowPage() {
 
       {/* Canvas + Sidebar */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left palette + unified node list */}
-        <div className="flex w-60 shrink-0 flex-col overflow-hidden border-r">
+        {/* Left palette + unified node list — hidden on phones where the
+            flow editor is view-oriented; the canvas + collapsible inspector
+            remain usable. */}
+        <div className="hidden w-60 shrink-0 flex-col overflow-hidden border-r md:flex">
           <div className="shrink-0 border-b px-2 pb-1.5 pt-2">
             <button
               type="button"

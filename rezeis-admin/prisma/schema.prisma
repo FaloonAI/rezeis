@@ -403,6 +403,12 @@ model AdminUser {
   /// enrollment.
   totpRecoveryCodes  String[]  @default([]) @map("totp_recovery_codes")
   totpEnrolledAt     DateTime? @map("totp_enrolled_at") @db.Timestamptz(3)
+  /// The admin's ACTIVE appearance selection (theme mode/preset/radius, glass
+  /// on/off + per-element settings, effects, density/font). Opaque JSON blob
+  /// mirroring the web client's persisted store shapes — persisted per-admin so
+  /// the chosen theme/effects follow the operator across devices/browsers
+  /// instead of resetting to defaults from empty localStorage.
+  appearancePrefs    Json?     @map("appearance_prefs")
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -998,6 +1004,7 @@ model User {
   partnerTransactions  PartnerTransaction[]    @relation("PartnerTransactionReferral")
   partnerReferrals     PartnerReferral[]       @relation("PartnerReferralUser")
   supportTickets       SupportTicket[]         @relation("SupportTicketUser")
+  oauthLinks           UserOAuthLink[]         @relation("UserOAuthLinks")
 
   @@index([telegramId])
   @@index([role])
@@ -1081,6 +1088,58 @@ model AuthChallenge {
   @@index([webAccountId, purpose])
   @@index([destination, purpose])
   @@map("auth_challenges")
+}
+
+/// Supported end-user external sign-in providers (web cabinet). Kept separate
+/// from the admin-only `AuthProviderType` — public sign-up and admin SSO have
+/// different trust semantics.
+enum ExternalAuthProvider {
+  TELEGRAM
+  GOOGLE
+  YANDEX
+  MAILRU
+}
+
+/// End-user external-auth provider configuration (one row per provider).
+/// Separate from the admin `AuthProviderConfig`. Client secrets are stored
+/// AES-256-GCM encrypted (same key path as the admin OAuth `CryptoService`).
+/// Telegram is permanent / default-on and reuses the bot token (no client
+/// id/secret); the OAuth providers default disabled until configured.
+model ExternalAuthProviderConfig {
+  id              String               @id @default(cuid()) @map("id")
+  provider        ExternalAuthProvider @unique @map("provider")
+  isEnabled       Boolean              @default(false) @map("is_enabled")
+  displayName     String               @map("display_name")
+  clientId        String?              @map("client_id")
+  clientSecretEnc String?              @map("client_secret_enc")
+  usePkce         Boolean              @default(true) @map("use_pkce")
+  scopes          String?              @map("scopes")
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("external_auth_provider_configs")
+}
+
+/// Links a verified external identity to a `User` (mirrors the admin-only
+/// `AdminOAuthLink`). One external identity maps to at most one user.
+model UserOAuthLink {
+  id             String               @id @default(cuid()) @map("id")
+  userId         String               @map("user_id")
+  provider       ExternalAuthProvider @map("provider")
+  providerUserId String               @map("provider_user_id")
+  providerEmail  String?              @map("provider_email")
+  providerName   String?              @map("provider_name")
+  emailVerified  Boolean              @default(false) @map("email_verified")
+  profileData    Json                 @default("{}") @map("profile_data")
+  linkedAt       DateTime             @default(now()) @map("linked_at") @db.Timestamptz(3)
+  lastUsedAt     DateTime?            @map("last_used_at") @db.Timestamptz(3)
+
+  user User @relation("UserOAuthLinks", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+  @@index([provider])
+  @@map("user_oauth_links")
 }
 
 // =============================================================================

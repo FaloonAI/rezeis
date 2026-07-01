@@ -27,6 +27,7 @@ import {
   BarChart3,
   Smartphone,
   Smile,
+  LogIn,
   Map as MapIcon,
 } from 'lucide-react'
 
@@ -100,6 +101,7 @@ export const navGroups: ReadonlyArray<NavGroup> = [
       { key: 'platform', path: '/settings', icon: Settings },
       { key: 'webReiwa', path: '/web-reiwa', icon: Smartphone },
       { key: 'gateways', path: '/payments/gateways', icon: CreditCard, requiredPermission: { resource: 'payment_gateways', action: 'view' } },
+      { key: 'externalAuth', path: '/external-auth', icon: LogIn, requiredPermission: { resource: 'external_auth', action: 'view' } },
       { key: 'botMap', path: '/bot-map', icon: MapIcon },
       { key: 'remnawave', path: '/remnawave', icon: RemnawaveIcon },
       { key: 'notifications', path: '/notifications', icon: Bell },

@@ -1,6 +1,6 @@
 {
   "name": "rezeis-admin",
-  "version": "0.9.6.3",
+  "version": "0.9.6.4",
   "description": "Rezeis Admin NestJS microservice baseline",
   "private": true,
   "license": "UNLICENSED",
@@ -28,6 +28,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"prisma/**/*.prisma\" \"*.json\"",
     "admin-cli": "ts-node -r dotenv/config -r tsconfig-paths/register scripts/admin-cli.ts",
+    "sync:disposable-domains": "node scripts/sync-disposable-domains.mjs",
     "prepare": "husky || true"
   },
   "dependencies": {

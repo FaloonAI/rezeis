@@ -53,6 +53,7 @@ import { InternalUserModule } from './modules/internal-user/internal-user.module
 import { LinkingModule } from './modules/linking/linking.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { OAuthModule } from './modules/oauth/oauth.module';
+import { ExternalAuthModule } from './modules/external-auth/external-auth.module';
 import { EmailDeliveryModule } from './modules/email/email.module';
 import { PartnersModule } from './modules/partners/partners.module';
 import { AdvertisingModule } from './modules/advertising/advertising.module';import { AccountMergeModule } from './modules/account-merge/account-merge.module';
@@ -144,6 +145,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     ImportsModule,
     NotificationsModule,
     OAuthModule,
+    ExternalAuthModule,
     EmailDeliveryModule,
     PartnersModule,
     ProfileSyncModule,

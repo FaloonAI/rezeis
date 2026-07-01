@@ -22,7 +22,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Search, Users as UsersIcon, Plus, Loader2, ListChecks } from 'lucide-react'
+import { Search, Users as UsersIcon, Plus, Loader2, ListChecks, ArrowLeft } from 'lucide-react'
 
 import { api } from '@/lib/api'
 import { toast } from 'sonner'
@@ -45,6 +45,7 @@ import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/http-errors'
 import { FadeIn } from '@/lib/motion'
 import { useTabSync } from '@/lib/use-tab-sync'
+import { useIsMobile } from '@/lib/use-is-mobile'
 import { withFeatureBundle } from '@/i18n/i18n'
 
 const UserDetailPanel = lazy(
@@ -179,6 +180,7 @@ const UserListRow = memo(function UserListRow({ user, isSelected, onSelect }: Us
 
 function UsersListTab() {
   const { t } = useTranslation()
+  const isMobile = useIsMobile()
   const [searchParams, setSearchParams] = useSearchParams()
   const initialSearch = searchParams.get('search') ?? ''
   const [searchInput, setSearchInput] = useState(initialSearch)
@@ -241,10 +243,25 @@ function UsersListTab() {
     setSelectedUserId(userId)
   }, [])
 
+  // On phones the two panes can't sit side-by-side, so we drill in: the list
+  // is full-width until a user is picked, then the detail takes over with a
+  // back affordance. On md+ both panes stay visible exactly as before.
+  const showList = !isMobile || !selectedUserId
+  const showDetail = !isMobile || Boolean(selectedUserId)
+
   return (
-    <div data-glass-card className="flex h-[calc(100vh-13rem)] gap-0 overflow-hidden rounded-lg border">
+    <div
+      data-glass-card
+      className="flex h-[calc(100vh-13rem)] min-h-[24rem] gap-0 overflow-hidden rounded-lg border"
+    >
       {/* ── Left panel: search + user list ─────────────────────────── */}
-      <div className="flex w-80 shrink-0 flex-col border-r bg-card">
+      <div
+        className={cn(
+          'flex flex-col border-r bg-card',
+          isMobile ? 'w-full' : 'w-80 shrink-0',
+          showList ? '' : 'hidden',
+        )}
+      >
         {/* Search header */}
         <div className="space-y-2 p-3">
           <form onSubmit={handleSearch} className="flex gap-2">
@@ -325,9 +342,27 @@ function UsersListTab() {
       </div>
 
       {/* ── Right panel: user detail + actions ─────────────────────── */}
-      <div className="flex-1 overflow-auto bg-background scrollbar-none">
+      <div
+        className={cn(
+          'flex-1 overflow-auto bg-background scrollbar-none',
+          showDetail ? '' : 'hidden',
+        )}
+      >
         {selectedUserId ? (
           <FadeIn key={selectedUserId}>
+            {isMobile && (
+              <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background/80 px-3 py-2 backdrop-blur">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => setSelectedUserId(null)}
+                >
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                  {t('usersPage.backToList')}
+                </Button>
+              </div>
+            )}
             <Suspense fallback={<div className="p-6 space-y-3"><Skeleton className="h-8 w-48" /><Skeleton className="h-64 w-full" /></div>}>
               <UserDetailPanel telegramId={selectedUserId} />
             </Suspense>

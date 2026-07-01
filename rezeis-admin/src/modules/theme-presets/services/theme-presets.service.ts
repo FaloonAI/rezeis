@@ -22,6 +22,38 @@ interface PresetRow {
 export class ThemePresetsService {
   public constructor(private readonly prismaService: PrismaService) {}
 
+  /**
+   * Returns the admin's ACTIVE appearance selection (opaque JSON blob mirroring
+   * the web client's persisted store shapes), or `null` when never saved.
+   */
+  public async getAppearancePrefs(
+    currentAdmin: CurrentAdminInterface,
+  ): Promise<Record<string, unknown> | null> {
+    const row = await this.prismaService.adminUser.findUnique({
+      where: { id: currentAdmin.id },
+      select: { appearancePrefs: true },
+    });
+    const prefs = row?.appearancePrefs;
+    return prefs !== null && prefs !== undefined && typeof prefs === 'object' && !Array.isArray(prefs)
+      ? (prefs as Record<string, unknown>)
+      : null;
+  }
+
+  /**
+   * Persists the admin's ACTIVE appearance selection so it follows them across
+   * devices. The blob is stored as-is (client-owned shape); the server never
+   * interprets it.
+   */
+  public async saveAppearancePrefs(
+    currentAdmin: CurrentAdminInterface,
+    prefs: Record<string, unknown>,
+  ): Promise<void> {
+    await this.prismaService.adminUser.update({
+      where: { id: currentAdmin.id },
+      data: { appearancePrefs: prefs as Prisma.InputJsonObject },
+    });
+  }
+
   public async listPresets(
     currentAdmin: CurrentAdminInterface,
   ): Promise<readonly AdminThemePresetInterface[]> {
