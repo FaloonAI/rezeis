@@ -156,11 +156,11 @@ export default function AdminIpAllowlistPage({ embedded = false }: AdminIpAllowl
         <CardHeader>
           <CardTitle>{t('ipAllowlistPage.entries', { count: data.total })}</CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {data.items.length === 0 ? (
             <p className="px-6 py-4 text-sm text-muted-foreground">{t('ipAllowlistPage.empty')}</p>
           ) : (
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[560px] text-sm">
               <thead className="border-b bg-muted/30 text-left text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2">{t('ipAllowlistPage.columns.address')}</th>

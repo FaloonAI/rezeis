@@ -354,7 +354,7 @@ function PartnerSettingsForm({ partner }: PartnerSettingsFormProps) {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-3 grid-cols-3">
+              <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
                 {(['level1Percent', 'level2Percent', 'level3Percent'] as const).map((name, idx) => (
                   <FormField
                     key={name}

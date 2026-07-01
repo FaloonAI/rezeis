@@ -397,7 +397,7 @@ function NewCampaignDialog() {
           {t('advertisingPage.actions.newCampaign')}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('advertisingPage.actions.newCampaign')}</DialogTitle>
         </DialogHeader>
@@ -480,7 +480,7 @@ function NewPlacementDialog({ campaignId }: { campaignId: string }) {
           {t('advertisingPage.actions.newPlacement')}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('advertisingPage.actions.newPlacement')}</DialogTitle>
         </DialogHeader>

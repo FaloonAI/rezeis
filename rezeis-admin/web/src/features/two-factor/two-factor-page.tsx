@@ -647,7 +647,7 @@ function PasskeySection(): JSX.Element {
       </Card>
 
       <Dialog open={registerDialogOpen} onOpenChange={setRegisterDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('twoFactorPage.passkey.registerDialog.title')}</DialogTitle>
             <DialogDescription>

@@ -517,8 +517,8 @@ function PermissionMatrix({
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold">{t('rolesPage.editor.permissions')}</h3>
-      <div className="rounded-md border overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-md border overflow-x-auto">
+        <table className="w-full min-w-[600px] text-sm">
           <thead className="bg-muted/50">
             <tr>
               <th className="px-3 py-2 text-left font-medium">{t('rolesPage.editor.resourceColumn')}</th>
@@ -627,7 +627,7 @@ function CreateRoleDialog({
           {t('rolesPage.newRole')}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('rolesPage.createDialog.title')}</DialogTitle>
           <DialogDescription>

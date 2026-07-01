@@ -2359,7 +2359,7 @@ function MergeAccountsCard({
         {preview && (
           <div className="space-y-3">
             <p className="text-[11px] text-muted-foreground">{t('userDetailPanel.web.merge.pickSurvivor')}</p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {renderColumn('current', preview.current)}
               {renderColumn('counterpart', preview.counterpart)}
             </div>

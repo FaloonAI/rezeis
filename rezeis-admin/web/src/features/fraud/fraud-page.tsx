@@ -828,7 +828,7 @@ function EnforceDialog({
 
   return (
     <Dialog open={!!signal} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Ban className="h-4 w-4 text-destructive" />
@@ -902,7 +902,7 @@ function TransitionDialog({
 
   return (
     <Dialog open={!!signal} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('fraudPage.dialog.title')}</DialogTitle>
           <DialogDescription>

@@ -96,14 +96,14 @@ export default function AdminShell() {
 
         {/* Mobile Sheet sidebar */}
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-          <SheetContent side="left" className="w-64 bg-sidebar p-0 text-sidebar-foreground">
+          <SheetContent side="left" className="flex w-64 flex-col overflow-hidden bg-sidebar p-0 text-sidebar-foreground">
             <SheetHeader className="flex h-14 flex-row items-center px-4">
               <SheetTitle className="flex items-center gap-2 text-lg font-bold text-sidebar-foreground">
                 <RezeisLogo className="h-7 w-7" />
                 Rezeis Admin
               </SheetTitle>
             </SheetHeader>
-            <ScrollArea className="flex-1 py-2">
+            <ScrollArea className="min-h-0 flex-1 py-2">
               <NavItems onNavigate={() => setMobileOpen(false)} />
             </ScrollArea>
           </SheetContent>

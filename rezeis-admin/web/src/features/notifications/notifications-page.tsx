@@ -371,7 +371,7 @@ function UserNotificationsTab() {
 
       {/* Edit template dialog */}
       <Dialog open={!!editTemplate} onOpenChange={(v) => !v && setEditTemplate(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('notificationsPage.templates.editDialogTitle', { type: editTemplate?.type })}</DialogTitle>
           </DialogHeader>

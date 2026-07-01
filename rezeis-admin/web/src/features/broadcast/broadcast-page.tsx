@@ -256,7 +256,7 @@ export default function BroadcastPage() {
 
       {/* Create Dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('broadcastPage.newButton')}</DialogTitle>
             <DialogDescription>{t('broadcastPage.form.description')}</DialogDescription>
@@ -267,7 +267,7 @@ export default function BroadcastPage() {
 
       {/* Edit Dialog */}
       <Dialog open={editId !== null} onOpenChange={(open) => { if (!open) setEditId(null) }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('broadcastPage.edit.title')}</DialogTitle>
             <DialogDescription>{t('broadcastPage.edit.description')}</DialogDescription>

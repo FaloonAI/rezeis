@@ -711,7 +711,7 @@ export default function GatewaySettingsPage() {
         open={settingsTarget !== null}
         onOpenChange={(open) => !open && setSettingsTarget(null)}
       >
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
           {settingsTarget && (
             <GatewaySettingsForm
               gateway={settingsTarget}

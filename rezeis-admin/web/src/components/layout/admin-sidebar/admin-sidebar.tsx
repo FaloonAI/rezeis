@@ -49,7 +49,7 @@ export function AdminSidebar({ collapsed, onToggleCollapsed }: AdminSidebarProps
       </div>
 
       {/* Nav */}
-      <ScrollArea className="flex-1 py-2">
+      <ScrollArea className="min-h-0 flex-1 py-2">
         <NavItems collapsed={collapsed} />
       </ScrollArea>
 

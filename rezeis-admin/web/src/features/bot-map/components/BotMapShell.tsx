@@ -78,7 +78,7 @@ export function BotMapShell({ payload, isFetching, onRefresh }: BotMapShellProps
   )
 
   return (
-    <div className="flex h-[calc(100dvh-7rem)] min-h-[600px] flex-col">
+    <div className="flex h-[calc(100dvh-7rem)] flex-col md:min-h-[600px]">
       <header className="flex flex-wrap items-center justify-between gap-3 pb-3">
         <div className="space-y-0.5">
           <h1 className="text-2xl font-semibold tracking-tight">{t('botMapPage.title')}</h1>

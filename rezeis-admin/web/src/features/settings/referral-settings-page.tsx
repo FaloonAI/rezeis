@@ -554,7 +554,7 @@ function ReferralSettingsForm({ referral }: ReferralSettingsFormProps) {
                   enabled={giftEnabled}
                   control={form.control}
                 >
-                  <div className="grid gap-2 grid-cols-2">
+                  <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
                     <FormField
                       control={form.control}
                       name="giftPointsCost"
@@ -622,7 +622,7 @@ function ReferralSettingsForm({ referral }: ReferralSettingsFormProps) {
                   enabled={discountEnabled}
                   control={form.control}
                 >
-                  <div className="grid gap-2 grid-cols-2">
+                  <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
                     <FormField
                       control={form.control}
                       name="discountPointsCost"
@@ -668,7 +668,7 @@ function ReferralSettingsForm({ referral }: ReferralSettingsFormProps) {
                   enabled={trafficEnabled}
                   control={form.control}
                 >
-                  <div className="grid gap-2 grid-cols-2">
+                  <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
                     <FormField
                       control={form.control}
                       name="trafficPointsCost"

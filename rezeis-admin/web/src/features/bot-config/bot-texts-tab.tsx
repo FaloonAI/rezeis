@@ -347,7 +347,7 @@ function TextEditDialog({ text, open, onOpenChange }: TextEditDialogProps): JSX.
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('botConfigPage.texts.editTitle')}</DialogTitle>
           {text !== null && (
@@ -549,7 +549,7 @@ function TextCreateDialog({ open, onOpenChange }: TextCreateDialogProps): JSX.El
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('botConfigPage.texts.createTitle')}</DialogTitle>
           <DialogDescription>{t('botConfigPage.texts.createDescription')}</DialogDescription>
