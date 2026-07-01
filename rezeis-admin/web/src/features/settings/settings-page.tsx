@@ -67,13 +67,13 @@ export default function SettingsPage() {
   if (isLoading) return <div className="space-y-4"><Skeleton className="h-8 w-48" /><Skeleton className="h-64 w-full" /></div>
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-6">
+    <div className="w-full space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{t('settingsPage.title')}</h1>
         <p className="text-muted-foreground">{t('settingsPage.subtitle')}</p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+      <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3 lg:items-start">
         <div className="space-y-6">
           <PlatformTab settings={settings} />
           <MultiSubTab settings={settings} />
@@ -82,8 +82,8 @@ export default function SettingsPage() {
           <BotTokenSection settings={settings} />
           <WebPushSection settings={settings} />
         </div>
+        <BrandingTab settings={settings} />
       </div>
-      <BrandingTab settings={settings} />
     </div>
   )
 }
@@ -453,7 +453,7 @@ export function BrandingTab({ settings }: { settings: AdminSettings | undefined 
         <CardDescription>{t('settingsPage.branding.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="settings-branding-project-name">{t('settingsPage.branding.projectName')}</Label>
             <Input
