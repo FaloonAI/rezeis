@@ -230,6 +230,7 @@ export const NAV_DESTINATIONS = [
   'activity',
   'promo',
   'support',
+  'faq',
   'settings',
 ] as const;
 export type NavDestinationId = (typeof NAV_DESTINATIONS)[number];
@@ -264,6 +265,13 @@ export interface BrandingSettingsInterface {
    * square raster. Fallback chain at render: `pwaIconUrl → logoUrl → default`.
    */
   readonly pwaIconUrl: string | null;
+
+  /**
+   * Optional square icon for installing the ADMIN PANEL itself as a PWA
+   * (distinct from `pwaIconUrl`, which is the reiwa cabinet's install icon).
+   * Applied at runtime to the admin `apple-touch-icon` + web manifest.
+   */
+  readonly adminPwaIconUrl: string | null;
 
   /** Primary action / accent colour (hex, e.g. `#22c55e`). */
   readonly primary: string;
@@ -373,6 +381,7 @@ export const DEFAULT_BRANDING: BrandingSettingsInterface = {
   tagline: null,
   logoUrl: null,
   pwaIconUrl: null,
+  adminPwaIconUrl: null,
   primary: '#22c55e',
   primaryFg: '#0a0a0a',
   bgPrimary: '#0a0a0a',

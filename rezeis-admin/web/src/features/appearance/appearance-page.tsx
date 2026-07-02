@@ -93,9 +93,6 @@ export default function AppearancePage() {
         <TabsList className="flex-wrap">
           <TabsTrigger value="presets">{t('appearancePage.tabs.presets')}</TabsTrigger>
           <TabsTrigger value="customize">{t('appearancePage.tabs.customize')}</TabsTrigger>
-          <TabsTrigger value="saved">{t('appearancePage.tabs.saved')}</TabsTrigger>
-          <TabsTrigger value="paste">{t('appearancePage.tabs.paste')}</TabsTrigger>
-          <TabsTrigger value="layout">{t('appearancePage.tabs.layout')}</TabsTrigger>
           <TabsTrigger value="effects">{t('appearancePage.tabs.effects')}</TabsTrigger>
           <TabsTrigger value="preview">{t('appearancePage.tabs.preview')}</TabsTrigger>
         </TabsList>
@@ -106,29 +103,24 @@ export default function AppearancePage() {
             <RadiusCard />
             <PresetsCard />
           </div>
+          <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+            <SavedThemesCard />
+            <PasteThemeCard />
+          </div>
         </TabsContent>
 
         <TabsContent value="customize" className="space-y-4">
           <ModeCard />
           <ColorEditorCard />
           <RadiusCard />
-        </TabsContent>
-
-        <TabsContent value="saved" className="space-y-4">
-          <SavedThemesCard />
-        </TabsContent>
-
-        <TabsContent value="paste" className="space-y-4">
-          <PasteThemeCard />
-        </TabsContent>
-
-        <TabsContent value="layout" className="space-y-4">
           <LayoutTabContent />
         </TabsContent>
 
         <TabsContent value="effects" className="space-y-4">
-          <GlassSettingsCard />
-          <EffectsSettingsCard />
+          <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+            <GlassSettingsCard />
+            <EffectsSettingsCard />
+          </div>
         </TabsContent>
 
         <TabsContent value="preview" className="space-y-4">

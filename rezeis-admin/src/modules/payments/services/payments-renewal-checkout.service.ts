@@ -14,6 +14,7 @@ import {
 } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { ProfileSyncQueueService } from '../../profile-sync/profile-sync-queue.service';
 import { AccessModeGuard } from '../../settings/services/access-mode-guard.service';
 import { SettingsService } from '../../settings/services/settings.service';
 import { SubscriptionRenewalService } from '../../subscriptions/services/subscription-renewal.service';
@@ -21,6 +22,7 @@ import { PricedRenewalInterface } from '../../subscriptions/interfaces/subscript
 import { InternalPaymentCheckoutInterface } from '../interfaces/internal-payment-checkout.interface';
 import { isGatewayConfigured } from '../utils/payment-gateway-settings.util';
 import { PaymentProviderExecutionService } from './payment-provider-execution.service';
+import { PaymentSubscriptionMutationService } from './payment-subscription-mutation.service';
 
 export interface RenewalCheckoutInput {
   readonly userId?: string;
@@ -49,6 +51,8 @@ export class PaymentsRenewalCheckoutService {
     private readonly prismaService: PrismaService,
     private readonly subscriptionRenewalService: SubscriptionRenewalService,
     private readonly paymentProviderExecutionService: PaymentProviderExecutionService,
+    private readonly paymentSubscriptionMutationService: PaymentSubscriptionMutationService,
+    private readonly profileSyncQueueService: ProfileSyncQueueService,
     private readonly settingsService: SettingsService,
     private readonly accessModeGuard: AccessModeGuard,
   ) {}
@@ -105,6 +109,31 @@ export class PaymentsRenewalCheckoutService {
         transaction,
         checkoutUrl: existingCheckoutUrl,
         providerMode: readProviderMode(transaction) ?? 'REDIRECT',
+      });
+    }
+
+    // Zero-total renewal (e.g. a 100% discount fully covers the renewal):
+    // there is no real payment to create and a provider would reject a 0
+    // amount. Complete the combined-renewal draft and fulfill every item
+    // directly, mirroring the zero-total path in PaymentsCheckoutService —
+    // the user's subscriptions are renewed instead of a "payment failed".
+    if (Number(transaction.amount) <= 0) {
+      const completedTransaction = await this.prismaService.transaction.update({
+        where: { id: transaction.id },
+        data: { status: TransactionStatus.COMPLETED },
+      });
+      const { syncJobs } =
+        await this.paymentSubscriptionMutationService.applyCompletedTransaction(completedTransaction);
+      for (const syncJob of syncJobs) {
+        await this.profileSyncQueueService.enqueue(syncJob.id);
+      }
+      const finalTransaction =
+        (await this.prismaService.transaction.findUnique({ where: { id: transaction.id } })) ??
+        completedTransaction;
+      return mapCheckoutResponse({
+        transaction: finalTransaction,
+        checkoutUrl: null,
+        providerMode: 'NONE',
       });
     }
 

@@ -47,6 +47,7 @@ export type EnablePushResult =
   | 'subscribed'
   | 'permission-denied'
   | 'push-disabled'
+  | 'subscribe-failed'
   | 'unsupported'
 
 export async function enablePush(): Promise<EnablePushResult> {
@@ -65,8 +66,14 @@ export async function enablePush(): Promise<EnablePushResult> {
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(publicKey),
     })
-  } catch {
-    return 'permission-denied'
+  } catch (err) {
+    // Permission was granted above, so a failure here is NOT a permission
+    // problem — it's the push service rejecting the subscription (e.g. a
+    // VAPID key mismatch, or the browser's push service being unreachable).
+    // Report it distinctly instead of the misleading "permission denied".
+    // eslint-disable-next-line no-console -- surfaces the real cause for the operator
+    console.error('[push] pushManager.subscribe failed', err)
+    return 'subscribe-failed'
   }
 
   const json = subscription.toJSON()

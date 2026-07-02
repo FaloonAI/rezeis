@@ -198,6 +198,15 @@ export class UpdateBrandingSettingsDto {
   public pwaIconUrl?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, value: unknown) => typeof value === 'string' && value.length > 0)
+  @IsString()
+  @MaxLength(524288)
+  @Matches(/^(?:data:image\/[a-z0-9+.-]+;base64,[A-Za-z0-9+/=]+|https?:\/\/.+|\/uploads\/[A-Za-z0-9._/-]+)$/i, {
+    message: 'adminPwaIconUrl must be a data: URI, an http(s) URL, or an /uploads/ path',
+  })
+  public adminPwaIconUrl?: string | null;
+
+  @IsOptional()
   @IsHexColor()
   public primary?: string;
 

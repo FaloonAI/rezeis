@@ -154,6 +154,27 @@ describe('PaymentsCheckoutService', () => {
     assert.equal(state.providerCreateCalls, 0)
   })
 
+  it('completes a zero-total checkout without calling the payment provider', async () => {
+    const { service, state } = createService({ amount: '0' })
+
+    const checkout = await service.checkout({
+      userId: 'user-1',
+      purchaseType: PurchaseType.NEW,
+      planId: 'plan-1',
+      durationDays: 30,
+      gatewayType: PaymentGatewayType.YOOKASSA,
+      channel: PurchaseChannel.WEB,
+    })
+
+    // No real payment to create — the provider is never touched and the
+    // subscription is provisioned directly (mirrors the free-add-on path).
+    assert.equal(checkout.checkoutUrl, null)
+    assert.equal(checkout.providerMode, 'NONE')
+    assert.equal(state.providerCreateCalls, 0)
+    assert.equal(state.applyCompletedCalls, 1)
+    assert.equal(state.enqueueCalls, 1)
+  })
+
   it('propagates entitlement deny from transaction draft creation', async () => {
     const { service, state } = createService({
       draftError: new BadRequestException({
@@ -238,11 +259,14 @@ function createService(input: {
   readonly transactionGatewayData?: Record<string, unknown>
   readonly draftError?: Error
   readonly accessMode?: 'PUBLIC' | 'INVITED' | 'PURCHASE_BLOCKED' | 'REG_BLOCKED' | 'RESTRICTED'
+  readonly amount?: string
 } = {}) {
   const transactionUpdates: Record<string, unknown>[] = []
   const state = {
     transactionUpdates,
     providerCreateCalls: 0,
+    applyCompletedCalls: 0,
+    enqueueCalls: 0,
   }
   const paymentId = 'payment-1'
   const gatewayType = input.gatewayType ?? PaymentGatewayType.YOOKASSA
@@ -256,7 +280,7 @@ function createService(input: {
     channel: PurchaseChannel.WEB,
     gatewayType,
     currency: input.gatewayCurrency ?? Currency.USD,
-    amount: { toString: () => '9.99' },
+    amount: { toString: () => input.amount ?? '9.99' },
     paymentAsset: null,
     gatewayId: null,
     gatewayData: input.transactionGatewayData ?? null,
@@ -328,6 +352,19 @@ function createService(input: {
       prismaService as never,
       paymentsTransactionsService as never,
       paymentProviderExecutionService as never,
+      // PaymentSubscriptionMutationService + ProfileSyncQueueService — only
+      // exercised by the zero-total (free) branch; plain stubs for the rest.
+      {
+        applyCompletedTransaction: async () => {
+          state.applyCompletedCalls += 1
+          return { syncJobs: [{ id: 'sync-1' }] }
+        },
+      } as never,
+      {
+        enqueue: async () => {
+          state.enqueueCalls += 1
+        },
+      } as never,
       // SettingsService stub — returns the requested mode (PUBLIC default so
       // the access-mode gate is a no-op for the legacy tests).
       {

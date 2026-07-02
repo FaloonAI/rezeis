@@ -45,6 +45,7 @@ export function readBrandingSettings(value: unknown): BrandingSettingsInterface 
     tagline: readNullableString(record, 'tagline'),
     logoUrl: readNullableString(record, 'logoUrl'),
     pwaIconUrl: readNullableString(record, 'pwaIconUrl'),
+    adminPwaIconUrl: readNullableString(record, 'adminPwaIconUrl'),
     primary: readHex(record, 'primary', DEFAULT_BRANDING.primary),
     primaryFg: readHex(record, 'primaryFg', DEFAULT_BRANDING.primaryFg),
     bgPrimary: readHex(record, 'bgPrimary', DEFAULT_BRANDING.bgPrimary),

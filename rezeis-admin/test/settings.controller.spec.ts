@@ -249,6 +249,7 @@ describe('SettingsController', () => {
       tagline: null,
       logoUrl: null,
       pwaIconUrl: null,
+      adminPwaIconUrl: null,
       primary: '#ffffff',
       primaryFg: '#000000',
       bgPrimary: '#111111',

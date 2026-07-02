@@ -5,15 +5,32 @@
  * bottom navigation (and in what order), and hide the rest (they stay
  * reachable from Settings). `subscriptions` and `settings` are essential —
  * always visible, locked on. At most `NAV_MAX_VISIBLE` destinations can be
- * shown at once. Persists into `brandingSettings.navItems`.
+ * shown at once. Order is set by free drag-and-drop. Persists into
+ * `brandingSettings.navItems`.
  */
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, ChevronUp, Lock } from 'lucide-react'
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { GripVertical, Lock } from 'lucide-react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 import {
@@ -54,19 +71,23 @@ export function NavConfigSection({ value, onChange }: NavConfigSectionProps) {
   const items = useMemo(() => normalize(value), [value])
   const visibleCount = items.filter((i) => i.visible).length
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
   const toggle = (id: NavDestinationId) => {
     if (isEssential(id)) return
     onChange(items.map((i) => (i.id === id ? { ...i, visible: !i.visible } : i)))
   }
 
-  const move = (index: number, dir: -1 | 1) => {
-    const j = index + dir
-    if (j < 0 || j >= items.length) return
-    const next = [...items]
-    const tmp = next[index]
-    next[index] = next[j]
-    next[j] = tmp
-    onChange(next)
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const from = items.findIndex((i) => i.id === active.id)
+    const to = items.findIndex((i) => i.id === over.id)
+    if (from === -1 || to === -1) return
+    onChange(arrayMove(items, from, to))
   }
 
   return (
@@ -81,60 +102,78 @@ export function NavConfigSection({ value, onChange }: NavConfigSectionProps) {
         <p className="text-xs text-muted-foreground">
           {t('brandingPage.sections.nav.maxHint', { count: NAV_MAX_VISIBLE })}
         </p>
-        {items.map((item, index) => {
-          const essential = isEssential(item.id)
-          const capReached = !item.visible && visibleCount >= NAV_MAX_VISIBLE
-          return (
-            <div
-              key={item.id}
-              className={cn(
-                'flex items-center gap-3 rounded-lg border p-3 transition-colors',
-                item.visible ? 'bg-primary/5' : 'bg-muted/10',
-              )}
-            >
-              <div className="flex flex-col">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-5 w-5"
-                  aria-label={t('brandingPage.sections.nav.moveUp')}
-                  disabled={index === 0}
-                  onClick={() => move(index, -1)}
-                >
-                  <ChevronUp className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-5 w-5"
-                  aria-label={t('brandingPage.sections.nav.moveDown')}
-                  disabled={index === items.length - 1}
-                  onClick={() => move(index, 1)}
-                >
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-              <span className="flex-1 text-sm font-medium">
-                {t(`brandingPage.sections.nav.dest.${item.id}`)}
-              </span>
-              {essential && (
-                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                  <Lock className="h-3 w-3" />
-                  {t('brandingPage.sections.nav.locked')}
-                </span>
-              )}
-              <Switch
-                checked={item.visible}
-                disabled={essential || capReached}
-                onCheckedChange={() => toggle(item.id)}
-                aria-label={t(`brandingPage.sections.nav.dest.${item.id}`)}
-              />
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+            <div className="space-y-2">
+              {items.map((item) => (
+                <SortableNavRow
+                  key={item.id}
+                  item={item}
+                  essential={isEssential(item.id)}
+                  capReached={!item.visible && visibleCount >= NAV_MAX_VISIBLE}
+                  onToggle={() => toggle(item.id)}
+                />
+              ))}
             </div>
-          )
-        })}
+          </SortableContext>
+        </DndContext>
       </CardContent>
     </Card>
+  )
+}
+
+interface SortableNavRowProps {
+  readonly item: NavItemDraft
+  readonly essential: boolean
+  readonly capReached: boolean
+  readonly onToggle: () => void
+}
+
+function SortableNavRow({ item, essential, capReached, onToggle }: SortableNavRowProps) {
+  const { t } = useTranslation()
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: item.id,
+  })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : undefined,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        'flex items-center gap-3 rounded-lg border p-3 transition-colors',
+        item.visible ? 'bg-primary/5' : 'bg-muted/10',
+        isDragging && 'opacity-80 shadow-lg',
+      )}
+    >
+      <button
+        type="button"
+        className="cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing focus:outline-none"
+        aria-label={t('brandingPage.sections.nav.dragHandle')}
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <span className="flex-1 text-sm font-medium">
+        {t(`brandingPage.sections.nav.dest.${item.id}`)}
+      </span>
+      {essential && (
+        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <Lock className="h-3 w-3" />
+          {t('brandingPage.sections.nav.locked')}
+        </span>
+      )}
+      <Switch
+        checked={item.visible}
+        disabled={essential || capReached}
+        onCheckedChange={onToggle}
+        aria-label={t(`brandingPage.sections.nav.dest.${item.id}`)}
+      />
+    </div>
   )
 }

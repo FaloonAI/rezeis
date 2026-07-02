@@ -11,9 +11,11 @@ import {
   PurchaseChannel,
   PurchaseType,
   Transaction,
+  TransactionStatus,
 } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { ProfileSyncQueueService } from '../../profile-sync/profile-sync-queue.service';
 import {
   AccessModeGate,
   AccessModeGuard,
@@ -27,6 +29,7 @@ import {
 import { isGatewayConfigured } from '../utils/payment-gateway-settings.util';
 import { normalizePaymentProviderError } from '../utils/payment-provider-error.util';
 import { PaymentProviderExecutionService } from './payment-provider-execution.service';
+import { PaymentSubscriptionMutationService } from './payment-subscription-mutation.service';
 import { PaymentsTransactionsService } from './payments-transactions.service';
 
 @Injectable()
@@ -35,6 +38,8 @@ export class PaymentsCheckoutService {
     private readonly prismaService: PrismaService,
     private readonly paymentsTransactionsService: PaymentsTransactionsService,
     private readonly paymentProviderExecutionService: PaymentProviderExecutionService,
+    private readonly paymentSubscriptionMutationService: PaymentSubscriptionMutationService,
+    private readonly profileSyncQueueService: ProfileSyncQueueService,
     private readonly settingsService: SettingsService,
     private readonly accessModeGuard: AccessModeGuard,
   ) {}
@@ -120,6 +125,31 @@ export class PaymentsCheckoutService {
         transaction,
         checkoutUrl: existingCheckoutUrl,
         providerMode: readProviderMode(transaction) ?? 'REDIRECT',
+      });
+    }
+
+    // Zero-total checkout (e.g. a 100% discount / fully-covered price): there
+    // is no real payment to create, and a provider would reject a 0 amount.
+    // Complete the transaction and provision the subscription directly,
+    // mirroring the free-add-on path — the user gets their subscription
+    // without a payment step instead of a "payment failed" error.
+    if (Number(transaction.amount) <= 0) {
+      const completedTransaction = await this.prismaService.transaction.update({
+        where: { id: transaction.id },
+        data: { status: TransactionStatus.COMPLETED },
+      });
+      const { syncJobs } =
+        await this.paymentSubscriptionMutationService.applyCompletedTransaction(completedTransaction);
+      for (const syncJob of syncJobs) {
+        await this.profileSyncQueueService.enqueue(syncJob.id);
+      }
+      const finalTransaction =
+        (await this.prismaService.transaction.findUnique({ where: { id: transaction.id } })) ??
+        completedTransaction;
+      return mapCheckoutResponse({
+        transaction: finalTransaction,
+        checkoutUrl: null,
+        providerMode: 'NONE',
       });
     }
 

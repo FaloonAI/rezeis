@@ -25,6 +25,7 @@ export const BRANDING_NAV_DESTINATIONS = [
   'activity',
   'promo',
   'support',
+  'faq',
   'settings',
 ] as const
 export type NavDestinationId = (typeof BRANDING_NAV_DESTINATIONS)[number]

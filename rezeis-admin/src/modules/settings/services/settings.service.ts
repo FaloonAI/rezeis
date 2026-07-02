@@ -1390,6 +1390,7 @@ function extractUpdatedBrandingFields(
     'tagline',
     'logoUrl',
     'pwaIconUrl',
+    'adminPwaIconUrl',
     'primary',
     'primaryFg',
     'bgPrimary',

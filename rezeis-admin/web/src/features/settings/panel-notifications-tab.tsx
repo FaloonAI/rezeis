@@ -108,6 +108,8 @@ export default function PanelNotificationsTab() {
           toast.error(t('pushNotifications.permissionDenied'))
         } else if (result === 'push-disabled') {
           toast.error(t('pushNotifications.disabledServer'))
+        } else if (result === 'subscribe-failed') {
+          toast.error(t('pushNotifications.subscribeFailed'))
         } else {
           toast.error(t('pushNotifications.unsupported'))
         }

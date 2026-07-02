@@ -8,17 +8,19 @@
  *   - Remnawave profile naming template (since admin operates the profiles)
  */
 
+import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Loader2, Paintbrush, Save } from 'lucide-react'
+import { Loader2, Paintbrush, Save, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -30,11 +32,13 @@ import {
   FormLabel,
 } from '@/components/ui/form'
 import { api } from '@/lib/api'
+import { applyAdminPwaIcon } from '@/lib/admin-pwa-icon'
 
 interface BrandingSettings {
   readonly projectName?: string | null
   readonly brandName?: string | null
   readonly logoUrl?: string | null
+  readonly adminPwaIconUrl?: string | null
   readonly profileNaming?: {
     readonly prefix?: string
     readonly separator?: string
@@ -76,6 +80,7 @@ function PanelBrandingForm({ branding }: PanelBrandingFormProps) {
   const schema = z.object({
     brandName: z.string().trim(),
     logoUrl: z.string().trim(),
+    adminPwaIconUrl: z.string().trim(),
     namingPrefix: z.string().trim(),
     namingSeparator: z.string().max(2),
     namingSuffixBase: z.string().trim(),
@@ -87,6 +92,7 @@ function PanelBrandingForm({ branding }: PanelBrandingFormProps) {
     defaultValues: {
       brandName: branding.projectName ?? branding.brandName ?? '',
       logoUrl: branding.logoUrl ?? '',
+      adminPwaIconUrl: branding.adminPwaIconUrl ?? '',
       namingPrefix: branding.profileNaming?.prefix ?? 'rz',
       namingSeparator: branding.profileNaming?.separator ?? '_',
       namingSuffixBase: branding.profileNaming?.suffixBase ?? 'sub',
@@ -98,20 +104,47 @@ function PanelBrandingForm({ branding }: PanelBrandingFormProps) {
   const namingPrefix = form.watch('namingPrefix')
   const namingSeparator = form.watch('namingSeparator')
   const namingSuffixBase = form.watch('namingSuffixBase')
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const adminPwaIconUrl = form.watch('adminPwaIconUrl')
+
+  // Apply the saved admin PWA icon on mount so the installed-app icon reflects
+  // the operator's choice even before they touch the form.
+  useEffect(() => {
+    applyAdminPwaIcon(branding.adminPwaIconUrl ?? null)
+  }, [branding.adminPwaIconUrl])
+
+  const iconUpload = useMutation({
+    mutationFn: async (file: File): Promise<string> => {
+      const fd = new FormData()
+      fd.append('file', file)
+      const { data } = await api.post<{ url: string }>('/admin/settings/branding/logo-upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      return data.url
+    },
+    onSuccess: (url) => {
+      form.setValue('adminPwaIconUrl', url, { shouldDirty: true })
+      toast.success(t('panelBrandingTab.pwaIcon.uploaded'))
+    },
+    onError: () => toast.error(t('panelBrandingTab.pwaIcon.uploadFailed')),
+  })
+  const iconInputRef = useRef<HTMLInputElement>(null)
 
   const saveMutation = useMutation({
     mutationFn: (values: FormValues) =>
       api.patch('/admin/settings/branding', {
         brandName: values.brandName,
         logoUrl: values.logoUrl,
+        adminPwaIconUrl: values.adminPwaIconUrl.trim() === '' ? null : values.adminPwaIconUrl.trim(),
         profileNaming: {
           prefix: values.namingPrefix,
           separator: values.namingSeparator,
           suffixBase: values.namingSuffixBase,
         },
       }),
-    onSuccess: () => {
+    onSuccess: (_data, values) => {
       void queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] })
+      applyAdminPwaIcon(values.adminPwaIconUrl.trim() === '' ? null : values.adminPwaIconUrl.trim())
       toast.success(t('panelBrandingTab.saved'))
     },
     onError: () => toast.error(t('panelBrandingTab.saveFailed')),
@@ -170,6 +203,78 @@ function PanelBrandingForm({ branding }: PanelBrandingFormProps) {
                   </FormItem>
                 )}
               />
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2">
+              <div>
+                <p className="text-sm font-semibold">{t('panelBrandingTab.pwaIcon.title')}</p>
+                <p className="text-xs text-muted-foreground">{t('panelBrandingTab.pwaIcon.hint')}</p>
+              </div>
+              <div className="flex items-start gap-4">
+                <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl border bg-muted/40">
+                  {adminPwaIconUrl ? (
+                    <img src={adminPwaIconUrl} alt={t('panelBrandingTab.pwaIcon.title')} className="h-full w-full object-contain" />
+                  ) : (
+                    <span className="px-2 text-center text-[10px] text-muted-foreground">
+                      {t('panelBrandingTab.pwaIcon.previewEmpty')}
+                    </span>
+                  )}
+                </div>
+                <div className="flex-1 space-y-2">
+                  <Label className="text-xs">{t('panelBrandingTab.pwaIcon.urlLabel')}</Label>
+                  <div className="flex gap-2">
+                    <FormField
+                      control={form.control}
+                      name="adminPwaIconUrl"
+                      render={({ field }) => (
+                        <FormItem className="flex-1 space-y-0">
+                          <FormControl>
+                            <Input {...field} placeholder={t('panelBrandingTab.pwaIcon.urlPlaceholder')} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <input
+                      ref={iconInputRef}
+                      type="file"
+                      accept="image/png,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) iconUpload.mutate(file)
+                        e.target.value = ''
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={iconUpload.isPending}
+                      onClick={() => iconInputRef.current?.click()}
+                    >
+                      {iconUpload.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Upload className="mr-2 h-4 w-4" />
+                      )}
+                      {t('panelBrandingTab.pwaIcon.upload')}
+                    </Button>
+                    {adminPwaIconUrl ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        aria-label={t('panelBrandingTab.pwaIcon.remove')}
+                        onClick={() => form.setValue('adminPwaIconUrl', '', { shouldDirty: true })}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    ) : null}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">{t('panelBrandingTab.pwaIcon.note')}</p>
+                </div>
+              </div>
             </div>
 
             <Separator />

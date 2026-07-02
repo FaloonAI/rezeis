@@ -26,6 +26,29 @@ const REWARD_TYPES = [
 ] as const
 const AVAILABILITIES = ['ALL', 'NEW', 'EXISTING', 'INVITED', 'ALLOWED'] as const
 
+/**
+ * Reward types that apply to an existing subscription (extend duration / add
+ * traffic / add devices). Only these consult the promocode's `allowedPlanIds`
+ * eligibility filter on the backend (`resolveTargetSubscription` →
+ * `PLAN_NOT_ELIGIBLE`). SUBSCRIPTION carries its own plan (the reward) and the
+ * discount types are user-scoped, so the plan filter is hidden for them.
+ */
+const PLAN_SCOPED_REWARDS: readonly string[] = ['DURATION', 'TRAFFIC', 'DEVICES']
+
+export interface PromocodePlanSnapshot {
+  id: string
+  name: string
+  type: string
+  deviceLimit: number
+  trafficLimit?: number | null
+  trafficLimitStrategy: string
+  internalSquads: string[]
+  externalSquad?: string | null
+  duration?: number
+  tag?: string | null
+  description?: string | null
+}
+
 export interface PromocodeFormData {
   code: string
   rewardType: string
@@ -34,7 +57,9 @@ export interface PromocodeFormData {
   isActive: boolean
   lifetime?: number
   maxActivations?: number
-  allowedPlanIds?: number[]
+  allowedPlanIds?: string[]
+  /** Plan snapshot for the SUBSCRIPTION reward type. */
+  plan?: PromocodePlanSnapshot
   /** Absolute expiry (ISO 8601) or null for none. */
   expiresAt?: string | null
 }
@@ -47,6 +72,7 @@ interface ExistingPromocode {
   readonly isActive?: boolean
   readonly lifetime?: number | string
   readonly maxActivations?: number | string
+  readonly allowedPlanIds?: readonly string[]
   readonly expiresAt?: string | null
 }
 
@@ -76,8 +102,25 @@ export function PromocodeForm({ promo, onSubmit, isLoading }: Props) {
       : '23:59',
   )
 
-  // Load plans for SUBSCRIPTION reward type
-  usePlans(undefined, { enabled: rewardType === 'SUBSCRIPTION' })
+  // Load plans for SUBSCRIPTION reward (the reward itself) and for the
+  // plan-scoped reward types (eligibility filter). Fetch once either is active.
+  const needsPlans = rewardType === 'SUBSCRIPTION' || PLAN_SCOPED_REWARDS.includes(rewardType)
+  const { data: plans } = usePlans(undefined, { enabled: needsPlans })
+  const [selectedPlanId, setSelectedPlanId] = useState('')
+  const [selectedDuration, setSelectedDuration] = useState('')
+  const selectedPlan = plans?.find((p) => p.id === selectedPlanId)
+  const planDurations = (selectedPlan?.durations ?? []).filter((d) => d.isActive)
+
+  // Plan-eligibility filter (`allowedPlanIds`): which existing plans a
+  // DURATION/TRAFFIC/DEVICES promo may be activated against. Empty = all plans.
+  const [allowedPlanIds, setAllowedPlanIds] = useState<string[]>(
+    promo?.allowedPlanIds ? [...promo.allowedPlanIds] : [],
+  )
+  const togglePlanScope = (planId: string) => {
+    setAllowedPlanIds((prev) =>
+      prev.includes(planId) ? prev.filter((id) => id !== planId) : [...prev, planId],
+    )
+  }
 
   const generateCode = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -95,6 +138,27 @@ export function PromocodeForm({ promo, onSubmit, isLoading }: Props) {
       merged.setHours(Number.isFinite(hh) ? hh : 23, Number.isFinite(mm) ? mm : 59, 0, 0)
       expiresAt = merged.toISOString()
     }
+    let plan: PromocodePlanSnapshot | undefined
+    if (rewardType === 'SUBSCRIPTION' && selectedPlan) {
+      plan = {
+        id: selectedPlan.id,
+        name: selectedPlan.name,
+        type: selectedPlan.type,
+        deviceLimit: selectedPlan.deviceLimit,
+        trafficLimit: selectedPlan.trafficLimit,
+        trafficLimitStrategy: selectedPlan.trafficLimitStrategy,
+        internalSquads: [...selectedPlan.internalSquads],
+        externalSquad: selectedPlan.externalSquad,
+        ...(selectedDuration ? { duration: Number.parseInt(selectedDuration, 10) } : {}),
+        tag: selectedPlan.tag,
+        description: selectedPlan.description,
+      }
+    }
+    // Plan-eligibility filter only applies to subscription-targeting rewards.
+    const planScope =
+      PLAN_SCOPED_REWARDS.includes(rewardType) && allowedPlanIds.length > 0
+        ? allowedPlanIds
+        : []
     onSubmit({
       code: code.toUpperCase(),
       rewardType,
@@ -103,6 +167,8 @@ export function PromocodeForm({ promo, onSubmit, isLoading }: Props) {
       isActive,
       lifetime: parseInt(lifetime, 10),
       maxActivations: parseInt(maxActivations, 10),
+      allowedPlanIds: planScope,
+      ...(plan ? { plan } : {}),
       expiresAt,
     })
   }
@@ -159,10 +225,104 @@ export function PromocodeForm({ promo, onSubmit, isLoading }: Props) {
         ) : null}
       </div>
 
+      {/* Plan + duration selector for SUBSCRIPTION reward */}
+      {rewardType === 'SUBSCRIPTION' ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>{t('promocodeForm.plan')}</Label>
+            <Select
+              value={selectedPlanId}
+              onValueChange={(v) => {
+                setSelectedPlanId(v)
+                setSelectedDuration('')
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={t('promocodeForm.planPlaceholder')} />
+              </SelectTrigger>
+              <SelectContent>
+                {(plans ?? [])
+                  .filter((p) => !p.isArchived)
+                  .map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>{t('promocodeForm.planDuration')}</Label>
+            <Select
+              value={selectedDuration}
+              onValueChange={setSelectedDuration}
+              disabled={!selectedPlan || planDurations.length === 0}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={t('promocodeForm.planDurationPlaceholder')} />
+              </SelectTrigger>
+              <SelectContent>
+                {planDurations.map((d) => (
+                  <SelectItem key={d.id} value={String(d.days)}>
+                    {t('promocodeForm.planDurationDays', { count: d.days })}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{t('promocodeForm.planHint')}</p>
+          </div>
+        </div>
+      ) : null}
+
       {/* Reward type description */}
       <div className="text-xs text-muted-foreground bg-muted/50 rounded-md p-3">
         {t(`promocodeForm.rewardDescriptions.${rewardType}`)}
       </div>
+
+      {/* Plan-eligibility filter for subscription-targeting rewards */}
+      {PLAN_SCOPED_REWARDS.includes(rewardType) ? (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <Label>{t('promocodeForm.allowedPlans')}</Label>
+            {allowedPlanIds.length > 0 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setAllowedPlanIds([])}
+              >
+                {t('promocodeForm.allowedPlansClear')}
+              </Button>
+            ) : null}
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {(plans ?? [])
+              .filter((p) => !p.isArchived)
+              .map((p) => {
+                const selected = allowedPlanIds.includes(p.id)
+                return (
+                  <Button
+                    key={p.id}
+                    type="button"
+                    variant={selected ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-auto min-h-9 justify-start whitespace-normal py-1.5 text-left text-xs"
+                    onClick={() => togglePlanScope(p.id)}
+                    aria-pressed={selected}
+                  >
+                    {p.name}
+                  </Button>
+                )
+              })}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {allowedPlanIds.length === 0
+              ? t('promocodeForm.allowedPlansAllHint')
+              : t('promocodeForm.allowedPlansHint', { count: allowedPlanIds.length })}
+          </p>
+        </div>
+      ) : null}
 
       <Separator />
 
@@ -243,7 +403,11 @@ export function PromocodeForm({ promo, onSubmit, isLoading }: Props) {
         <Label>{t('promocodeForm.active')}</Label>
       </div>
 
-      <Button type="submit" className="w-full" disabled={isLoading || !code}>
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={isLoading || !code || (rewardType === 'SUBSCRIPTION' && (!selectedPlanId || !selectedDuration))}
+      >
         {promo ? t('promocodeForm.update') : t('promocodeForm.create')}
       </Button>
     </form>

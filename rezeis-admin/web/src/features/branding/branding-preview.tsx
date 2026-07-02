@@ -21,6 +21,7 @@ import {
   Activity,
   TicketPercent,
   LifeBuoy,
+  CircleHelp,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -109,6 +110,7 @@ const NAV_ICONS: Record<NavDestinationId, LucideIcon> = {
   activity: Activity,
   promo: TicketPercent,
   support: LifeBuoy,
+  faq: CircleHelp,
   settings: Settings,
 }
 
