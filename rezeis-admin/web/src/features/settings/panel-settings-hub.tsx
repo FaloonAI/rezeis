@@ -4,9 +4,10 @@
  * Top-level tabs:
  *   1. API Tokens   — create/manage tokens for external services (reiwa, etc.)
  *   2. Appearance   — theme, colors, radius, layout, presets, effects
- *   3. Security     — sub-tabs: TOTP 2FA · Notifications (push) · Auth Providers
+ *   3. Security     — all blocks stacked on one page: TOTP 2FA · Notifications
+ *                     (push) · Auth Providers
  *   4. Backups      — DB backup management
- *   5. Branding     — sub-tabs (Customization): Brand · Icons
+ *   5. Branding     — all Customization blocks stacked on one page: Brand · Icons
  *   6. Config       — config import/export portability
  *
  * Replaces the separate /appearance, /settings/api-tokens, /security/2fa,
@@ -16,7 +17,7 @@
 
 import { lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Archive, Bell, FileCog, Image, Key, Paintbrush, Palette, Settings, Shield } from 'lucide-react'
+import { Archive, FileCog, Key, Paintbrush, Palette, Settings, Shield } from 'lucide-react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -118,42 +119,18 @@ export default function PanelSettingsHub() {
           </Suspense>
         </TabsContent>
 
-        <TabsContent value="security">
-          <Tabs defaultValue="twofa" className="space-y-4">
-            <TabsList className="flex-wrap">
-              <TabsTrigger value="twofa" className="gap-1.5">
-                <Shield className="h-3.5 w-3.5" />
-                {t('panelSettings.security.twofa')}
-              </TabsTrigger>
-              <TabsTrigger value="sec-notifications" className="gap-1.5">
-                <Bell className="h-3.5 w-3.5" />
-                {t('panelSettings.security.notifications')}
-              </TabsTrigger>
-              <PermissionGate resource="auth_providers" action="view" hideWhileLoading>
-                <TabsTrigger value="sec-auth" className="gap-1.5">
-                  <Shield className="h-3.5 w-3.5" />
-                  {t('panelSettings.security.auth')}
-                </TabsTrigger>
-              </PermissionGate>
-            </TabsList>
-            <TabsContent value="twofa">
-              <Suspense fallback={<TabFallback />}>
-                <SecurityTab />
-              </Suspense>
-            </TabsContent>
-            <TabsContent value="sec-notifications">
-              <Suspense fallback={<TabFallback />}>
-                <NotificationsTab />
-              </Suspense>
-            </TabsContent>
-            <PermissionGate resource="auth_providers" action="view" hideWhileLoading>
-              <TabsContent value="sec-auth">
-                <Suspense fallback={<TabFallback />}>
-                  <AuthProvidersTab embedded />
-                </Suspense>
-              </TabsContent>
-            </PermissionGate>
-          </Tabs>
+        <TabsContent value="security" className="space-y-6">
+          <Suspense fallback={<TabFallback />}>
+            <SecurityTab />
+          </Suspense>
+          <Suspense fallback={<TabFallback />}>
+            <NotificationsTab />
+          </Suspense>
+          <PermissionGate resource="auth_providers" action="view" hideWhileLoading>
+            <Suspense fallback={<TabFallback />}>
+              <AuthProvidersTab embedded />
+            </Suspense>
+          </PermissionGate>
         </TabsContent>
 
         <PermissionGate resource="backups" action="view" hideWhileLoading>
@@ -164,29 +141,13 @@ export default function PanelSettingsHub() {
           </TabsContent>
         </PermissionGate>
 
-        <TabsContent value="branding">
-          <Tabs defaultValue="brand" className="space-y-4">
-            <TabsList className="flex-wrap">
-              <TabsTrigger value="brand" className="gap-1.5">
-                <Paintbrush className="h-3.5 w-3.5" />
-                {t('panelSettings.customization.brand')}
-              </TabsTrigger>
-              <TabsTrigger value="cust-icons" className="gap-1.5">
-                <Image className="h-3.5 w-3.5" />
-                {t('panelSettings.customization.icons')}
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="brand">
-              <Suspense fallback={<TabFallback />}>
-                <BrandingTab />
-              </Suspense>
-            </TabsContent>
-            <TabsContent value="cust-icons">
-              <Suspense fallback={<TabFallback />}>
-                <IconsTab />
-              </Suspense>
-            </TabsContent>
-          </Tabs>
+        <TabsContent value="branding" className="space-y-6">
+          <Suspense fallback={<TabFallback />}>
+            <BrandingTab />
+          </Suspense>
+          <Suspense fallback={<TabFallback />}>
+            <IconsTab />
+          </Suspense>
         </TabsContent>
 
         <PermissionGate resource="config_portability" action="view" hideWhileLoading>

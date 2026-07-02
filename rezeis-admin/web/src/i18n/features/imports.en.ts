@@ -63,6 +63,11 @@ export const en = {
       selectFile: 'Select STEALTHNET .sql backup',
       importing: 'Importing {{filename}}…',
       hint: 'Accepted formats: stealthnet-backup-*.sql or .sql.gz.',
+      balancePoints: {
+        label: 'Convert wallet balance to points',
+        hint: 'On import, credit each new user their leftover STEALTHNET balance as loyalty points, so they keep their money after the migration.',
+        rateLabel: 'Points per 1 balance unit',
+      },
     },
     importDone: 'Import done · {{summary}}',
     syncDone: 'Sync done · {{summary}}',

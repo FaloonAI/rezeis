@@ -41,6 +41,18 @@ interface RunInput {
   readonly tariffCategories: readonly StealthnetTariffCategory[];
   readonly tariffPriceOptions: readonly StealthnetTariffPriceOption[];
   readonly payments: readonly StealthnetPayment[];
+  /**
+   * Optional migration goodwill: convert each imported user's leftover
+   * STEALTHNET wallet balance into loyalty points. Applied only on user
+   * CREATE (idempotent across re-runs). Defaults to enabled at a 1:1 rate.
+   */
+  readonly balanceToPoints?: { readonly enabled: boolean; readonly rate: number };
+}
+
+/** Normalized balance→points conversion config resolved once per run. */
+interface BalanceToPointsConfig {
+  readonly enabled: boolean;
+  readonly rate: number;
 }
 
 /**
@@ -129,10 +141,23 @@ export class StealthnetImporterService {
     let transactionsCreated = 0;
     const createdUserIds: string[] = [];
 
+    // Resolve the balance→points conversion once. Default: enabled at 1:1 so
+    // callers that omit the option keep the migration-friendly behaviour.
+    const pointsConversion: BalanceToPointsConfig = {
+      enabled: input.balanceToPoints?.enabled ?? true,
+      rate:
+        input.balanceToPoints?.rate !== undefined &&
+        Number.isFinite(input.balanceToPoints.rate) &&
+        input.balanceToPoints.rate > 0
+          ? input.balanceToPoints.rate
+          : 1,
+    };
+    let pointsGranted = 0;
+
     for (const client of clients) {
       const identifier = client.telegram_id ?? client.email ?? client.id;
       try {
-        const userId = await this.matchOrCreateUser(client, mode);
+        const userId = await this.matchOrCreateUser(client, mode, pointsConversion);
         if (userId === null) {
           skipped += 1;
           continue;
@@ -142,6 +167,9 @@ export class StealthnetImporterService {
         if (wasJustCreated) {
           created += 1;
           createdUserIds.push(userId);
+          if (pointsConversion.enabled) {
+            pointsGranted += balanceToPoints(client.balance, pointsConversion.rate);
+          }
         } else {
           updated += 1;
         }
@@ -178,6 +206,7 @@ export class StealthnetImporterService {
       subscriptionsUpdated,
       transactionsProcessed: payments.length,
       transactionsCreated,
+      pointsGranted,
       errors,
       rollback: { createdUserIds },
       // Catalog snapshot — reused by BackupPlanClonerService for the
@@ -239,6 +268,7 @@ export class StealthnetImporterService {
   private async matchOrCreateUser(
     client: StealthnetClient,
     mode: 'import' | 'sync',
+    pointsConversion: BalanceToPointsConfig,
   ): Promise<string | null> {
     // Priority 1: telegram_id
     const telegramId = parseTelegramId(client.telegram_id);
@@ -283,6 +313,13 @@ export class StealthnetImporterService {
         name: client.telegram_username ?? client.email ?? `stealthnet-${client.id.slice(0, 8)}`,
         language: this.mapLocale(client.preferred_lang),
         isBlocked: client.is_blocked,
+        // Migration goodwill: carry the user's leftover STEALTHNET balance over
+        // as loyalty points so they don't lose money when the owner switches
+        // panels. Applied only on CREATE — a re-run finds the user as
+        // "existing" and never double-credits. Rate + on/off are operator-set.
+        points: pointsConversion.enabled
+          ? balanceToPoints(client.balance, pointsConversion.rate)
+          : 0,
       },
     });
     await this.upsertWebAccountIfNeeded(newUser.id, client);
@@ -597,6 +634,18 @@ export class StealthnetImporterService {
 // Pure functions with no DI; kept here rather than in `utils/` because
 // they only make sense in the shape of the catalog payload that the
 // importer emits.
+
+/**
+ * Converts a leftover STEALTHNET wallet balance into loyalty points using the
+ * operator-chosen rate (points per 1 currency unit), floored and never
+ * negative. Used only when creating a NEW user during an import so migrated
+ * users keep the value they had in the old bot.
+ */
+function balanceToPoints(balance: number, rate: number): number {
+  if (!Number.isFinite(balance) || balance <= 0) return 0;
+  if (!Number.isFinite(rate) || rate <= 0) return 0;
+  return Math.floor(balance * rate);
+}
 
 /**
  * STEALTHNET's `telegram_id` is stored as text (the schema column

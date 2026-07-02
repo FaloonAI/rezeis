@@ -24,6 +24,11 @@ export interface ImportRunJobData {
    * For remnawave: null (data is pulled from API at processing time).
    */
   readonly stagedFilePath: string | null;
+  /**
+   * STEALTHNET only: convert each imported user's leftover wallet balance
+   * into loyalty points on CREATE. Ignored by other sources.
+   */
+  readonly balanceToPoints?: { readonly enabled: boolean; readonly rate: number };
 }
 
 export interface ImportAssignPlanJobData {
@@ -73,6 +78,7 @@ export class ImportQueueService {
     createdBy: string;
     fileBuffer: Buffer;
     originalFilename: string;
+    balanceToPoints?: { enabled: boolean; rate: number };
   }): Promise<{ importRecordId: string; jobId: string }> {
     // Stage file to disk
     await fsp.mkdir(this.stageDir, { recursive: true });
@@ -103,6 +109,7 @@ export class ImportQueueService {
         mode: input.mode,
         createdBy: input.createdBy,
         stagedFilePath,
+        ...(input.balanceToPoints ? { balanceToPoints: input.balanceToPoints } : {}),
       } satisfies ImportRunJobData,
       {
         attempts: 1, // imports should not auto-retry (data mutation)

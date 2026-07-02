@@ -248,16 +248,22 @@ export class AdminImportsController {
   public async importFromStealthnet(
     @CurrentAdmin() admin: CurrentAdminInterface,
     @UploadedFile() file?: Express.Multer.File,
+    @Body() body?: { convertBalanceToPoints?: string; balancePointsRate?: string },
   ): Promise<ImportEnqueuedResponse> {
     if (!file) {
       throw new BadRequestException('File is required. Upload a STEALTHNET pg_dump .sql file.');
     }
+    // Multipart form fields arrive as strings. Default: conversion ON at 1:1.
+    const enabled = body?.convertBalanceToPoints !== 'false';
+    const parsedRate = body?.balancePointsRate !== undefined ? Number.parseFloat(body.balancePointsRate) : NaN;
+    const rate = Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : 1;
     const { importRecordId, jobId } = await this.importQueueService.enqueueFileImport({
       sourceType: 'stealthnet',
       mode: 'import',
       createdBy: admin.id,
       fileBuffer: file.buffer,
       originalFilename: file.originalname,
+      balanceToPoints: { enabled, rate },
     });
     return { importRecordId, jobId, message: 'STEALTHNET import enqueued' };
   }

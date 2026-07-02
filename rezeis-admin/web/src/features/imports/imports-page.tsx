@@ -54,6 +54,9 @@ import {
 } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
@@ -420,6 +423,9 @@ function FileUploadTab({ source, onStart, onRecordId }: FileUploadTabProps): JSX
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [fileName, setFileName] = useState<string | null>(null)
+  // STEALTHNET-only: convert leftover wallet balance → loyalty points on import.
+  const [convertBalance, setConvertBalance] = useState(true)
+  const [balanceRate, setBalanceRate] = useState('1')
 
   const path = `/admin/imports/${source}`
   const i18nKey = source === '3xui' ? 'threexui' : source
@@ -428,6 +434,10 @@ function FileUploadTab({ source, onStart, onRecordId }: FileUploadTabProps): JSX
     mutationFn: async (file: File): Promise<ImportEnqueuedResponse> => {
       const formData = new FormData()
       formData.append('file', file)
+      if (source === 'stealthnet') {
+        formData.append('convertBalanceToPoints', String(convertBalance))
+        formData.append('balancePointsRate', convertBalance ? balanceRate : '0')
+      }
       const response = await api.post<ImportEnqueuedResponse>(path, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
@@ -479,6 +489,41 @@ function FileUploadTab({ source, onStart, onRecordId }: FileUploadTabProps): JSX
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          {source === 'stealthnet' ? (
+            <div className="space-y-3 rounded-lg border border-border/60 bg-muted/30 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <Label className="text-sm">{t('importsPage.stealthnet.balancePoints.label')}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t('importsPage.stealthnet.balancePoints.hint')}
+                  </p>
+                </div>
+                <Switch
+                  checked={convertBalance}
+                  onCheckedChange={setConvertBalance}
+                  disabled={importMutation.isPending}
+                  aria-label={t('importsPage.stealthnet.balancePoints.label')}
+                />
+              </div>
+              {convertBalance ? (
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="stealthnet-rate" className="text-xs text-muted-foreground">
+                    {t('importsPage.stealthnet.balancePoints.rateLabel')}
+                  </Label>
+                  <Input
+                    id="stealthnet-rate"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={balanceRate}
+                    onChange={(e) => setBalanceRate(e.target.value)}
+                    disabled={importMutation.isPending}
+                    className="h-8 w-24"
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <input
             ref={fileInputRef}
             type="file"

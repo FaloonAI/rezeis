@@ -63,7 +63,7 @@ export class ImportProcessor extends WorkerHost {
   }
 
   private async handleRun(job: Job<ImportRunJobData>): Promise<unknown> {
-    const { importRecordId, sourceType, mode, createdBy, stagedFilePath } = job.data;
+    const { importRecordId, sourceType, mode, createdBy, stagedFilePath, balanceToPoints } = job.data;
     this.logger.log(`Processing import: source=${sourceType} mode=${mode} record=${importRecordId}`);
 
     // Mark as PROCESSING (custom status — we'll use DRY_RUN as "in progress")
@@ -152,6 +152,7 @@ export class ImportProcessor extends WorkerHost {
             tariffCategories,
             tariffPriceOptions,
             payments,
+            ...(balanceToPoints ? { balanceToPoints } : {}),
           });
           break;
         }

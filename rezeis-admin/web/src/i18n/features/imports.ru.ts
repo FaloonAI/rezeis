@@ -63,6 +63,11 @@ export const ru = {
       selectFile: 'Выбрать .sql бэкап STEALTHNET',
       importing: 'Импорт {{filename}}…',
       hint: 'Принимаемые форматы: stealthnet-backup-*.sql или .sql.gz.',
+      balancePoints: {
+        label: 'Конвертировать баланс в баллы',
+        hint: 'При импорте начислить каждому новому пользователю остаток баланса STEALTHNET в виде баллов — чтобы после миграции их деньги не пропали.',
+        rateLabel: 'Баллов за 1 единицу баланса',
+      },
     },
     importDone: 'Импорт завершён · {{summary}}',
     syncDone: 'Синхронизация завершена · {{summary}}',

@@ -1532,15 +1532,6 @@ export const en = {
       icons: 'Icons',
       config: 'Config portability',
     },
-    security: {
-      twofa: '2FA & keys',
-      notifications: 'Notifications',
-      auth: 'Authentication',
-    },
-    customization: {
-      brand: 'Brand',
-      icons: 'Icons',
-    },
   },
   pushNotifications: {
     title: 'Push notifications',

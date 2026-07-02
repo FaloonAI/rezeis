@@ -1546,15 +1546,6 @@
       icons: 'Иконки',
       config: 'Перенос конфига',
     },
-    security: {
-      twofa: '2FA и ключи',
-      notifications: 'Уведомления',
-      auth: 'Аутентификация',
-    },
-    customization: {
-      brand: 'Бренд',
-      icons: 'Иконки',
-    },
   },
   pushNotifications: {
     title: 'Push-уведомления',
