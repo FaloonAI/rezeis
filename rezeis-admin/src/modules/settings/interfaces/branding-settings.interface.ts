@@ -370,6 +370,13 @@ export interface BrandingSettingsInterface {
   readonly navItems: readonly NavItemSetting[];
 
   /**
+   * Spacing (in pixels) between the reiwa cabinet bottom-navigation buttons.
+   * Lets the operator tune how tight/roomy the nav bar feels on web / TMA.
+   * Clamped to 0–24 by the reader. Default 2 (matches the shipped look).
+   */
+  readonly navGap: number;
+
+  /**
    * Remnawave profile-naming template (prefix / separator / suffix base).
    * Read by `RemnawaveProfileNamingService` when provisioning panel profiles.
    */
@@ -424,5 +431,6 @@ export const DEFAULT_BRANDING: BrandingSettingsInterface = {
     { id: 'promo', visible: false },
     { id: 'support', visible: false },
   ],
+  navGap: 2,
   profileNaming: { prefix: 'rz', separator: '_', suffixBase: 'sub' },
 };

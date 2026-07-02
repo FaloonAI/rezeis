@@ -65,6 +65,7 @@ interface BrandingPreviewProps {
     planCardStyles?: Record<string, PlanCardStyleDraft>
     appBackground?: BrandingAppBackgroundDraft
     navItems?: readonly NavItemDraft[]
+    navGap?: number
   }
   /** Active configurator tab — drives a context-aware preview view. */
   focus?: string
@@ -136,6 +137,7 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
     planCardStyles = {},
     appBackground,
     navItems,
+    navGap = 2,
   } = values
 
   const radius = RADIUS_MAP[borderRadius] ?? '1rem'
@@ -368,10 +370,10 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
             ))}
           </div>
 
-          {/* Bottom nav pill — reflects the configured navItems (Навигация tab) */}
+          {/* Bottom nav pill — reflects the configured navItems + navGap (Навигация tab) */}
           <div
-            className="mt-4 flex items-center justify-between gap-1 rounded-full border border-white/10 px-1.5 py-1.5"
-            style={{ backgroundColor: `${bgSecondary}e6` }}
+            className="mt-4 flex w-fit items-center justify-center rounded-full border border-white/10 px-1.5 py-1.5"
+            style={{ backgroundColor: `${bgSecondary}e6`, gap: `${navGap}px` }}
           >
             {visibleNav.map((item, i) => {
               const Icon = NAV_ICONS[item.id];
@@ -388,7 +390,7 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
                   </span>
                 </div>
               ) : (
-                <Icon key={item.id} className="mx-2 h-3.5 w-3.5 text-white/40" />
+                <Icon key={item.id} className="h-3.5 w-3.5 text-white/40" />
               );
             })}
           </div>

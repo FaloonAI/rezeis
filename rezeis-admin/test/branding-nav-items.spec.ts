@@ -79,3 +79,18 @@ describe('readBrandingSettings — navItems', () => {
     assert.ok(branding.navItems.some((i) => i.id === 'plans'));
   });
 });
+
+describe('readBrandingSettings — navGap', () => {
+  it('defaults to 2 when absent or invalid', () => {
+    assert.equal(readBrandingSettings({}).navGap, 2);
+    assert.equal(readBrandingSettings({ navGap: 'x' }).navGap, 2);
+    assert.equal(readBrandingSettings({ navGap: Number.NaN }).navGap, 2);
+  });
+
+  it('clamps to 0–24 and floors to an integer', () => {
+    assert.equal(readBrandingSettings({ navGap: 10 }).navGap, 10);
+    assert.equal(readBrandingSettings({ navGap: -5 }).navGap, 0);
+    assert.equal(readBrandingSettings({ navGap: 99 }).navGap, 24);
+    assert.equal(readBrandingSettings({ navGap: 7.9 }).navGap, 7);
+  });
+});

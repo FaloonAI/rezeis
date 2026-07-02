@@ -98,11 +98,11 @@ export default function AppearancePage() {
         </TabsList>
 
         <TabsContent value="presets" className="space-y-4">
-          <div className="grid gap-4 lg:grid-cols-[220px_260px_1fr] lg:items-start">
-            <ModeCard orientation="vertical" />
+          <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+            <ModeCard />
             <RadiusCard />
-            <PresetsCard />
           </div>
+          <PresetsCard />
           <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
             <SavedThemesCard />
             <PasteThemeCard />

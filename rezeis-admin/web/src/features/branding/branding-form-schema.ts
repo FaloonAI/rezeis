@@ -75,6 +75,7 @@ export interface BrandingFormDraft {
   readonly fontFamily: string
   readonly planCardStyles?: Record<string, PlanCardStyleDraft>
   readonly navItems?: readonly NavItemDraft[]
+  readonly navGap?: number
 }
 
 /** Per-plan tariff-card style draft (mirrors backend `PlanCardStyle`). */
@@ -171,6 +172,7 @@ const DEFAULT_BRANDING_DRAFT: BrandingFormDraft = {
   fontFamily: 'Geist Variable, system-ui, sans-serif',
   planCardStyles: {},
   navItems: DEFAULT_NAV_ITEMS,
+  navGap: 2,
 }
 
 export function createBrandingFormSchema(messages: BrandingFormValidationMessages) {
@@ -240,6 +242,7 @@ export function createBrandingFormSchema(messages: BrandingFormValidationMessage
           }),
         )
         .optional(),
+      navGap: z.number().min(0).max(24).optional(),
     })
     .transform((values): BrandingFormData => ({
       ...values,
@@ -249,6 +252,7 @@ export function createBrandingFormSchema(messages: BrandingFormValidationMessage
       iconColors: values.iconColors ?? {},
       planCardStyles: values.planCardStyles ?? {},
       navItems: values.navItems ?? DEFAULT_NAV_ITEMS,
+      navGap: values.navGap ?? 2,
     }))
 }
 
@@ -269,6 +273,7 @@ export function createInitialBrandingDraft(input?: Partial<BrandingFormDraft> | 
       ? (input.planCardStyles as Record<string, PlanCardStyleDraft>)
       : {},
     navItems: Array.isArray(input?.navItems) ? input.navItems : DEFAULT_NAV_ITEMS,
+    navGap: typeof input?.navGap === 'number' ? input.navGap : 2,
   }
 }
 

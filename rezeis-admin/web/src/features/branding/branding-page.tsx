@@ -687,6 +687,8 @@ export default function WebReiwaPage() {
                   <NavConfigSection
                     value={(field.value ?? []) as NavItemDraft[]}
                     onChange={(next) => field.onChange(next)}
+                    gap={form.watch('navGap') ?? 2}
+                    onGapChange={(next) => form.setValue('navGap', next, { shouldDirty: true })}
                   />
                 ) : (
                   <></>

@@ -2839,6 +2839,10 @@ export const en = {
         moveUp: 'Move up',
         moveDown: 'Move down',
         dragHandle: 'Drag to reorder',
+        gap: {
+          label: 'Spacing between buttons',
+          hint: 'Gap between the icons in the cabinet bottom navigation (0–24px). The bar hugs its content as buttons are added.',
+        },
         dest: {
           subscriptions: 'Subscriptions',
           plans: 'Plans',

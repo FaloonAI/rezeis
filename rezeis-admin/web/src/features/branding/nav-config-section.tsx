@@ -31,6 +31,7 @@ import { GripVertical, Lock } from 'lucide-react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
+import { Slider } from '@/components/ui/slider'
 import { cn } from '@/lib/utils'
 
 import {
@@ -64,9 +65,11 @@ function normalize(value: readonly NavItemDraft[] | undefined): NavItemDraft[] {
 interface NavConfigSectionProps {
   readonly value: readonly NavItemDraft[]
   readonly onChange: (next: NavItemDraft[]) => void
+  readonly gap: number
+  readonly onGapChange: (next: number) => void
 }
 
-export function NavConfigSection({ value, onChange }: NavConfigSectionProps) {
+export function NavConfigSection({ value, onChange, gap, onGapChange }: NavConfigSectionProps) {
   const { t } = useTranslation()
   const items = useMemo(() => normalize(value), [value])
   const visibleCount = items.filter((i) => i.visible).length
@@ -102,6 +105,21 @@ export function NavConfigSection({ value, onChange }: NavConfigSectionProps) {
         <p className="text-xs text-muted-foreground">
           {t('brandingPage.sections.nav.maxHint', { count: NAV_MAX_VISIBLE })}
         </p>
+        <div className="space-y-2 rounded-lg border p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">{t('brandingPage.sections.nav.gap.label')}</span>
+            <span className="font-mono text-xs text-muted-foreground">{gap}px</span>
+          </div>
+          <Slider
+            value={[gap]}
+            min={0}
+            max={24}
+            step={1}
+            onValueChange={(v) => onGapChange(v[0] ?? 0)}
+            aria-label={t('brandingPage.sections.nav.gap.label')}
+          />
+          <p className="text-xs text-muted-foreground">{t('brandingPage.sections.nav.gap.hint')}</p>
+        </div>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
             <div className="space-y-2">

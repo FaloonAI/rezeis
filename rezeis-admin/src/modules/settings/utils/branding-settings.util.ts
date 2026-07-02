@@ -66,6 +66,7 @@ export function readBrandingSettings(value: unknown): BrandingSettingsInterface 
     fontFamily: readString(record, 'fontFamily', DEFAULT_BRANDING.fontFamily),
     planCardStyles: readPlanCardStyles(record),
     navItems: readNavItems(record),
+    navGap: readNavGap(record),
     profileNaming: readProfileNaming(record),
   };
 }
@@ -428,6 +429,18 @@ function readNavItems(record: Record<string, unknown>): NavItemSetting[] {
     }
     return { id: item.id, visible };
   });
+}
+
+/**
+ * Reads the nav-bar button spacing (px). Clamps to 0–24 and floors to an
+ * integer; absent/invalid → the default (2).
+ */
+function readNavGap(record: Record<string, unknown>): number {
+  const value = record['navGap'];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_BRANDING.navGap;
+  }
+  return Math.max(0, Math.min(24, Math.floor(value)));
 }
 
 function readProfileNaming(record: Record<string, unknown>): ProfileNamingSettings {

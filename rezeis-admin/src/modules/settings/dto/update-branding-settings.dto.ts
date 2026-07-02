@@ -315,6 +315,12 @@ export class UpdateBrandingSettingsDto {
   public navItems?: NavItemDto[];
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(24)
+  public navGap?: number;
+
+  @IsOptional()
   @ValidateNested()
   @Type(() => ProfileNamingDto)
   public profileNaming?: ProfileNamingDto;
