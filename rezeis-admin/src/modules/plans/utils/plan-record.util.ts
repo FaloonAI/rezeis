@@ -47,6 +47,7 @@ export function mapAdminPlan(plan: PlanRecord): AdminPlanInterface {
     durations: plan.durations.map((duration) => ({
       id: duration.id,
       days: duration.days,
+      isActive: duration.isActive,
       prices: duration.prices.map((price) => ({
         id: price.id,
         currency: price.currency,

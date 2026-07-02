@@ -13,6 +13,7 @@ export interface AdminPlanPriceInterface {
 export interface AdminPlanDurationInterface {
   readonly id: string;
   readonly days: number;
+  readonly isActive: boolean;
   readonly prices: readonly AdminPlanPriceInterface[];
 }
 

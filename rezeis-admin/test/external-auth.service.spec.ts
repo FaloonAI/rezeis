@@ -7,7 +7,7 @@ import type { ExternalUserProfile } from '../src/modules/external-auth/interface
 
 interface MockState {
   linkByIdentity?: { userId: string; blocked: boolean } | null;
-  accountByEmail?: { userId: string; blocked: boolean } | null;
+  accountByEmail?: { userId: string; blocked: boolean; passwordHash?: string | null } | null;
   shellWebAccount?: { id: string; passwordHash: string | null } | null;
   loginConflict?: { id: string } | null;
 }
@@ -70,7 +70,11 @@ function createService(state: MockState) {
       findUnique: async (args: { where: { emailNormalized?: string; userId?: string } }) => {
         if (args.where.emailNormalized !== undefined) {
           return state.accountByEmail
-            ? { userId: state.accountByEmail.userId, user: { isBlocked: state.accountByEmail.blocked } }
+            ? {
+                userId: state.accountByEmail.userId,
+                passwordHash: state.accountByEmail.passwordHash ?? null,
+                user: { isBlocked: state.accountByEmail.blocked },
+              }
             : null;
         }
         return state.shellWebAccount ?? null;
@@ -122,10 +126,26 @@ function profile(overrides: Partial<ExternalUserProfile> = {}): ExternalUserProf
 }
 
 describe('ExternalAuthService.resolve', () => {
-  it('logs in an existing identity link and touches lastUsedAt', async () => {
-    const { service, calls } = createService({ linkByIdentity: { userId: 'user-1', blocked: false } });
+  it('logs in an existing identity link (with credentials) and touches lastUsedAt', async () => {
+    const { service, calls } = createService({
+      linkByIdentity: { userId: 'user-1', blocked: false },
+      shellWebAccount: { id: 'web-1', passwordHash: 'scrypt:existing' },
+    });
     const result = await service.resolve(profile());
     assert.deepStrictEqual(result, { action: 'login', userId: 'user-1' });
+    assert.equal(calls.linkUpdated, 1);
+  });
+
+  it('routes an existing link WITHOUT credentials back to finish_setup', async () => {
+    // A shell from an abandoned external sign-up: the OAuth link exists but the
+    // WebAccount never got a login/password. Re-authorizing must resume
+    // finish-setup, not silently log into a credential-less account.
+    const { service, calls } = createService({
+      linkByIdentity: { userId: 'user-1', blocked: false },
+      shellWebAccount: { id: 'web-1', passwordHash: null },
+    });
+    const result = await service.resolve(profile());
+    assert.deepStrictEqual(result, { action: 'finish_setup', userId: 'user-1' });
     assert.equal(calls.linkUpdated, 1);
   });
 
@@ -134,13 +154,23 @@ describe('ExternalAuthService.resolve', () => {
     assert.deepStrictEqual(await service.resolve(profile()), { action: 'denied' });
   });
 
-  it('auto-links a verified-email match and logs in', async () => {
+  it('auto-links a verified-email match (with credentials) and logs in', async () => {
     const { service, calls } = createService({
       linkByIdentity: null,
-      accountByEmail: { userId: 'user-2', blocked: false },
+      accountByEmail: { userId: 'user-2', blocked: false, passwordHash: 'scrypt:existing' },
     });
     const result = await service.resolve(profile());
     assert.deepStrictEqual(result, { action: 'login', userId: 'user-2' });
+    assert.equal(calls.linkCreated, 1);
+  });
+
+  it('auto-links a verified-email match to a credential-less shell → finish_setup', async () => {
+    const { service, calls } = createService({
+      linkByIdentity: null,
+      accountByEmail: { userId: 'user-2', blocked: false, passwordHash: null },
+    });
+    const result = await service.resolve(profile());
+    assert.deepStrictEqual(result, { action: 'finish_setup', userId: 'user-2' });
     assert.equal(calls.linkCreated, 1);
   });
 

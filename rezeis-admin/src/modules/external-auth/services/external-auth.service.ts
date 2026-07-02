@@ -117,7 +117,14 @@ export class ExternalAuthService {
         where: { id: link.id },
         data: { lastUsedAt: new Date() },
       });
-      return { action: 'login', userId: link.userId };
+      // A shell created by a prior external sign-up that never completed
+      // finish-setup still has no login/password. Route it back to
+      // finish-setup instead of silently logging into a credential-less
+      // account (which then can't sign in by login and looks "missing" in the
+      // panel). Login + password stays mandatory.
+      return (await this.hasCompletedCredentials(link.userId))
+        ? { action: 'login', userId: link.userId }
+        : { action: 'finish_setup', userId: link.userId };
     }
 
     // 2. Verified-email match → auto-link.
@@ -125,18 +132,35 @@ export class ExternalAuthService {
       const emailNormalized = profile.email.trim().toLowerCase();
       const account = await this.prismaService.webAccount.findUnique({
         where: { emailNormalized },
-        select: { userId: true, user: { select: { isBlocked: true } } },
+        select: { userId: true, passwordHash: true, user: { select: { isBlocked: true } } },
       });
       if (account) {
         if (account.user.isBlocked) return { action: 'denied' };
         await this.createLink(account.userId, profile);
-        return { action: 'login', userId: account.userId };
+        // Same guard: a matched account without credentials (e.g. a shell from
+        // another provider's abandoned sign-up) must finish setup first.
+        return account.passwordHash !== null
+          ? { action: 'login', userId: account.userId }
+          : { action: 'finish_setup', userId: account.userId };
       }
     }
 
     // 3. New account → shell + finish-setup.
     const userId = await this.createShellAccount(profile);
     return { action: 'finish_setup', userId };
+  }
+
+  /**
+   * True when the user's WebAccount has completed the mandatory finish-setup
+   * (login + password set). A freshly created external shell returns false
+   * until `finishSetup` runs, so callers keep routing it to finish-setup.
+   */
+  private async hasCompletedCredentials(userId: string): Promise<boolean> {
+    const account = await this.prismaService.webAccount.findUnique({
+      where: { userId },
+      select: { passwordHash: true },
+    });
+    return account?.passwordHash != null;
   }
 
   /**

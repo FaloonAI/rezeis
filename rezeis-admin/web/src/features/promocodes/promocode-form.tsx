@@ -350,7 +350,7 @@ export function PromocodeForm({ promo, onSubmit, isLoading }: Props) {
             value={lifetime}
             onChange={(e) => setLifetime(e.target.value)}
           />
-          <p className="text-xs text-muted-foreground">{t('promocodeForm.unlimitedHint')}</p>
+          <p className="text-xs text-muted-foreground">{t('promocodeForm.lifetimeHint')}</p>
         </div>
         <div className="space-y-2">
           <Label>{t('promocodeForm.maxActivations')}</Label>
@@ -359,7 +359,7 @@ export function PromocodeForm({ promo, onSubmit, isLoading }: Props) {
             value={maxActivations}
             onChange={(e) => setMaxActivations(e.target.value)}
           />
-          <p className="text-xs text-muted-foreground">{t('promocodeForm.unlimitedHint')}</p>
+          <p className="text-xs text-muted-foreground">{t('promocodeForm.maxActivationsHint')}</p>
         </div>
       </div>
 

@@ -7,9 +7,20 @@ const OAUTH_PROVIDERS: readonly ExternalAuthProvider[] = [
   ExternalAuthProvider.MAILRU,
 ];
 
+/**
+ * Providers that drive the authorization-code redirect flow (`/start` +
+ * `oauth/resolve`). Telegram joins the OAuth trio when the operator enables
+ * its OIDC mode (oauth.telegram.org) — the classic Login Widget takes the
+ * separate `telegram/resolve` path and is NOT included here.
+ */
+const REDIRECT_FLOW_PROVIDERS: readonly ExternalAuthProvider[] = [
+  ...OAUTH_PROVIDERS,
+  ExternalAuthProvider.TELEGRAM,
+];
+
 /** Build an OAuth authorization URL for the BFF `/start` redirect. */
 export class AuthorizeUrlDto {
-  @IsIn(OAUTH_PROVIDERS as readonly string[])
+  @IsIn(REDIRECT_FLOW_PROVIDERS as readonly string[])
   public provider!: ExternalAuthProvider;
 
   @IsString()
@@ -29,7 +40,7 @@ export class AuthorizeUrlDto {
 
 /** Exchange an OAuth authorization code and resolve the profile. */
 export class OAuthResolveDto {
-  @IsIn(OAUTH_PROVIDERS as readonly string[])
+  @IsIn(REDIRECT_FLOW_PROVIDERS as readonly string[])
   public provider!: ExternalAuthProvider;
 
   @IsString()
