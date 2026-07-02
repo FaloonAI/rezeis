@@ -267,7 +267,7 @@ export class PromocodeRewardsService {
     const startedAt = new Date();
     const expiresAt =
       days > 0 ? new Date(startedAt.getTime() + days * 24 * 60 * 60 * 1000) : null;
-    await input.transactionClient.subscription.create({
+    const createdSubscription = await input.transactionClient.subscription.create({
       data: {
         userId: input.userId,
         status: SubscriptionStatus.ACTIVE,
@@ -280,6 +280,13 @@ export class PromocodeRewardsService {
         startedAt,
         expiresAt,
       },
+    });
+    // Backfill the user's "current subscription" pointer when unset, so
+    // referral EXTRA_DAYS rewards and points-exchange (days / traffic) have a
+    // target (matches the importer / payment backfill pattern).
+    await input.transactionClient.user.updateMany({
+      where: { id: input.userId, currentSubscriptionId: null },
+      data: { currentSubscriptionId: createdSubscription.id },
     });
     return { applied: true, rewardValue: days };
   }

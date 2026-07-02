@@ -359,6 +359,14 @@ export class PaymentSubscriptionMutationService {
           subscriptionId: createdSubscription.id,
         },
       });
+      // Backfill the user's "current subscription" pointer when they don't
+      // have one yet, so referral EXTRA_DAYS rewards and points-exchange
+      // (days / traffic) have a target. `currentSubscriptionId` was previously
+      // only set by the importers, leaving purchase/promo users with null.
+      await transactionClient.user.updateMany({
+        where: { id: input.transaction.userId, currentSubscriptionId: null },
+        data: { currentSubscriptionId: createdSubscription.id },
+      });
       return {
         subscription: createdSubscription,
         syncJob,

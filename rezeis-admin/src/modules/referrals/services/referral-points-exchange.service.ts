@@ -200,6 +200,21 @@ export class ReferralPointsExchangeService {
       throw new BadRequestException('Insufficient points balance');
     }
 
+    // Resolve the target subscription for the reward types that need one.
+    // `User.currentSubscriptionId` is only maintained by importers, so for a
+    // user who bought or received their subscription through the normal
+    // purchase / promocode flow it is null — the previous code then threw
+    // "No active subscription to extend" and the exchange failed. Fall back to
+    // the user's most recent ACTIVE subscription so the exchange always
+    // targets a real subscription when one exists.
+    const targetSubscriptionId =
+      input.type === 'SUBSCRIPTION_DAYS' || input.type === 'TRAFFIC'
+        ? await this.resolveActiveSubscriptionId(
+            input.userId,
+            input.subscriptionId ?? user.currentSubscriptionId,
+          )
+        : null;
+
     // Subscriptions whose Remnawave profile must be re-synced after the
     // local mutation commits (expiry extension / traffic top-up). We
     // collect ids inside the tx and enqueue the sync jobs afterwards so
@@ -222,7 +237,7 @@ export class ReferralPointsExchangeService {
       // Apply effect based on type
       switch (input.type) {
         case 'SUBSCRIPTION_DAYS': {
-          const subId = input.subscriptionId ?? user.currentSubscriptionId;
+          const subId = targetSubscriptionId;
           if (!subId) throw new BadRequestException('No active subscription to extend');
           const sub = await tx.subscription.findUnique({
             where: { id: subId },
@@ -312,7 +327,7 @@ export class ReferralPointsExchangeService {
         case 'TRAFFIC': {
           const trafficConfig = config.traffic;
           const trafficGb = Math.min(computedValue, trafficConfig.maxTrafficGb);
-          const subId = input.subscriptionId ?? user.currentSubscriptionId;
+          const subId = targetSubscriptionId;
           if (!subId) throw new BadRequestException('No active subscription for traffic');
           const sub = await tx.subscription.findUnique({
             where: { id: subId },
@@ -373,6 +388,35 @@ export class ReferralPointsExchangeService {
   }
 
   // ── Private ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Resolves the subscription an exchange should target. Prefers an explicit
+   * id (validated to belong to the user and be ACTIVE); otherwise falls back
+   * to the user's most recent ACTIVE subscription. Returns `null` only when
+   * the user truly has no active subscription.
+   *
+   * This deliberately does NOT rely solely on `User.currentSubscriptionId`,
+   * which is only backfilled by the importers — purchase / promocode users
+   * would otherwise never be able to spend points on days or traffic.
+   */
+  private async resolveActiveSubscriptionId(
+    userId: string,
+    preferredId: string | null,
+  ): Promise<string | null> {
+    if (preferredId) {
+      const preferred = await this.prismaService.subscription.findFirst({
+        where: { id: preferredId, userId, status: SubscriptionStatus.ACTIVE },
+        select: { id: true },
+      });
+      if (preferred) return preferred.id;
+    }
+    const active = await this.prismaService.subscription.findFirst({
+      where: { userId, status: SubscriptionStatus.ACTIVE },
+      orderBy: [{ createdAt: 'desc' }],
+      select: { id: true },
+    });
+    return active?.id ?? null;
+  }
 
   private buildOption(
     type: PointsExchangeType,

@@ -85,7 +85,10 @@ describe('ReferralPointsExchangeService', () => {
     const service = new ReferralPointsExchangeService({
       settings: { findFirst: async () => ({ referralSettings }) },
       user: { findUnique: async () => ({ id: 'user-1', points: 250, currentSubscriptionId: 'sub-1' }) },
-      subscription: { findUnique: async () => ({ remnawaveId: 'rw-1' }) },
+      subscription: {
+        findUnique: async () => ({ remnawaveId: 'rw-1' }),
+        findFirst: async () => ({ id: 'sub-1' }),
+      },
       profileSyncJob: { create: async () => ({ id: 'sync-1' }) },
       $transaction: async (callback: (tx: unknown) => Promise<void>) => callback({
         user: { update: async (args: unknown) => txCalls.push(['user.update', args]) },
@@ -107,6 +110,49 @@ describe('ReferralPointsExchangeService', () => {
       ['subscription.update', { where: { id: 'sub-1' }, data: { expiresAt: new Date('2026-05-03T00:00:00.000Z') } }],
     ]);
     assert.deepStrictEqual(queueCalls, ['sync-1']);
+  });
+
+  it('falls back to the user active subscription when currentSubscriptionId is null (purchase/promo users)', async () => {
+    // Regression: purchase / promocode users have a null currentSubscriptionId
+    // (only importers backfill it). The exchange must resolve their active
+    // subscription instead of failing with "no active subscription".
+    const txCalls: unknown[] = [];
+    const queueCalls: string[] = [];
+    const findFirstCalls: unknown[] = [];
+    const service = new ReferralPointsExchangeService({
+      settings: { findFirst: async () => ({ referralSettings }) },
+      user: { findUnique: async () => ({ id: 'user-1', points: 250, currentSubscriptionId: null }) },
+      subscription: {
+        findUnique: async () => ({ remnawaveId: 'rw-1' }),
+        findFirst: async (args: unknown) => {
+          findFirstCalls.push(args);
+          return { id: 'active-sub-9' };
+        },
+      },
+      profileSyncJob: { create: async () => ({ id: 'sync-2' }) },
+      $transaction: async (callback: (tx: unknown) => Promise<void>) => callback({
+        user: { update: async (args: unknown) => txCalls.push(['user.update', args]) },
+        subscription: {
+          findUnique: async () => ({ id: 'active-sub-9', expiresAt: null, status: SubscriptionStatus.ACTIVE }),
+          update: async (args: unknown) => txCalls.push(['subscription.update', args]),
+        },
+      }),
+    } as never, {
+      enqueue: async (jobId: string) => queueCalls.push(jobId),
+    } as never);
+
+    const result = await service.executeExchange({ userId: 'user-1', type: 'SUBSCRIPTION_DAYS', points: 200 });
+
+    assert.equal(result.success, true);
+    assert.equal(result.value, 2);
+    // The active-subscription fallback was consulted and the extension applied.
+    assert.ok(findFirstCalls.length >= 1);
+    const applied = txCalls.find((c) => Array.isArray(c) && c[0] === 'subscription.update') as
+      | [string, { where: { id: string } }]
+      | undefined;
+    assert.ok(applied);
+    assert.equal(applied[1].where.id, 'active-sub-9');
+    assert.deepStrictEqual(queueCalls, ['sync-2']);
   });
 
   it('mints a single-use gift promo code with a complete plan snapshot and charges exactly the points cost', async () => {

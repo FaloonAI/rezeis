@@ -87,7 +87,11 @@ describe('PromocodeRewardsService', () => {
         subscription: {
           create: async (args: unknown) => {
             createCalls.push(args);
+            return { id: 'new-sub-1' };
           },
+        },
+        user: {
+          updateMany: async () => ({ count: 1 }),
         },
       } as never,
       promocode: buildPromocode({
