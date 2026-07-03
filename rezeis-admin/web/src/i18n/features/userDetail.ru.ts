@@ -117,6 +117,7 @@ export const ru = {
       syncAllEnqueued: 'Синхронизация {{count}} подписок поставлена в очередь',
       assignPlanLabel: 'Назначить план',
       assignPlan: 'Назначить план',
+      archivedTag: 'архивный',
       selectPlan: 'Выберите план',
       assignPlanPickSubs: 'Выберите подписки для назначения плана',
       assignPlanSelectAll: 'Выбрать все',

@@ -803,7 +803,10 @@ function SubscriptionsTab({ user, telegramId, queryKey }: { user: UserDetail; te
   })
 
   const { data: plans } = usePlans()
-  const assignablePlans = (plans ?? []).filter((p) => !p.isArchived && p.isActive !== false)
+  // Operators can assign ANY plan by hand — including archived ones (e.g. to
+  // grandfather a user onto a retired tariff). Archived plans are kept but
+  // labelled so they're distinguishable in the picker.
+  const assignablePlans = plans ?? []
 
   const subs = user.subscriptions ?? []
 
@@ -877,7 +880,7 @@ function SubscriptionsTab({ user, telegramId, queryKey }: { user: UserDetail; te
                             onCheckedChange={() => toggle(s.id)}
                           />
                           <span className="truncate">
-                            {s.plan?.name || s.id}
+                            {s.remnawaveProfileName || s.plan?.name || s.id}
                           </span>
                         </label>
                       ))}
@@ -896,6 +899,7 @@ function SubscriptionsTab({ user, telegramId, queryKey }: { user: UserDetail; te
                       {assignablePlans.map((plan) => (
                         <SelectItem key={plan.id} value={String(plan.id)} className="text-xs">
                           {plan.name} {plan.trafficLimit ? `(${plan.trafficLimit} GB)` : ''}
+                          {plan.isArchived ? ` · ${t('userDetailPanel.subscriptions.archivedTag')}` : ''}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1282,7 +1286,9 @@ function SubscriptionCard({
                     <SelectTrigger className="h-7 w-40 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {assignablePlans.map((p) => (
-                        <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                        <SelectItem key={p.id} value={String(p.id)}>
+                          {p.name}{p.isArchived ? ` · ${t('userDetailPanel.subscriptions.archivedTag')}` : ''}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

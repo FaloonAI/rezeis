@@ -23,6 +23,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { toast } from 'sonner'
+
+import { api } from '@/lib/api'
+import { getErrorMessage } from '@/lib/http-errors'
 import { cn } from '@/lib/utils'
 import { remnawaveApi } from '@/features/remnawave/remnawave-api'
 import { IconPicker } from '@/features/settings/icon-picker'
@@ -120,6 +124,9 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
     [...initialDraft.allowedUserIds],
   )
   const [newAllowedUserId, setNewAllowedUserId] = useState('')
+  // Friendly labels for resolved allowed users (reiwa_id → "Name · TG 123").
+  const [allowedUserLabels, setAllowedUserLabels] = useState<Record<string, string>>({})
+  const [resolvingAllowedUser, setResolvingAllowedUser] = useState(false)
 
   // Trial config (only meaningful when availability === 'TRIAL')
   const [trialMaxClaims, setTrialMaxClaims] = useState(initialDraft.trialSettings.maxClaims)
@@ -179,6 +186,37 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
     const updated = [...durations]
     updated[dIdx].prices[pIdx] = { ...updated[dIdx].prices[pIdx], [field]: value }
     setDurations(updated)
+  }
+
+  const handleAddAllowedUser = async () => {
+    const identifier = newAllowedUserId.trim()
+    if (!identifier || resolvingAllowedUser) {
+      return
+    }
+
+    setResolvingAllowedUser(true)
+    try {
+      const { data } = await api.get<{ id: string; label: string }>(
+        '/admin/users/resolve',
+        { params: { identifier } },
+      )
+      if (allowedUserIds.includes(data.id)) {
+        toast.info(t('planForm.allowedUsers.alreadyAdded'))
+      } else {
+        setAllowedUserIds((prev) => [...prev, data.id])
+      }
+      setAllowedUserLabels((prev) => ({ ...prev, [data.id]: data.label }))
+      setNewAllowedUserId('')
+    } catch (error) {
+      const status = (error as { response?: { status?: number } })?.response?.status
+      toast.error(
+        status === 404
+          ? t('planForm.allowedUsers.resolveFailed')
+          : getErrorMessage(error, t('planForm.allowedUsers.resolveFailed')),
+      )
+    } finally {
+      setResolvingAllowedUser(false)
+    }
   }
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -404,7 +442,10 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
 
       <Separator />
 
-      {/* Limits */}
+      {/* Limits — hidden entirely for the UNLIMITED plan type, where traffic,
+          devices and the reset strategy are all meaningless (the backend
+          normalizer forces traffic=∞ / devices=∞ for this type anyway). */}
+      {type !== 'UNLIMITED' && (
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-2">
           <Label>{t('planForm.trafficLimit')}</Label>
@@ -447,6 +488,7 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
           </Select>
         </div>
       </div>
+      )}
 
       <Separator />
 
@@ -733,7 +775,7 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
                   aria-label={t('planForm.allowedUsers.removeAria', { userId: uid })}
                   onClick={() => setAllowedUserIds((prev) => prev.filter((x) => x !== uid))}
                 >
-                  {uid.slice(0, 12)}…
+                  {allowedUserLabels[uid] ?? `${uid.slice(0, 12)}…`}
                   <Trash2 className="h-3 w-3" aria-hidden />
                 </button>
               ))}
@@ -743,22 +785,23 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
                 placeholder={t('planForm.allowedUsers.placeholder')}
                 value={newAllowedUserId}
                 onChange={(e) => setNewAllowedUserId(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    void handleAddAllowedUser()
+                  }
+                }}
                 className="flex-1"
               />
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={!newAllowedUserId.trim()}
-                onClick={() => {
-                  const uid = newAllowedUserId.trim()
-                  if (uid && !allowedUserIds.includes(uid)) {
-                    setAllowedUserIds((prev) => [...prev, uid])
-                    setNewAllowedUserId('')
-                  }
-                }}
+                disabled={!newAllowedUserId.trim() || resolvingAllowedUser}
+                onClick={() => void handleAddAllowedUser()}
               >
-                <Plus className="h-3.5 w-3.5 mr-1" /> {t('planForm.allowedUsers.add')}
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                {resolvingAllowedUser ? t('planForm.allowedUsers.resolving') : t('planForm.allowedUsers.add')}
               </Button>
             </div>
             <FieldError message={formErrors.allowedUserIds} />

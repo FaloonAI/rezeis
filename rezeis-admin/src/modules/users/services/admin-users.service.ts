@@ -1,15 +1,20 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { InternalUserService } from '../../internal-user/services/internal-user.service';
 import { AdminUserListQueryDto } from '../dto/admin-user-list-query.dto';
+import { AdminUserResolveQueryDto } from '../dto/admin-user-resolve-query.dto';
 import { AdminUserSearchQueryDto } from '../dto/admin-user-search-query.dto';
 import {
   AdminUserListItemInterface,
   AdminUserListResultInterface,
 } from '../interfaces/admin-user-list-item.interface';
+import { AdminUserResolveResultInterface } from '../interfaces/admin-user-resolve-result.interface';
 import { AdminUserSearchResultInterface } from '../interfaces/admin-user-search-result.interface';
+
+/** Matches a CUID-shaped reiwa user id (Prisma default `cuid()`). */
+const CUID_PATTERN = /^c[a-z0-9]{20,}$/i;
 
 const DEFAULT_LIST_LIMIT = 50;
 const DEFAULT_LIST_OFFSET = 0;
@@ -33,6 +38,44 @@ export class AdminUsersService {
     query: AdminUserSearchQueryDto,
   ): Promise<AdminUserSearchResultInterface> {
     return this.internalUserService.getSearchResult(query);
+  }
+
+  /**
+   * Resolves a free-text identifier — reiwa_id (CUID), Telegram ID, web login
+   * or email — to a single canonical reiwa user for the plan "Allowed users"
+   * picker. Throws `NotFoundException` when nothing matches so the admin UI can
+   * surface a clear "user not found" toast.
+   */
+  public async resolveUser(
+    query: AdminUserResolveQueryDto,
+  ): Promise<AdminUserResolveResultInterface> {
+    const identifier = query.identifier.trim();
+    const user = await this.findUserByIdentifier(identifier);
+
+    if (!user) {
+      throw new NotFoundException('User not found for the given identifier');
+    }
+
+    return { id: user.id, label: buildUserResolveLabel(user) };
+  }
+
+  /**
+   * Looks a user up by the most specific identifier shape first (reiwa id →
+   * Telegram id → login → email), falling back through the cheaper unique
+   * lookups. Returns `null` when no branch matches.
+   */
+  private async findUserByIdentifier(
+    identifier: string,
+  ): Promise<ResolvedUserRow | null> {
+    const where = buildResolveWhere(identifier);
+    if (where === null) {
+      return null;
+    }
+
+    return this.prismaService.user.findFirst({
+      where,
+      select: RESOLVE_USER_SELECT,
+    });
   }
 
   /**
@@ -108,8 +151,16 @@ function buildUserListWhere(search: string | undefined): Prisma.UserWhereInput {
     { name: { contains: trimmed, mode: 'insensitive' } },
     { referralCode: { contains: trimmed, mode: 'insensitive' } },
     {
+      // Web-first users keep their email + login on the WebAccount (User.email
+      // is often null for them), so search both there too — otherwise looking
+      // a web/external-auth user up by email or login finds nothing.
       webAccount: {
-        is: { login: { contains: trimmed, mode: 'insensitive' } },
+        is: {
+          OR: [
+            { login: { contains: trimmed, mode: 'insensitive' } },
+            { email: { contains: trimmed, mode: 'insensitive' } },
+          ],
+        },
       },
     },
   ];
@@ -124,5 +175,102 @@ function buildUserListWhere(search: string | undefined): Prisma.UserWhereInput {
   }
 
   return { OR: conditions };
+}
+
+/** Column projection used when resolving a single user for the picker. */
+const RESOLVE_USER_SELECT = {
+  id: true,
+  telegramId: true,
+  username: true,
+  name: true,
+  email: true,
+  webAccount: { select: { login: true, email: true } },
+} satisfies Prisma.UserSelect;
+
+type ResolvedUserRow = Prisma.UserGetPayload<{ select: typeof RESOLVE_USER_SELECT }>;
+
+/**
+ * Builds the `User.findFirst` where clause for a single free-text identifier.
+ *
+ * Branches are combined with OR so an exact match on any of reiwa id,
+ * Telegram id, login (raw/normalized) or email (raw/normalized on both the
+ * `User` and its `WebAccount`) resolves the user. Returns `null` when the
+ * identifier is empty (nothing to look up).
+ */
+function buildResolveWhere(identifier: string): Prisma.UserWhereInput | null {
+  const trimmed = identifier.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const conditions: Prisma.UserWhereInput[] = [];
+
+  if (CUID_PATTERN.test(trimmed)) {
+    conditions.push({ id: trimmed });
+  }
+
+  const telegramId = parseTelegramId(trimmed);
+  if (telegramId !== null) {
+    conditions.push({ telegramId });
+  }
+
+  const normalized = trimmed.toLowerCase();
+  conditions.push(
+    { email: { equals: trimmed, mode: 'insensitive' } },
+    {
+      webAccount: {
+        is: {
+          OR: [
+            { login: { equals: trimmed, mode: 'insensitive' } },
+            { loginNormalized: normalized },
+            { email: { equals: trimmed, mode: 'insensitive' } },
+            { emailNormalized: normalized },
+          ],
+        },
+      },
+    },
+  );
+
+  return { OR: conditions };
+}
+
+/**
+ * Parses a decimal Telegram id, guarding against overflow. Returns `null` for
+ * non-numeric or out-of-range input.
+ */
+function parseTelegramId(value: string): bigint | null {
+  if (!/^\d+$/.test(value)) {
+    return null;
+  }
+
+  try {
+    return BigInt(value);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Builds a human-friendly label for a resolved user, preferring the most
+ * recognizable field and always falling back to the reiwa id.
+ */
+function buildUserResolveLabel(user: ResolvedUserRow): string {
+  const parts: string[] = [];
+  const primary =
+    user.name?.trim() ||
+    user.username?.trim() ||
+    user.webAccount?.login?.trim() ||
+    user.email?.trim() ||
+    user.webAccount?.email?.trim() ||
+    null;
+
+  if (primary) {
+    parts.push(primary);
+  }
+  if (user.telegramId !== null) {
+    parts.push(`TG ${user.telegramId.toString()}`);
+  }
+
+  return parts.length > 0 ? parts.join(' · ') : user.id;
 }
 

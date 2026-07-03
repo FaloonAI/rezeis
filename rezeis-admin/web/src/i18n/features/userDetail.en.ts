@@ -117,6 +117,7 @@ export const en = {
       syncAllEnqueued: 'Sync queued for {{count}} subscriptions',
       assignPlanLabel: 'Assign plan',
       assignPlan: 'Assign plan',
+      archivedTag: 'archived',
       selectPlan: 'Select a plan',
       assignPlanPickSubs: 'Select subscriptions to assign the plan to',
       assignPlanSelectAll: 'Select all',

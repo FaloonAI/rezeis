@@ -106,6 +106,8 @@ export class ExternalAuthService {
    * auto-link → new shell + finish-setup → denied(blocked).
    */
   public async resolve(profile: ExternalUserProfile): Promise<ExternalAuthResolution> {
+    const isTelegram = profile.provider === ExternalAuthProvider.TELEGRAM;
+
     // 1. Existing identity link.
     const link = await this.prismaService.userOAuthLink.findUnique({
       where: { provider_providerUserId: { provider: profile.provider, providerUserId: profile.providerUserId } },
@@ -117,14 +119,38 @@ export class ExternalAuthService {
         where: { id: link.id },
         data: { lastUsedAt: new Date() },
       });
-      // A shell created by a prior external sign-up that never completed
-      // finish-setup still has no login/password. Route it back to
-      // finish-setup instead of silently logging into a credential-less
-      // account (which then can't sign in by login and looks "missing" in the
-      // panel). Login + password stays mandatory.
+      // Telegram identity is itself a credential — the user can always
+      // re-authenticate via Telegram, so never force finish-setup on them.
+      if (isTelegram) {
+        return { action: 'login', userId: link.userId };
+      }
+      // For OAuth (email) providers: a shell created by a prior sign-up that
+      // never completed finish-setup still has no login/password. Route it
+      // back to finish-setup instead of silently logging into a credential-less
+      // account (which then can't sign in by login and looks "missing").
       return (await this.hasCompletedCredentials(link.userId))
         ? { action: 'login', userId: link.userId }
         : { action: 'finish_setup', userId: link.userId };
+    }
+
+    // 1.5 Telegram: match an EXISTING user by telegram id even when there is
+    // no web OAuth link yet. Bot / Mini-App users are created with
+    // `User.telegramId` but never had a web link, so without this they'd be
+    // treated as brand-new and wrongly sent to finish-setup ("создаёт новый
+    // аккаунт"). Link them and log in — Telegram is their credential.
+    if (isTelegram) {
+      const telegramId = parseBigintOrNull(profile.providerUserId);
+      if (telegramId !== null) {
+        const user = await this.prismaService.user.findUnique({
+          where: { telegramId },
+          select: { id: true, isBlocked: true },
+        });
+        if (user) {
+          if (user.isBlocked) return { action: 'denied' };
+          await this.createLink(user.id, profile);
+          return { action: 'login', userId: user.id };
+        }
+      }
     }
 
     // 2. Verified-email match → auto-link.
@@ -312,6 +338,17 @@ export class ExternalAuthService {
         lastUsedAt: new Date(),
       },
     });
+  }
+}
+
+/** Parses a decimal Telegram id string to BigInt; null when not a positive int. */
+function parseBigintOrNull(value: string): bigint | null {
+  if (!/^\d+$/.test(value)) return null;
+  try {
+    const n = BigInt(value);
+    return n > 0n ? n : null;
+  } catch {
+    return null;
   }
 }
 

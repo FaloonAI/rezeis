@@ -172,7 +172,16 @@ describe('AdminUsersService', () => {
             { email: { contains: '123456', mode: 'insensitive' } },
             { name: { contains: '123456', mode: 'insensitive' } },
             { referralCode: { contains: '123456', mode: 'insensitive' } },
-            { webAccount: { is: { login: { contains: '123456', mode: 'insensitive' } } } },
+            {
+              webAccount: {
+                is: {
+                  OR: [
+                    { login: { contains: '123456', mode: 'insensitive' } },
+                    { email: { contains: '123456', mode: 'insensitive' } },
+                  ],
+                },
+              },
+            },
             { telegramId: 123456n },
           ],
         },
@@ -200,6 +209,117 @@ describe('AdminUsersService', () => {
         where: (userFindManyCalls[0] as { readonly where: unknown }).where,
       },
     ]);
+  });
+
+  it('resolves an identifier to a single user with an OR of id / telegram / login / email branches', async () => {
+    const findFirstCalls: unknown[] = [];
+    const service = new AdminUsersService(
+      {
+        user: {
+          findFirst: (args: unknown) => {
+            findFirstCalls.push(args);
+            return {
+              id: 'clv1abcdefghijklmnopqrstu',
+              telegramId: 123456789n,
+              username: 'rezeis-user',
+              name: 'Rezeis User',
+              email: null,
+              webAccount: { login: 'web-login', email: 'web@example.com' },
+            };
+          },
+        },
+      } as never,
+      {} as never,
+    );
+
+    assert.deepStrictEqual(await service.resolveUser({ identifier: '  clv1abcdefghijklmnopqrstu  ' }), {
+      id: 'clv1abcdefghijklmnopqrstu',
+      label: 'Rezeis User · TG 123456789',
+    });
+    assert.deepStrictEqual(findFirstCalls, [
+      {
+        where: {
+          OR: [
+            { id: 'clv1abcdefghijklmnopqrstu' },
+            { email: { equals: 'clv1abcdefghijklmnopqrstu', mode: 'insensitive' } },
+            {
+              webAccount: {
+                is: {
+                  OR: [
+                    { login: { equals: 'clv1abcdefghijklmnopqrstu', mode: 'insensitive' } },
+                    { loginNormalized: 'clv1abcdefghijklmnopqrstu' },
+                    { email: { equals: 'clv1abcdefghijklmnopqrstu', mode: 'insensitive' } },
+                    { emailNormalized: 'clv1abcdefghijklmnopqrstu' },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+        select: {
+          id: true,
+          telegramId: true,
+          username: true,
+          name: true,
+          email: true,
+          webAccount: { select: { login: true, email: true } },
+        },
+      },
+    ]);
+  });
+
+  it('matches a numeric identifier against telegramId and prefers login when no name is set', async () => {
+    let capturedWhere: unknown;
+    const service = new AdminUsersService(
+      {
+        user: {
+          findFirst: (args: { where: unknown }) => {
+            capturedWhere = args.where;
+            return {
+              id: 'user-2',
+              telegramId: 555n,
+              username: null,
+              name: null,
+              email: null,
+              webAccount: { login: 'only-login', email: null },
+            };
+          },
+        },
+      } as never,
+      {} as never,
+    );
+
+    assert.deepStrictEqual(await service.resolveUser({ identifier: '555' }), {
+      id: 'user-2',
+      label: 'only-login · TG 555',
+    });
+    assert.deepStrictEqual(capturedWhere, {
+      OR: [
+        { telegramId: 555n },
+        { email: { equals: '555', mode: 'insensitive' } },
+        {
+          webAccount: {
+            is: {
+              OR: [
+                { login: { equals: '555', mode: 'insensitive' } },
+                { loginNormalized: '555' },
+                { email: { equals: '555', mode: 'insensitive' } },
+                { emailNormalized: '555' },
+              ],
+            },
+          },
+        },
+      ],
+    });
+  });
+
+  it('throws NotFoundException when no user matches the identifier', async () => {
+    const service = new AdminUsersService(
+      { user: { findFirst: async () => null } } as never,
+      {} as never,
+    );
+
+    await assert.rejects(() => service.resolveUser({ identifier: 'nobody@example.com' }), /User not found/);
   });
 });
 

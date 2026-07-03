@@ -10,6 +10,7 @@ interface MockState {
   accountByEmail?: { userId: string; blocked: boolean; passwordHash?: string | null } | null;
   shellWebAccount?: { id: string; passwordHash: string | null } | null;
   loginConflict?: { id: string } | null;
+  userByTelegramId?: { userId: string; blocked: boolean } | null;
 }
 
 function createService(state: MockState) {
@@ -52,6 +53,12 @@ function createService(state: MockState) {
   };
 
   const prisma = {
+    user: {
+      findUnique: async () =>
+        state.userByTelegramId
+          ? { id: state.userByTelegramId.userId, isBlocked: state.userByTelegramId.blocked }
+          : null,
+    },
     userOAuthLink: {
       findUnique: async () =>
         state.linkByIdentity
@@ -203,13 +210,53 @@ describe('ExternalAuthService.resolve', () => {
     assert.equal(calls.events, 1);
   });
 
-  it('creates a shell for Telegram (no email) → finish_setup', async () => {
-    const { service, calls } = createService({ linkByIdentity: null, accountByEmail: null });
+  it('creates a shell for a brand-new Telegram user (no link, no telegram match) → finish_setup', async () => {
+    const { service, calls } = createService({ linkByIdentity: null, accountByEmail: null, userByTelegramId: null });
     const result = await service.resolve(
       profile({ provider: ExternalAuthProvider.TELEGRAM, email: null, emailVerified: false, providerUserId: '777' }),
     );
     assert.equal(result.action, 'finish_setup');
     assert.equal(calls.webAccountCreated, 1);
+  });
+
+  it('logs in an existing Telegram link even without a web password (Telegram is the credential)', async () => {
+    // Regression: the credential guard must NOT force finish-setup for Telegram
+    // — the user can always re-authenticate via Telegram.
+    const { service } = createService({
+      linkByIdentity: { userId: 'user-tg', blocked: false },
+      shellWebAccount: { id: 'web-1', passwordHash: null },
+    });
+    const result = await service.resolve(
+      profile({ provider: ExternalAuthProvider.TELEGRAM, email: null, emailVerified: false, providerUserId: '777' }),
+    );
+    assert.deepStrictEqual(result, { action: 'login', userId: 'user-tg' });
+  });
+
+  it('logs a bot user in by telegram id when no web link exists yet (no duplicate account)', async () => {
+    // Regression: bot / Mini-App users have User.telegramId but no web OAuth
+    // link; web Telegram login must find and link them, not create a new one.
+    const { service, calls } = createService({
+      linkByIdentity: null,
+      accountByEmail: null,
+      userByTelegramId: { userId: 'bot-user-1', blocked: false },
+    });
+    const result = await service.resolve(
+      profile({ provider: ExternalAuthProvider.TELEGRAM, email: null, emailVerified: false, providerUserId: '783723779' }),
+    );
+    assert.deepStrictEqual(result, { action: 'login', userId: 'bot-user-1' });
+    assert.equal(calls.linkCreated, 1);
+    assert.equal(calls.userCreated, 0);
+  });
+
+  it('denies a blocked bot user matched by telegram id', async () => {
+    const { service } = createService({
+      linkByIdentity: null,
+      userByTelegramId: { userId: 'bot-user-1', blocked: true },
+    });
+    const result = await service.resolve(
+      profile({ provider: ExternalAuthProvider.TELEGRAM, email: null, emailVerified: false, providerUserId: '783723779' }),
+    );
+    assert.deepStrictEqual(result, { action: 'denied' });
   });
 });
 

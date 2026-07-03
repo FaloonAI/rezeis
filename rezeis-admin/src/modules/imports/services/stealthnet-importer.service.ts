@@ -157,7 +157,7 @@ export class StealthnetImporterService {
     for (const client of clients) {
       const identifier = client.telegram_id ?? client.email ?? client.id;
       try {
-        const userId = await this.matchOrCreateUser(client, mode, pointsConversion);
+        const userId = await this.matchOrCreateUser(client, mode);
         if (userId === null) {
           skipped += 1;
           continue;
@@ -167,11 +167,26 @@ export class StealthnetImporterService {
         if (wasJustCreated) {
           created += 1;
           createdUserIds.push(userId);
-          if (pointsConversion.enabled) {
-            pointsGranted += balanceToPoints(client.balance, pointsConversion.rate);
-          }
         } else {
           updated += 1;
+        }
+
+        // Migration goodwill: carry the user's leftover STEALTHNET wallet
+        // balance over as loyalty points so they don't lose money when the
+        // owner switches panels. Idempotent: credited only while the user
+        // still has 0 points (guarded `updateMany`), so a re-import never
+        // double-credits and already-earned points are never overwritten.
+        // This covers both freshly-created users AND ones matched to an
+        // existing account (e.g. re-import after a prior run).
+        if (pointsConversion.enabled) {
+          const points = balanceToPoints(client.balance, pointsConversion.rate);
+          if (points > 0) {
+            const credited = await this.prismaService.user.updateMany({
+              where: { id: userId, points: 0 },
+              data: { points },
+            });
+            if (credited.count > 0) pointsGranted += points;
+          }
         }
 
         // Subscriptions
@@ -268,7 +283,6 @@ export class StealthnetImporterService {
   private async matchOrCreateUser(
     client: StealthnetClient,
     mode: 'import' | 'sync',
-    pointsConversion: BalanceToPointsConfig,
   ): Promise<string | null> {
     // Priority 1: telegram_id
     const telegramId = parseTelegramId(client.telegram_id);
@@ -313,13 +327,6 @@ export class StealthnetImporterService {
         name: client.telegram_username ?? client.email ?? `stealthnet-${client.id.slice(0, 8)}`,
         language: this.mapLocale(client.preferred_lang),
         isBlocked: client.is_blocked,
-        // Migration goodwill: carry the user's leftover STEALTHNET balance over
-        // as loyalty points so they don't lose money when the owner switches
-        // panels. Applied only on CREATE — a re-run finds the user as
-        // "existing" and never double-credits. Rate + on/off are operator-set.
-        points: pointsConversion.enabled
-          ? balanceToPoints(client.balance, pointsConversion.rate)
-          : 0,
       },
     });
     await this.upsertWebAccountIfNeeded(newUser.id, client);
@@ -638,8 +645,9 @@ export class StealthnetImporterService {
 /**
  * Converts a leftover STEALTHNET wallet balance into loyalty points using the
  * operator-chosen rate (points per 1 currency unit), floored and never
- * negative. Used only when creating a NEW user during an import so migrated
- * users keep the value they had in the old bot.
+ * negative. Credited once per migrated user (guarded by a `points = 0`
+ * conditional update in the run loop) so both freshly-created and re-matched
+ * existing users keep the value they had in the old bot without double-credit.
  */
 function balanceToPoints(balance: number, rate: number): number {
   if (!Number.isFinite(balance) || balance <= 0) return 0;

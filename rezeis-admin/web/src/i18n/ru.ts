@@ -1721,9 +1721,12 @@
     },
     allowedUsers: {
       title: 'Разрешённые пользователи',
-      hint: 'Тариф с доступностью «ALLOWED» виден только указанным пользователям.',
-      placeholder: 'ID пользователя или Telegram ID',
+      hint: 'Тариф с доступностью «ALLOWED» виден только указанным пользователям. Добавляйте по reiwa_id, Telegram ID, логину или почте.',
+      placeholder: 'reiwa_id, Telegram ID, логин или почта',
       add: 'Добавить',
+      resolving: 'Поиск…',
+      resolveFailed: 'Пользователь не найден по этому идентификатору',
+      alreadyAdded: 'Этот пользователь уже добавлен',
       removeAria: 'Удалить разрешённого пользователя {{userId}}',
     },
     trial: {

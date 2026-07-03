@@ -1705,9 +1705,12 @@ export const en = {
     },
     allowedUsers: {
       title: 'Allowed users',
-      hint: 'Plans with "ALLOWED" availability are visible only to listed users.',
-      placeholder: 'User ID or Telegram ID',
+      hint: 'Plans with "ALLOWED" availability are visible only to listed users. Add by reiwa_id, Telegram ID, login or email.',
+      placeholder: 'reiwa_id, Telegram ID, login or email',
       add: 'Add',
+      resolving: 'Resolving…',
+      resolveFailed: 'No user found for that identifier',
+      alreadyAdded: 'This user is already added',
       removeAria: 'Remove allowed user {{userId}}',
     },
     trial: {
