@@ -84,6 +84,9 @@ export interface PlanCardStyleDraft {
   readonly accent?: string | null
   readonly texturePreset?: (typeof BRANDING_APP_BG_TEXTURES)[number] | null
   readonly textureUrl?: string | null
+  readonly cardEffect?: string | null
+  readonly cardEffectProps?: Record<string, unknown>
+  readonly cardEffectOpacity?: number | null
 }
 
 export interface BrandingAppBackgroundDraft {
@@ -116,6 +119,7 @@ export interface BrandingCardEffectSlotDraft {
   readonly cardEffect: string
   readonly cardEffectProps: Record<string, unknown>
   readonly cardEffectOpacity: number
+  readonly cardGradient?: string | null
 }
 
 export type BrandingFormData = Omit<BrandingFormDraft, 'cardEffectsByIndex'> & {
@@ -199,6 +203,7 @@ export function createBrandingFormSchema(messages: BrandingFormValidationMessage
             cardEffect: z.string().max(32),
             cardEffectProps: z.record(z.string(), z.unknown()),
             cardEffectOpacity: z.number().min(0.05).max(1),
+            cardGradient: z.string().max(512).nullish(),
           }),
         )
         .optional(),
@@ -231,6 +236,9 @@ export function createBrandingFormSchema(messages: BrandingFormValidationMessage
             accent: z.string().nullish(),
             texturePreset: z.enum(BRANDING_APP_BG_TEXTURES).nullish(),
             textureUrl: z.string().max(IMAGE_URL_MAX).nullish(),
+            cardEffect: z.string().max(32).nullish(),
+            cardEffectProps: z.record(z.string(), z.unknown()).optional(),
+            cardEffectOpacity: z.number().min(0.05).max(1).nullish(),
           }),
         )
         .optional(),

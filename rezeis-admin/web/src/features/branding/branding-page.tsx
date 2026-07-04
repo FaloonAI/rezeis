@@ -16,7 +16,7 @@ import { useForm, Controller, type Resolver, type UseFormReturn } from "react-ho
 import { useTranslation } from 'react-i18next';
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Paintbrush, RotateCcw, Save, Sparkles, Upload, Wand2, X } from "lucide-react";
+import { Bookmark, Check, Loader2, Paintbrush, RotateCcw, Save, Sparkles, Upload, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import api from "@/lib/api";
@@ -44,6 +44,7 @@ import { CardEffectSection } from "./card-effect-section";
 import { AppBackgroundSection } from "./app-background-section";
 import { CardEffectSlotsSection, type CardEffectSlot } from "./card-effect-slots-section";
 import { GradientBuilder } from "./gradient-builder";
+import { useCustomGradients } from "./use-custom-gradients";
 import { IconColorsSection } from "./icon-colors-section";
 import { PlanCardStylesSection } from "./plan-card-styles-section";
 import { NavConfigSection } from "./nav-config-section";
@@ -92,6 +93,7 @@ export default function WebReiwaPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<BrandingTab>('brand');
+  const customGradients = useCustomGradients();
   const validationMessages = useMemo<BrandingFormValidationMessages>(() => ({
     hexInvalid: t('brandingPage.invalidHex'),
     imageUrlInvalid: t('brandingPage.invalidImageUrl'),
@@ -435,17 +437,42 @@ export default function WebReiwaPage() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="cardGradient">{t('brandingPage.sections.card.gradient')}</Label>
-                    <Button type="button" variant="ghost" size="sm" onClick={generateGradient}>
-                      <Wand2 className="mr-1.5 h-3.5 w-3.5" />
-                      {t('brandingPage.sections.card.generate')}
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          const css = (form.getValues("cardGradient") ?? "").trim();
+                          if (css.length === 0) return;
+                          const isPreset = CARD_GRADIENT_PRESETS.some(
+                            (p) => p.value.toLowerCase() === css.toLowerCase(),
+                          );
+                          if (isPreset || customGradients.custom.some((g) => g.toLowerCase() === css.toLowerCase())) {
+                            toast.info(t('brandingPage.sections.card.saveExists'));
+                            return;
+                          }
+                          customGradients.add(css);
+                          toast.success(t('brandingPage.sections.card.saved'));
+                        }}
+                      >
+                        <Bookmark className="mr-1.5 h-3.5 w-3.5" />
+                        {t('brandingPage.sections.card.saveToPalette')}
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" onClick={generateGradient}>
+                        <Wand2 className="mr-1.5 h-3.5 w-3.5" />
+                        {t('brandingPage.sections.card.generate')}
+                      </Button>
+                    </div>
                   </div>
-                  {/* Preset swatches — one-click ready-made gradients */}
+                  {/* Preset + saved swatches — one-click ready-made gradients.
+                      Compact auto-fill grid keeps the tiles small regardless of
+                      the panel width. */}
                   <Controller
                     name="cardGradient"
                     control={form.control}
                     render={({ field }) => (
-                      <div className="grid grid-cols-5 gap-2 sm:grid-cols-8">
+                      <div className="grid grid-cols-[repeat(auto-fill,minmax(38px,1fr))] gap-1.5">
                         {CARD_GRADIENT_PRESETS.map((preset) => {
                           const isActive =
                             (field.value ?? "").trim().toLowerCase() ===
@@ -457,19 +484,58 @@ export default function WebReiwaPage() {
                               aria-label={t(`brandingPage.cardGradients.${preset.id}`)}
                               title={t(`brandingPage.cardGradients.${preset.id}`)}
                               onClick={() => field.onChange(preset.value)}
-                              className={`relative aspect-square rounded-lg ring-1 transition-all hover:scale-[1.06] ${
+                              className={`relative aspect-square rounded-md ring-1 transition-all hover:scale-[1.08] ${
                                 isActive ? "ring-2 ring-primary" : "ring-white/10 hover:ring-primary/40"
                               }`}
                               style={{ backgroundImage: preset.value }}
                             >
                               {isActive && (
                                 <span className="absolute inset-0 flex items-center justify-center">
-                                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-black/50 text-white">
-                                    <Check className="h-2.5 w-2.5" />
+                                  <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-black/50 text-white">
+                                    <Check className="h-2 w-2" />
                                   </span>
                                 </span>
                               )}
                             </button>
+                          );
+                        })}
+                        {/* Operator-saved custom gradients (browser-local). */}
+                        {customGradients.custom.map((css) => {
+                          const isActive =
+                            (field.value ?? "").trim().toLowerCase() === css.toLowerCase();
+                          return (
+                            <div key={css} className="group relative aspect-square">
+                              <button
+                                type="button"
+                                aria-label={t('brandingPage.sections.card.customSwatch')}
+                                title={css}
+                                onClick={() => field.onChange(css)}
+                                className={`h-full w-full rounded-md ring-1 transition-all hover:scale-[1.08] ${
+                                  isActive ? "ring-2 ring-primary" : "ring-white/10 hover:ring-primary/40"
+                                }`}
+                                style={{ backgroundImage: css }}
+                              >
+                                {isActive && (
+                                  <span className="absolute inset-0 flex items-center justify-center">
+                                    <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-black/50 text-white">
+                                      <Check className="h-2 w-2" />
+                                    </span>
+                                  </span>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={t('brandingPage.sections.card.removeSwatch')}
+                                title={t('brandingPage.sections.card.removeSwatch')}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  customGradients.remove(css);
+                                }}
+                                className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow group-hover:flex"
+                              >
+                                <X className="h-2.5 w-2.5" />
+                              </button>
+                            </div>
                           );
                         })}
                       </div>

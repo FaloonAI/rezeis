@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { configure, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import api from '@/lib/api'
 import { renderWithProviders } from '@/test/test-utils'
 import WebReiwaPage from './branding-page'
+
+// WebReiwaPage mounts every tab's section tree at once (kept mounted so the
+// form/preview stay intact), so the first render is heavy — under the full
+// parallel suite it can take several seconds. Give the async queries room so
+// this file doesn't flake on findBy timeouts (the assertions are unchanged).
+configure({ asyncUtilTimeout: 20_000 })
 
 vi.mock('./branding-preview', () => ({
   BrandingPreview: () => <div data-testid="branding-preview" />,
@@ -33,7 +39,7 @@ describe('WebReiwaPage branding URL validation', () => {
 
     expect(await screen.findByText('Enter an HTTP(S) URL or a data:image URL.')).toBeInTheDocument()
     expect(patchSpy).not.toHaveBeenCalled()
-  })
+  }, 20_000)
 
   it('submits normalized branding URLs', async () => {
     const user = userEvent.setup()
@@ -55,7 +61,7 @@ describe('WebReiwaPage branding URL validation', () => {
         }),
       )
     })
-  })
+  }, 20_000)
 
   it('gives color controls distinct programmatic names', async () => {
     vi.spyOn(api, 'get').mockResolvedValue({ data: createBrandingPayload() })
@@ -67,7 +73,7 @@ describe('WebReiwaPage branding URL validation', () => {
 
     expect(screen.getByRole('textbox', { name: 'Primary' })).toHaveValue('#22c55e')
     expect(screen.getByLabelText('Primary color picker')).toHaveAttribute('type', 'color')
-  })
+  }, 20_000)
 })
 
 function createBrandingPayload() {

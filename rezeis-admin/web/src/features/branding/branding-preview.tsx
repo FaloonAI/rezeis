@@ -8,8 +8,9 @@
  * the operator is editing, so changes are visible instantly.
  */
 
-import { Suspense, useMemo } from 'react'
+import { Suspense, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { motion, type PanInfo } from 'motion/react'
 import {
   Wifi,
   WalletCards,
@@ -60,6 +61,12 @@ interface BrandingPreviewProps {
     cardEffect?: string
     cardEffectProps?: Record<string, unknown>
     cardEffectOpacity?: number
+    cardEffectsByIndex?: readonly {
+      cardEffect: string
+      cardEffectProps: Record<string, unknown>
+      cardEffectOpacity: number
+      cardGradient?: string | null
+    }[]
     fontFamily?: string
     borderRadius?: string
     planCardStyles?: Record<string, PlanCardStyleDraft>
@@ -115,6 +122,180 @@ const NAV_ICONS: Record<NavDestinationId, LucideIcon> = {
   settings: Settings,
 }
 
+interface PreviewCardVisual {
+  readonly gradient: string
+  readonly effect: string
+  readonly effectProps: Record<string, unknown>
+  readonly opacity: number
+}
+
+/** One subscription-card mock in the preview, with its own effect + gradient. */
+function PreviewSubscriptionCard({
+  visual,
+  primary,
+  brandName,
+  cardPattern,
+  cardLogo,
+  cardLogoUrl,
+  radius,
+}: {
+  visual: PreviewCardVisual
+  primary: string
+  brandName: string
+  cardPattern?: string | null
+  cardLogo: CardLogoPreset
+  cardLogoUrl?: string | null
+  radius: string
+}) {
+  const { t } = useTranslation()
+  const Effect =
+    visual.effect !== 'NONE' && visual.effect in CARD_EFFECT_COMPONENTS
+      ? CARD_EFFECT_COMPONENTS[visual.effect as CardEffectId]
+      : null
+  const effectProps = useMemo<Record<string, unknown>>(() => {
+    if (!Effect) return {}
+    const base = { ...getCardEffectDefaults(visual.effect), ...visual.effectProps }
+    if (visual.effect === 'aurora' && base['colorStops'] === undefined) {
+      return { colorStops: brandAuroraStops(primary), amplitude: 1.1, blend: 0.55, speed: 0.8, ...base }
+    }
+    return base
+  }, [Effect, visual.effect, visual.effectProps, primary])
+
+  return (
+    <div
+      className="relative h-[160px] overflow-hidden p-4 ring-1 ring-white/10"
+      style={{ borderRadius: radius }}
+    >
+      {/* Static foundation / fallback: dark base + operator gradient */}
+      <div className="absolute inset-0" style={{ backgroundColor: '#0b0b0d' }} />
+      <div className="absolute inset-0" style={{ backgroundImage: visual.gradient, opacity: 0.85 }} />
+      {/* Live animated effect layer (the REAL ReactBits effect) */}
+      {Effect && (
+        <Suspense fallback={null}>
+          <div className="absolute inset-0" style={{ opacity: visual.opacity }}>
+            <Effect {...effectProps} />
+          </div>
+        </Suspense>
+      )}
+      <div className="absolute inset-0 bg-linear-to-b from-black/40 via-transparent to-black/60" />
+      {cardPattern && cardPattern !== 'none' && (
+        <div className="absolute inset-0 opacity-40" style={{ backgroundImage: cardPattern }} />
+      )}
+      {/* Watermark — operator-configurable glyph or custom image */}
+      <CardLogoMark
+        preset={cardLogo}
+        customUrl={cardLogoUrl}
+        className="pointer-events-none absolute -right-4 -bottom-6 h-28 w-28"
+        style={{ color: '#ffffff', opacity: 0.12 }}
+      />
+
+      {/* Card content */}
+      <div className="relative flex h-full flex-col justify-between text-white">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Wifi className="h-3.5 w-3.5 opacity-90" />
+            <span className="text-[11px] font-semibold opacity-95">{brandName}</span>
+          </div>
+          <span className="rounded-full bg-white/25 px-2 py-0.5 text-[8px] font-bold uppercase backdrop-blur-md">
+            {t('brandingPage.sections.preview.statusLabel')}
+          </span>
+        </div>
+
+        <p className="font-mono text-sm tracking-[0.18em] opacity-90">usr_a1b2c3d4e5f6</p>
+
+        <div>
+          <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-black/35">
+            <div className="h-full w-2/3 rounded-full bg-white/85" />
+          </div>
+          <div className="flex items-end justify-between">
+            <div>
+              <p className="text-[8px] uppercase opacity-60">
+                {t('brandingPage.sections.preview.expires')}
+              </p>
+              <p className="text-[11px] font-semibold">03/2026</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[8px] uppercase opacity-60">
+                {t('brandingPage.sections.preview.device')}
+              </p>
+              <p className="text-[11px] font-medium">iPhone 15</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Swipeable strip of subscription cards for the live preview. */
+function SubscriptionCardsPreview({
+  cards,
+  primary,
+  brandName,
+  cardPattern,
+  cardLogo,
+  cardLogoUrl,
+  radius,
+}: {
+  cards: readonly PreviewCardVisual[]
+  primary: string
+  brandName: string
+  cardPattern?: string | null
+  cardLogo: CardLogoPreset
+  cardLogoUrl?: string | null
+  radius: string
+}) {
+  const { t } = useTranslation()
+  const [page, setPage] = useState(0)
+  const total = Math.max(cards.length, 1)
+  const active = Math.min(page, total - 1)
+  const multi = total > 1
+
+  function onDragEnd(_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo): void {
+    if (info.offset.x < -40) setPage((p) => Math.min(p + 1, total - 1))
+    else if (info.offset.x > 40) setPage((p) => Math.max(p - 1, 0))
+  }
+
+  return (
+    <div className="relative">
+      <motion.div
+        key={active}
+        drag={multi ? 'x' : false}
+        dragConstraints={{ left: 0, right: 0 }}
+        dragElastic={0.18}
+        onDragEnd={onDragEnd}
+        className={multi ? 'cursor-grab active:cursor-grabbing' : ''}
+      >
+        <PreviewSubscriptionCard
+          visual={cards[active] ?? cards[0]!}
+          primary={primary}
+          brandName={brandName}
+          cardPattern={cardPattern}
+          cardLogo={cardLogo}
+          cardLogoUrl={cardLogoUrl}
+          radius={radius}
+        />
+      </motion.div>
+      {multi && (
+        <div className="mt-2 flex items-center justify-center gap-1.5">
+          {cards.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-label={t('brandingPage.sections.preview.cardDot', { index: i + 1 })}
+              aria-current={i === active}
+              onClick={() => setPage(i)}
+              className={`h-1.5 rounded-full transition-all ${
+                i === active ? 'w-4 bg-white/80' : 'w-1.5 bg-white/30'
+              }`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
   const { t } = useTranslation()
   const {
@@ -132,6 +313,7 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
     cardEffect = 'aurora',
     cardEffectProps = {},
     cardEffectOpacity = 1,
+    cardEffectsByIndex = [],
     fontFamily = 'Geist Variable, system-ui, sans-serif',
     borderRadius = 'rounded-2xl',
     planCardStyles = {},
@@ -169,21 +351,25 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
   const navSource = navItems && navItems.length > 0 ? navItems : DEFAULT_NAV_ITEMS
   const visibleNav = navSource.filter((i) => i.visible).slice(0, 5)
 
-  // Resolve the live effect component + merged params, mirroring the SPA: the
-  // default Aurora is auto-tinted to the brand colour unless the operator has
-  // pinned explicit colorStops.
-  const EffectComponent =
-    cardEffect !== 'NONE' && cardEffect in CARD_EFFECT_COMPONENTS
-      ? CARD_EFFECT_COMPONENTS[cardEffect as CardEffectId]
-      : null
-  const mergedEffectProps = useMemo<Record<string, unknown>>(() => {
-    if (!EffectComponent) return {}
-    const base = { ...getCardEffectDefaults(cardEffect), ...cardEffectProps }
-    if (cardEffect === 'aurora' && base['colorStops'] === undefined) {
-      return { colorStops: brandAuroraStops(primary), amplitude: 1.1, blend: 0.55, speed: 0.8, ...base }
-    }
-    return base
-  }, [EffectComponent, cardEffect, cardEffectProps, primary])
+  // Build the list of subscription cards to preview. Each configured
+  // per-position slot (cardEffectsByIndex) becomes its own card with its own
+  // effect + gradient (falling back to the global values); with no slots we
+  // show a single card driven by the global gradient/effect. Capped for the
+  // preview strip. Swipe/dots switch between them.
+  const previewCards = useMemo<PreviewCardVisual[]>(() => {
+    const slots = cardEffectsByIndex ?? []
+    const count = Math.min(Math.max(slots.length, 1), 6)
+    return Array.from({ length: count }, (_, i) => {
+      const slot = slots[i]
+      const slotGradient = (slot?.cardGradient ?? '').trim()
+      return {
+        gradient: slotGradient.length > 0 ? slotGradient : cardGradient,
+        effect: slot?.cardEffect ?? cardEffect,
+        effectProps: slot?.cardEffectProps ?? cardEffectProps,
+        opacity: slot?.cardEffectOpacity ?? cardEffectOpacity,
+      }
+    })
+  }, [cardEffectsByIndex, cardGradient, cardEffect, cardEffectProps, cardEffectOpacity])
 
   return (
     <div className="flex flex-col items-center">
@@ -268,77 +454,17 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
             />
           ) : (
             <>
-          {/* Subscription card — live effect over the operator gradient */}
-          <div
-            className="relative h-[160px] overflow-hidden p-4 ring-1 ring-white/10"
-            style={{ borderRadius: radius }}
-          >
-            {/* Static foundation / fallback: dark base + operator gradient */}
-            <div className="absolute inset-0" style={{ backgroundColor: '#0b0b0d' }} />
-            <div
-              className="absolute inset-0"
-              style={{ backgroundImage: cardGradient, opacity: 0.85 }}
-            />
-            {/* Live animated effect layer (the REAL ReactBits effect) */}
-            {EffectComponent && (
-              <Suspense fallback={null}>
-                <div className="absolute inset-0" style={{ opacity: cardEffectOpacity }}>
-                  <EffectComponent {...mergedEffectProps} />
-                </div>
-              </Suspense>
-            )}
-            <div className="absolute inset-0 bg-linear-to-b from-black/40 via-transparent to-black/60" />
-            {cardPattern && cardPattern !== 'none' && (
-              <div
-                className="absolute inset-0 opacity-40"
-                style={{ backgroundImage: cardPattern }}
-              />
-            )}
-            {/* Watermark — operator-configurable glyph or custom image */}
-            <CardLogoMark
-              preset={cardLogo}
-              customUrl={cardLogoUrl}
-              className="pointer-events-none absolute -right-4 -bottom-6 h-28 w-28"
-              style={{ color: '#ffffff', opacity: 0.12 }}
-            />
-
-            {/* Card content */}
-            <div className="relative flex h-full flex-col justify-between text-white">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <Wifi className="h-3.5 w-3.5 opacity-90" />
-                  <span className="text-[11px] font-semibold opacity-95">{brandName}</span>
-                </div>
-                <span className="rounded-full bg-white/25 px-2 py-0.5 text-[8px] font-bold uppercase backdrop-blur-md">
-                  {t('brandingPage.sections.preview.statusLabel')}
-                </span>
-              </div>
-
-              <p className="font-mono text-sm tracking-[0.18em] opacity-90">
-                usr_a1b2c3d4e5f6
-              </p>
-
-              <div>
-                <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-black/35">
-                  <div className="h-full w-2/3 rounded-full bg-white/85" />
-                </div>
-                <div className="flex items-end justify-between">
-                  <div>
-                    <p className="text-[8px] uppercase opacity-60">
-                      {t('brandingPage.sections.preview.expires')}
-                    </p>
-                    <p className="text-[11px] font-semibold">03/2026</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[8px] uppercase opacity-60">
-                      {t('brandingPage.sections.preview.device')}
-                    </p>
-                    <p className="text-[11px] font-medium">iPhone 15</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          {/* Subscription card(s) — swipeable strip; each configured
+              per-position card shows its own gradient + effect. */}
+          <SubscriptionCardsPreview
+            cards={previewCards}
+            primary={primary}
+            brandName={brandName}
+            cardPattern={cardPattern}
+            cardLogo={cardLogo}
+            cardLogoUrl={cardLogoUrl}
+            radius={radius}
+          />
 
           {/* Action buttons */}
           <div className="mt-3 grid grid-cols-3 gap-2">
@@ -489,6 +615,21 @@ function TariffPreviewCard({
           opacity: 0.5,
         })
       : null
+  // Per-plan animated effect (opt-in) — mirrors the cabinet tariff card.
+  const effect = style?.cardEffect && style.cardEffect !== 'NONE' ? style.cardEffect : 'NONE'
+  const EffectComp =
+    effect !== 'NONE' && effect in CARD_EFFECT_COMPONENTS
+      ? CARD_EFFECT_COMPONENTS[effect as CardEffectId]
+      : null
+  const effectProps = useMemo<Record<string, unknown>>(() => {
+    if (!EffectComp) return {}
+    const base = { ...getCardEffectDefaults(effect), ...(style?.cardEffectProps ?? {}) }
+    if (effect === 'aurora' && base['colorStops'] === undefined) {
+      return { colorStops: brandAuroraStops(primary), amplitude: 1.1, blend: 0.55, speed: 0.8, ...base }
+    }
+    return base
+  }, [EffectComp, effect, style?.cardEffectProps, primary])
+  const effectOpacity = typeof style?.cardEffectOpacity === 'number' ? style.cardEffectOpacity : 1
   // Icon resolves exactly like the cabinet tariff card: lucide preset →
   // glyph, `custom:<id>` → uploaded icon, `:slug:`/unicode → emoji, else
   // a Sparkles fallback. Centralised in PlanIconView (no local regex).
@@ -498,6 +639,13 @@ function TariffPreviewCard({
       className="relative overflow-hidden p-3 ring-1 ring-white/10"
       style={{ borderRadius: radius, backgroundImage: gradient }}
     >
+      {EffectComp && !textureUrl && (
+        <Suspense fallback={null}>
+          <div className="absolute inset-0" style={{ opacity: effectOpacity }}>
+            <EffectComp {...effectProps} />
+          </div>
+        </Suspense>
+      )}
       {textureUrl ? (
         <div
           className="absolute inset-0 opacity-25"

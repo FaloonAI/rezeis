@@ -9,7 +9,7 @@
  * a deterministic auto gradient (mirrors the reiwa cabinet), so the operator
  * sees distinct cards out of the box.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Upload, Wand2, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -23,6 +23,8 @@ import { cn } from '@/lib/utils'
 
 import { usePlans } from '@/features/plans/plans-api'
 import { GradientBuilder } from './gradient-builder'
+import { CardEffectPicker } from './card-effect-section'
+import { getCardEffectDefaults } from './card-effect-registry'
 import { CARD_GRADIENT_PRESETS, gradientFromPrimary } from './theme-presets'
 import { APP_BG_TEXTURE_PATTERNS, buildTextureCss } from './app-texture'
 import type { PlanCardStyleDraft } from './branding-form-schema'
@@ -51,8 +53,17 @@ export function PlanCardStylesSection({ value, onChange, primary }: PlanCardStyl
   const { t } = useTranslation()
   const { data: plans, isLoading } = usePlans()
 
+  // Track the latest value in a ref so multiple patches dispatched in the same
+  // tick compound instead of clobbering each other (the effect picker fires
+  // onEffectChange AND onPropsChange synchronously — without this the second
+  // would recompute from the stale `value` prop and drop the first).
+  const valueRef = useRef(value)
+  useEffect(() => {
+    valueRef.current = value
+  }, [value])
+
   const setStyle = (planId: string, patch: Partial<PlanCardStyleDraft> | null) => {
-    const next: PlanCardStyleMap = { ...value }
+    const next: PlanCardStyleMap = { ...valueRef.current }
     if (patch === null) {
       delete next[planId]
     } else {
@@ -62,10 +73,12 @@ export function PlanCardStylesSection({ value, onChange, primary }: PlanCardStyl
         (merged.gradient && merged.gradient.length > 0) ||
         (merged.accent && merged.accent.length > 0) ||
         (merged.texturePreset && merged.texturePreset.length > 0) ||
-        (merged.textureUrl && merged.textureUrl.length > 0)
+        (merged.textureUrl && merged.textureUrl.length > 0) ||
+        (merged.cardEffect && merged.cardEffect !== 'NONE')
       if (hasAny) next[planId] = merged
       else delete next[planId]
     }
+    valueRef.current = next
     onChange(next)
   }
 
@@ -210,7 +223,7 @@ function PlanStyleRow({
                 {t('brandingPage.sections.planCards.fromPrimary')}
               </Button>
             </div>
-            <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-8">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(34px,1fr))] gap-1.5">
               {CARD_GRADIENT_PRESETS.map((preset) => {
                 const active = (style?.gradient ?? '').toLowerCase() === preset.value.toLowerCase()
                 return (
@@ -221,7 +234,7 @@ function PlanStyleRow({
                     title={t(`brandingPage.cardGradients.${preset.id}`)}
                     onClick={() => onPatch({ gradient: preset.value })}
                     className={cn(
-                      'aspect-square rounded-md ring-1 transition-all hover:scale-[1.06]',
+                      'aspect-square rounded-md ring-1 transition-all hover:scale-[1.08]',
                       active ? 'ring-2 ring-primary' : 'ring-white/10 hover:ring-primary/40',
                     )}
                     style={{ backgroundImage: preset.value }}
@@ -258,7 +271,7 @@ function PlanStyleRow({
           {/* Texture: preset grid + upload */}
           <div className="space-y-1.5">
             <Label className="text-xs">{t('brandingPage.sections.planCards.texture')}</Label>
-            <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-8">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(34px,1fr))] gap-1.5">
               <button
                 type="button"
                 onClick={() => onPatch({ texturePreset: null, textureUrl: null })}
@@ -319,6 +332,29 @@ function PlanStyleRow({
                 </Button>
               ) : null}
             </div>
+          </div>
+
+          {/* Per-plan animated background effect (opt-in). */}
+          <div className="space-y-1.5">
+            <Label className="text-xs">{t('brandingPage.sections.planCards.effect')}</Label>
+            <CardEffectPicker
+              effect={style?.cardEffect ?? 'NONE'}
+              props={style?.cardEffectProps ?? {}}
+              opacity={style?.cardEffectOpacity ?? 1}
+              onEffectChange={(e) =>
+                onPatch(
+                  e === 'NONE'
+                    ? { cardEffect: null, cardEffectProps: undefined, cardEffectOpacity: undefined }
+                    : {
+                        cardEffect: e,
+                        cardEffectProps: getCardEffectDefaults(e),
+                        cardEffectOpacity: style?.cardEffectOpacity ?? 1,
+                      },
+                )
+              }
+              onPropsChange={(p) => onPatch({ cardEffectProps: p })}
+              onOpacityChange={(o) => onPatch({ cardEffectOpacity: o })}
+            />
           </div>
 
           <div className="flex items-center justify-between">

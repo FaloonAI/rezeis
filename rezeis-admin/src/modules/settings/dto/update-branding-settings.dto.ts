@@ -52,6 +52,12 @@ export class CardEffectSlotDto {
   @Min(0.05)
   @Max(1)
   public cardEffectOpacity?: number;
+
+  @IsOptional()
+  @ValidateIf((_, value: unknown) => value !== null)
+  @IsString()
+  @MaxLength(512)
+  public cardGradient?: string | null;
 }
 
 /**

@@ -201,10 +201,16 @@ function readCardEffectSlots(
     if (typeof effect !== 'string' || !(CARD_EFFECTS as readonly string[]).includes(effect)) {
       continue;
     }
+    const gradientRaw = slot['cardGradient'];
+    const cardGradient =
+      typeof gradientRaw === 'string' && gradientRaw.trim().length > 0
+        ? gradientRaw.trim().slice(0, 512)
+        : null;
     out.push({
       cardEffect: effect as CardEffect,
       cardEffectProps: readJsonRecord(slot, 'cardEffectProps'),
       cardEffectOpacity: readClampedNumber(slot, 'cardEffectOpacity', 0.05, 1, 1),
+      cardGradient,
     });
   }
   return out;
@@ -378,6 +384,16 @@ function readPlanCardStyles(
       IMAGE_URL_PATTERN.test(textureUrl.trim())
     ) {
       style.textureUrl = textureUrl.trim();
+    }
+    const cardEffect = slot['cardEffect'];
+    if (
+      typeof cardEffect === 'string' &&
+      (CARD_EFFECTS as readonly string[]).includes(cardEffect) &&
+      cardEffect !== 'NONE'
+    ) {
+      style.cardEffect = cardEffect as CardEffect;
+      style.cardEffectProps = readJsonRecord(slot, 'cardEffectProps');
+      style.cardEffectOpacity = readClampedNumber(slot, 'cardEffectOpacity', 0.05, 1, 1);
     }
 
     // Skip entries that carry no usable styling at all.

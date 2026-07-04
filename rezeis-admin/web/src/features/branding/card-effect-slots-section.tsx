@@ -11,18 +11,23 @@
 
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2 } from 'lucide-react'
+import { Check, Plus, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 
 import { CardEffectPicker } from './card-effect-section'
 import { getCardEffectDefaults } from './card-effect-registry'
+import { CARD_GRADIENT_PRESETS } from './theme-presets'
+import { useCustomGradients } from './use-custom-gradients'
 
 export interface CardEffectSlot {
   cardEffect: string
   cardEffectProps: Record<string, unknown>
   cardEffectOpacity: number
+  /** Optional per-slot static gradient. Null/absent = use the global gradient. */
+  cardGradient?: string | null
 }
 
 interface CardEffectSlotsSectionProps {
@@ -34,6 +39,7 @@ const MAX_SLOTS = 20
 
 export function CardEffectSlotsSection({ slots, onChange }: CardEffectSlotsSectionProps) {
   const { t } = useTranslation()
+  const customGradients = useCustomGradients()
 
   // Track the latest slots in a ref so multiple patches dispatched in the same
   // tick compound instead of clobbering each other. The picker's effect change
@@ -108,6 +114,63 @@ export function CardEffectSlotsSection({ slots, onChange }: CardEffectSlotsSecti
               onPropsChange={(p) => updateSlot(index, { cardEffectProps: p })}
               onOpacityChange={(o) => updateSlot(index, { cardEffectOpacity: o })}
             />
+
+            {/* Per-slot static gradient — overrides the global card gradient
+                for this card position. Absent = use the global gradient. */}
+            <div className="space-y-1.5 rounded-lg border border-border/60 bg-background/40 p-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium">
+                  {t('brandingPage.sections.cardEffectSlots.gradientLabel')}
+                </span>
+                {(slot.cardGradient ?? '').trim().length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-[11px]"
+                    onClick={() => updateSlot(index, { cardGradient: null })}
+                  >
+                    {t('brandingPage.sections.cardEffectSlots.gradientUseGlobal')}
+                  </Button>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground">
+                    {t('brandingPage.sections.cardEffectSlots.gradientUsingGlobal')}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(32px,1fr))] gap-1.5">
+                {[...CARD_GRADIENT_PRESETS.map((p) => p.value), ...customGradients.custom].map((css) => {
+                  const isActive = (slot.cardGradient ?? '').trim().toLowerCase() === css.toLowerCase()
+                  return (
+                    <button
+                      key={css}
+                      type="button"
+                      title={css}
+                      aria-label={t('brandingPage.sections.cardEffectSlots.gradientSwatch')}
+                      onClick={() => updateSlot(index, { cardGradient: css })}
+                      className={`relative aspect-square rounded-md ring-1 transition-all hover:scale-[1.08] ${
+                        isActive ? 'ring-2 ring-primary' : 'ring-white/10 hover:ring-primary/40'
+                      }`}
+                      style={{ backgroundImage: css }}
+                    >
+                      {isActive && (
+                        <span className="absolute inset-0 flex items-center justify-center">
+                          <span className="flex h-3 w-3 items-center justify-center rounded-full bg-black/50 text-white">
+                            <Check className="h-2 w-2" />
+                          </span>
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+              <Input
+                value={slot.cardGradient ?? ''}
+                onChange={(e) => updateSlot(index, { cardGradient: e.target.value.trim() || null })}
+                className="font-mono text-xs"
+                placeholder={t('brandingPage.sections.cardEffectSlots.gradientPlaceholder')}
+              />
+            </div>
           </div>
         ))}
 

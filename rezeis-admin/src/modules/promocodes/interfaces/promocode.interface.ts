@@ -52,6 +52,14 @@ export interface PromocodeActivationInterface {
   readonly rewardValue: number;
   readonly targetSubscriptionId: string | null;
   readonly activatedAt: string;
+  /**
+   * Absolute expiry of the parent promocode (operator-picked date in the
+   * configurator). `null` when the coupon has no deadline. Surfaced so the
+   * reiwa cabinet history can mark coupons whose window has closed.
+   */
+  readonly expiresAt: string | null;
+  /** Whether the parent promocode is still enabled. */
+  readonly promocodeIsActive: boolean;
 }
 
 /**

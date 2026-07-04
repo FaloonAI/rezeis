@@ -224,6 +224,7 @@ export class PromocodeLifecycleService {
         orderBy: [{ activatedAt: 'desc' }, { id: 'desc' }],
         skip: input.offset,
         take: input.limit,
+        include: { promocode: { select: { expiresAt: true, isActive: true } } },
       }),
     ]);
     return { entries: records.map(mapPromocodeActivation), total };

@@ -43,7 +43,9 @@ export function mapPromocode(record: PromocodeWithCount): PromocodeInterface {
 }
 
 export function mapPromocodeActivation(
-  record: PromocodeActivation,
+  record: PromocodeActivation & {
+    readonly promocode?: { readonly expiresAt: Date | null; readonly isActive: boolean } | null;
+  },
 ): PromocodeActivationInterface {
   return {
     id: record.id,
@@ -54,6 +56,8 @@ export function mapPromocodeActivation(
     rewardValue: record.rewardValue,
     targetSubscriptionId: record.targetSubscriptionId,
     activatedAt: record.activatedAt.toISOString(),
+    expiresAt: record.promocode?.expiresAt ? record.promocode.expiresAt.toISOString() : null,
+    promocodeIsActive: record.promocode?.isActive ?? true,
   };
 }
 

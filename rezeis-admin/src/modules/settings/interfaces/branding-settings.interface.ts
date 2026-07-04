@@ -120,6 +120,13 @@ export interface CardEffectSlot {
   readonly cardEffect: CardEffect;
   readonly cardEffectProps: Record<string, unknown>;
   readonly cardEffectOpacity: number;
+  /**
+   * Optional per-slot static card gradient (CSS background). When set it
+   * overrides the global `cardGradient` for the Nth subscription card; when
+   * absent the card falls back to the global gradient. Lets additional cards
+   * get their own static look, not just their own animated effect.
+   */
+  readonly cardGradient?: string | null;
 }
 
 /**
@@ -205,6 +212,16 @@ export interface PlanCardStyle {
   readonly texturePreset?: AppBackgroundTexture | null;
   /** Operator-uploaded texture image URL (`/uploads/branding/...`). Priority over `texturePreset`. */
   readonly textureUrl?: string | null;
+  /**
+   * Optional per-plan animated background effect. `NONE`/absent = static
+   * gradient only — tariff cards do NOT inherit the subscription card's global
+   * `cardEffect`. Any other value is a card-effect id the cabinet renders live.
+   */
+  readonly cardEffect?: CardEffect | null;
+  /** Tunable params for the per-plan effect (merged over its defaults). */
+  readonly cardEffectProps?: Record<string, unknown>;
+  /** Per-plan effect layer opacity (0.05–1). */
+  readonly cardEffectOpacity?: number | null;
 }
 
 /**
