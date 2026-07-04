@@ -3039,7 +3039,9 @@
         welcome: 'С возвращением',
         statusLabel: 'Активна',
         cardDot: 'Карточка {{index}}',
-        expires: 'Истекает',
+        remaining: 'Осталось',
+        daysMock: '90 дн.',
+        until: 'до {{date}}',
         device: 'Устройство',
         actions: {
           buy: 'Купить',

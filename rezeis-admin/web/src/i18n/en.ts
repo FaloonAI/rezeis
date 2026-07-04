@@ -3008,7 +3008,9 @@ export const en = {
         welcome: 'Welcome back',
         statusLabel: 'Active',
         cardDot: 'Card {{index}}',
-        expires: 'Expires',
+        remaining: 'Remaining',
+        daysMock: '90 days',
+        until: 'until {{date}}',
         device: 'Device',
         actions: {
           buy: 'Buy',

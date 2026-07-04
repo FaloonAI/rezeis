@@ -210,9 +210,14 @@ function PreviewSubscriptionCard({
           <div className="flex items-end justify-between">
             <div>
               <p className="text-[8px] uppercase opacity-60">
-                {t('brandingPage.sections.preview.expires')}
+                {t('brandingPage.sections.preview.remaining')}
               </p>
-              <p className="text-[11px] font-semibold">03/2026</p>
+              <p className="text-[13px] font-bold leading-none">
+                {t('brandingPage.sections.preview.daysMock')}
+              </p>
+              <p className="mt-0.5 text-[8px] opacity-55">
+                {t('brandingPage.sections.preview.until', { date: '03/2026' })}
+              </p>
             </div>
             <div className="text-right">
               <p className="text-[8px] uppercase opacity-60">

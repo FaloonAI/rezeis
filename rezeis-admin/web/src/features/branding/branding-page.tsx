@@ -596,7 +596,7 @@ export default function WebReiwaPage() {
                   name="cardLogo"
                   control={form.control}
                   render={({ field }) => (
-                    <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(64px,1fr))] gap-2">
                       {CARD_LOGO_PRESETS.map((preset) => {
                         const isActive = field.value === preset && !watchedValues.cardLogoUrl;
                         return (
@@ -609,7 +609,7 @@ export default function WebReiwaPage() {
                               field.onChange(preset);
                               form.setValue("cardLogoUrl", null, { shouldDirty: true });
                             }}
-                            className={`relative flex aspect-square items-center justify-center rounded-xl border bg-muted/30 transition-all hover:scale-[1.04] ${
+                            className={`relative flex aspect-square items-center justify-center rounded-lg border bg-muted/30 transition-all hover:scale-[1.06] ${
                               isActive ? "border-primary ring-2 ring-primary/40" : "border-border hover:border-primary/40"
                             }`}
                           >
@@ -620,7 +620,7 @@ export default function WebReiwaPage() {
                             ) : (
                               <CardLogoMark
                                 preset={preset as CardLogoPreset}
-                                className="h-6 w-6"
+                                className="h-8 w-8"
                                 style={{ color: watchedValues.primary }}
                               />
                             )}
