@@ -91,6 +91,10 @@ export class PlatformBrandingDto {
   public channelRecheck?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  public requireTelegramWebCredentials?: boolean;
+
+  @IsOptional()
   @ValidateNested()
   @Type(() => VerificationTemplatesDto)
   public verification?: VerificationTemplatesDto;

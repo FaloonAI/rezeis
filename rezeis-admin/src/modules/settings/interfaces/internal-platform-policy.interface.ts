@@ -14,6 +14,12 @@ export interface InternalPlatformPolicyInterface {
   readonly channelUsername: string | null;
   /** When true, re-check membership on each gated entry (default true). */
   readonly channelRecheck: boolean;
+  /**
+   * When true (default), Telegram users without web login/password must set
+   * them (claim / finish-setup) before entering the cabinet. When false,
+   * Telegram alone is accepted and such users go straight in.
+   */
+  readonly requireTelegramWebCredentials: boolean;
   readonly accessMode: AccessMode;
   readonly inviteModeStartedAt: string | null;
   readonly defaultCurrency: Currency;

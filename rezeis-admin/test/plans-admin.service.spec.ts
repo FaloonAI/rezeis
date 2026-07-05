@@ -48,6 +48,41 @@ describe('PlansAdminService', () => {
     );
   });
 
+  it('reorders plans by writing orderIndex to each plan position', async () => {
+    const updates: Array<{ id: string; orderIndex: number }> = [];
+    const prismaService = {
+      $transaction: async <T>(cb: (client: any) => Promise<T>): Promise<T> =>
+        cb({
+          plan: {
+            findMany: async () => [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+            update: async ({
+              where,
+              data,
+            }: {
+              where: { id: string };
+              data: { orderIndex: number };
+            }) => {
+              updates.push({ id: where.id, orderIndex: data.orderIndex });
+              return undefined;
+            },
+          },
+          adminAuditLog: { create: async () => undefined },
+        }),
+      plan: { findMany: async () => [] },
+    };
+    const service = createService(prismaService, {});
+    const result = await service.reorderPlans(['c', 'a', 'b'], {
+      currentAdmin: { id: 'admin-1' } as never,
+      requestMetadata: { requestId: null, remoteAddress: null, userAgent: null },
+    });
+    assert.deepStrictEqual(updates, [
+      { id: 'c', orderIndex: 0 },
+      { id: 'a', orderIndex: 1 },
+      { id: 'b', orderIndex: 2 },
+    ]);
+    assert.deepStrictEqual(result, []);
+  });
+
   it('blocks deletion when a subscription snapshot still references the plan', async () => {
     const prismaService = {
       $transaction: async <T>(callback: (client: any) => Promise<T>): Promise<T> =>

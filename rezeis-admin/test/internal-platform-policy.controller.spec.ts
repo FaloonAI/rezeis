@@ -21,6 +21,7 @@ const EXPECTED_POLICY_KEYS: readonly string[] = [
   'channelUsername',
   'defaultCurrency',
   'inviteModeStartedAt',
+  'requireTelegramWebCredentials',
   'rulesLink',
   'rulesRequired',
 ];
@@ -67,6 +68,7 @@ describe('InternalPlatformPolicyController', () => {
       channelId: '-1001234567890',
       channelUsername: '@example',
       channelRecheck: true,
+      requireTelegramWebCredentials: true,
       accessMode: AccessMode.INVITED,
       inviteModeStartedAt: '2026-04-01T00:00:00.000Z',
       defaultCurrency: Currency.USD,
@@ -121,6 +123,7 @@ function createSettingsService(accessMode: AccessMode): SettingsService {
       channelId: null,
       channelUsername: null,
       channelRecheck: true,
+      requireTelegramWebCredentials: true,
       accessMode,
       inviteModeStartedAt: null,
       defaultCurrency: Currency.USD,

@@ -45,6 +45,10 @@ export function readPlatformBranding(value: unknown): PlatformBrandingInterface 
       typeof record['channelRecheck'] === 'boolean'
         ? (record['channelRecheck'] as boolean)
         : DEFAULT_PLATFORM_BRANDING.channelRecheck,
+    requireTelegramWebCredentials:
+      typeof record['requireTelegramWebCredentials'] === 'boolean'
+        ? (record['requireTelegramWebCredentials'] as boolean)
+        : DEFAULT_PLATFORM_BRANDING.requireTelegramWebCredentials,
     verification: {
       telegramTemplate: readLocales(verification['telegramTemplate']),
       passwordResetTelegramTemplate: readLocales(
@@ -87,6 +91,10 @@ export function mergePlatformBranding(input: {
         : current.channelUsername,
     channelRecheck:
       patch.channelRecheck !== undefined ? patch.channelRecheck : current.channelRecheck,
+    requireTelegramWebCredentials:
+      patch.requireTelegramWebCredentials !== undefined
+        ? patch.requireTelegramWebCredentials
+        : current.requireTelegramWebCredentials,
     verification: {
       telegramTemplate: mergeLocales(
         current.verification.telegramTemplate,
@@ -105,6 +113,7 @@ export interface PlatformBrandingPatch {
   readonly webTitle?: string | null;
   readonly channelUsername?: string | null;
   readonly channelRecheck?: boolean;
+  readonly requireTelegramWebCredentials?: boolean;
   readonly verification?: {
     readonly telegramTemplate?: Partial<VerificationTemplateLocales>;
     readonly passwordResetTelegramTemplate?: Partial<VerificationTemplateLocales>;

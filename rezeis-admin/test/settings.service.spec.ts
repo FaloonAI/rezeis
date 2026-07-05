@@ -122,6 +122,7 @@ describe('SettingsService', () => {
       channelId: null,
       channelUsername: null,
       channelRecheck: true,
+      requireTelegramWebCredentials: true,
       accessMode: AccessMode.PUBLIC,
       inviteModeStartedAt: null,
       defaultCurrency: Currency.USD,

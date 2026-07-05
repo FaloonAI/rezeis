@@ -197,6 +197,38 @@ export class PlansAdminService {
     return mapAdminPlan(updatedPlan);
   }
 
+  /**
+   * Bulk reorder: writes each plan's `orderIndex` to its position in
+   * `orderedIds` (index 0 → shown first). Ids not present in the DB are
+   * skipped; plans omitted from `orderedIds` keep their previous index.
+   * Backs the free drag-and-drop reorder on the admin Plans page.
+   */
+  public async reorderPlans(
+    orderedIds: readonly string[],
+    context: AdminMutationContext,
+  ): Promise<readonly AdminPlanInterface[]> {
+    await this.prismaService.$transaction(async (transactionClient) => {
+      const existing = await transactionClient.plan.findMany({ select: { id: true } });
+      const existingIds = new Set(existing.map((plan) => plan.id));
+      let index = 0;
+      for (const id of orderedIds) {
+        if (!existingIds.has(id)) continue;
+        await transactionClient.plan.update({
+          where: { id },
+          data: { orderIndex: index },
+        });
+        index += 1;
+      }
+      await this.logAdminAction({
+        transactionClient,
+        action: 'plans.reordered',
+        context,
+        metadata: { count: index },
+      });
+    });
+    return this.listPlans();
+  }
+
   public async deletePlan(planId: string, context: AdminMutationContext): Promise<void> {
     await this.prismaService.$transaction(async (transactionClient) => {
       const existingPlan = await transactionClient.plan.findUnique({

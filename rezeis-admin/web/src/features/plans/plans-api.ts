@@ -108,6 +108,15 @@ async function fetchPlans(signal?: AbortSignal): Promise<readonly Plan[]> {
   return response.data
 }
 
+/**
+ * Persist a new plan display order (index 0 → shown first in the cabinet).
+ * `orderedIds` is the full list of plan ids in the desired order.
+ */
+export async function reorderPlans(orderedIds: readonly string[]): Promise<readonly Plan[]> {
+  const response = await api.patch<Plan[]>('/admin/plans/reorder', { orderedIds })
+  return response.data
+}
+
 // ── queryOptions builder ────────────────────────────────────────────────────
 
 export function plansListOptions(filters?: PlansListFilters) {

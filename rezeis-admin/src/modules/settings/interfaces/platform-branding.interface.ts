@@ -26,6 +26,14 @@ export interface PlatformBrandingInterface {
    * enforced only until the user first passes it.
    */
   readonly channelRecheck: boolean;
+  /**
+   * When `true` (default), a Telegram-authenticated user who has no web
+   * login/password yet must set them (claim / finish-setup) before entering
+   * the cabinet — on both the web Telegram-widget sign-in and the Mini App.
+   * When `false`, Telegram is accepted as a sufficient credential and such
+   * users go straight to the cabinet.
+   */
+  readonly requireTelegramWebCredentials: boolean;
   readonly verification: {
     readonly telegramTemplate: VerificationTemplateLocales;
     readonly passwordResetTelegramTemplate: VerificationTemplateLocales;
@@ -37,6 +45,7 @@ export const DEFAULT_PLATFORM_BRANDING: PlatformBrandingInterface = {
   webTitle: null,
   channelUsername: null,
   channelRecheck: true,
+  requireTelegramWebCredentials: true,
   verification: {
     telegramTemplate: { ru: null, en: null },
     passwordResetTelegramTemplate: { ru: null, en: null },

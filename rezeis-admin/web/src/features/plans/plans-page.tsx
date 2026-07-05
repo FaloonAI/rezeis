@@ -1,11 +1,29 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Pencil, Archive, ArchiveRestore, Package, BarChart3, List, ArrowUp, ArrowDown } from 'lucide-react'
+import { Plus, Pencil, Archive, ArchiveRestore, Package, BarChart3, List, GripVertical } from 'lucide-react'
 import { toast } from 'sonner'
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  rectSortingStrategy,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 import { api } from '@/lib/api'
 import { getErrorMessage } from '@/lib/http-errors'
+import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -15,7 +33,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { FadeIn } from '@/lib/motion'
 import { PlanForm, type PlanFormData } from './plan-form'
-import { plansQueryKeys, usePlans, type Plan } from './plans-api'
+import { plansQueryKeys, reorderPlans, usePlans, type Plan } from './plans-api'
 import { PlansStatsTab } from './plans-stats-tab'
 
 export default function PlansPage() {
@@ -73,11 +91,38 @@ export default function PlansPage() {
   })
 
   const moveMutation = useMutation({
-    mutationFn: ({ id, direction }: { id: string; direction: 'up' | 'down' }) =>
-      api.patch(`/admin/plans/${id}/move`, { direction }),
+    mutationFn: (orderedIds: string[]) => reorderPlans(orderedIds),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: plansQueryKeys.all }),
-    onError: (err) => toast.error(getErrorMessage(err, t('plansPage.moveFailed'))),
+    onError: (err) => toast.error(getErrorMessage(err, t('plansPage.reorderFailed'))),
+    onSettled: () => setLocalOrder(null),
   })
+
+  // Optimistic drag order — holds the reordered list while the reorder request
+  // is in flight, so cards don't snap back before the refetch lands. Cleared
+  // in `onSettled` so the server order becomes authoritative again.
+  const [localOrder, setLocalOrder] = useState<Plan[] | null>(null)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  const displayedPlans = useMemo<readonly Plan[]>(
+    () => localOrder ?? plans ?? [],
+    [localOrder, plans],
+  )
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const current = [...displayedPlans]
+    const from = current.findIndex((p) => p.id === active.id)
+    const to = current.findIndex((p) => p.id === over.id)
+    if (from === -1 || to === -1) return
+    const next = arrayMove(current, from, to)
+    setLocalOrder(next)
+    moveMutation.mutate(next.map((p) => p.id))
+  }
 
   const formatTraffic = (gb: number) =>
     gb === 0 ? t('plansPage.unlimited') : `${gb} GB`
@@ -152,140 +197,27 @@ export default function PlansPage() {
             </div>
           </div>
 
-          {/* Plan grid — compact, no expand */}
+          {/* Plan grid — free drag-and-drop reorder (sets the cabinet order) */}
           <p className="text-xs text-muted-foreground">{t('plansPage.orderHint')}</p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 items-start">
-            {plans.map((plan, index) => (
-              <div
-                key={plan.id}
-                className={`rounded-lg border bg-card transition-all hover:shadow-md ${
-                  plan.isArchived ? 'opacity-60' : ''
-                }`}
-              >
-                <div className="px-3 py-2.5 space-y-2">
-                  {/* Title row */}
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-sm truncate" title={plan.name}>
-                      {plan.name}
-                    </span>
-                    <div className="flex items-center gap-0.5 shrink-0">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7"
-                        onClick={() => moveMutation.mutate({ id: plan.id, direction: 'up' })}
-                        disabled={index === 0 || moveMutation.isPending}
-                        aria-label={t('plansPage.aria.moveUp')}
-                      >
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7"
-                        onClick={() => moveMutation.mutate({ id: plan.id, direction: 'down' })}
-                        disabled={index === plans.length - 1 || moveMutation.isPending}
-                        aria-label={t('plansPage.aria.moveDown')}
-                      >
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      </Button>
-                      <Switch
-                        checked={plan.isActive}
-                        onCheckedChange={(v) =>
-                          toggleActiveMutation.mutate({ id: plan.id, isActive: v })
-                        }
-                        disabled={plan.isArchived}
-                        className="scale-75"
-                        aria-label={t('plansPage.aria.toggleActive')}
-                      />
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7"
-                        onClick={() => setEditingPlan(plan)}
-                        aria-label={t('plansPage.aria.edit')}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      {plan.isArchived ? (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-emerald-500 hover:text-emerald-600"
-                          onClick={() => unarchiveMutation.mutate(plan.id)}
-                          disabled={unarchiveMutation.isPending}
-                          aria-label={t('plansPage.aria.unarchive')}
-                        >
-                          <ArchiveRestore className="h-3.5 w-3.5" />
-                        </Button>
-                      ) : (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-muted-foreground"
-                          onClick={() => archiveMutation.mutate(plan.id)}
-                          disabled={archiveMutation.isPending}
-                          aria-label={t('plansPage.aria.archive')}
-                        >
-                          <Archive className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Badges row */}
-                  <div className="flex items-center gap-1 flex-wrap">
-                    {plan.tag && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                        {plan.tag}
-                      </Badge>
-                    )}
-                    <Badge
-                      variant={plan.isActive ? 'default' : 'secondary'}
-                      className="text-[10px] px-1.5 py-0"
-                    >
-                      {plan.isActive
-                        ? t('plansPage.status.active')
-                        : t('plansPage.status.inactive')}
-                    </Badge>
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                      {plan.type}
-                    </Badge>
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                      {plan.availability}
-                    </Badge>
-                    {plan.isArchived && (
-                      <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
-                        {t('plansPage.status.archived')}
-                      </Badge>
-                    )}
-                  </div>
-
-                  {/* Stats row */}
-                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground pt-1 border-t">
-                    <span>
-                      {t('plansPage.labels.traffic')}:{' '}
-                      <span className="text-foreground font-medium">
-                        {formatTraffic(plan.trafficLimit)}
-                      </span>
-                    </span>
-                    <span>
-                      {t('plansPage.labels.devices')}:{' '}
-                      <span className="text-foreground font-medium">
-                        {plan.deviceLimit <= 0 ? '∞' : plan.deviceLimit}
-                      </span>
-                    </span>
-                    <span>
-                      {t('plansPage.labels.durations')}:{' '}
-                      <span className="text-foreground font-medium">
-                        {plan.durations.length}
-                      </span>
-                    </span>
-                  </div>
-                </div>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={displayedPlans.map((p) => p.id)} strategy={rectSortingStrategy}>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 items-start">
+                {displayedPlans.map((plan) => (
+                  <SortablePlanCard
+                    key={plan.id}
+                    plan={plan}
+                    formatTraffic={formatTraffic}
+                    onEdit={() => setEditingPlan(plan)}
+                    onToggleActive={(v) => toggleActiveMutation.mutate({ id: plan.id, isActive: v })}
+                    onArchive={() => archiveMutation.mutate(plan.id)}
+                    onUnarchive={() => unarchiveMutation.mutate(plan.id)}
+                    archivePending={archiveMutation.isPending}
+                    unarchivePending={unarchiveMutation.isPending}
+                  />
+                ))}
               </div>
-            ))}
-          </div>
+            </SortableContext>
+          </DndContext>
         </>
       )}
         </TabsContent>
@@ -325,6 +257,159 @@ export default function PlansPage() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+interface SortablePlanCardProps {
+  readonly plan: Plan
+  readonly formatTraffic: (gb: number) => string
+  readonly onEdit: () => void
+  readonly onToggleActive: (isActive: boolean) => void
+  readonly onArchive: () => void
+  readonly onUnarchive: () => void
+  readonly archivePending: boolean
+  readonly unarchivePending: boolean
+}
+
+/**
+ * One draggable plan card. The grip handle carries the dnd-kit drag listeners
+ * so the action controls (switch/edit/archive) stay independently clickable.
+ */
+function SortablePlanCard({
+  plan,
+  formatTraffic,
+  onEdit,
+  onToggleActive,
+  onArchive,
+  onUnarchive,
+  archivePending,
+  unarchivePending,
+}: SortablePlanCardProps) {
+  const { t } = useTranslation()
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: plan.id,
+  })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : undefined,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        'rounded-lg border bg-card transition-all hover:shadow-md',
+        plan.isArchived && 'opacity-60',
+        isDragging && 'opacity-80 shadow-lg',
+      )}
+    >
+      <div className="px-3 py-2.5 space-y-2">
+        {/* Title row */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <button
+              type="button"
+              className="shrink-0 cursor-grab touch-none text-muted-foreground hover:text-foreground active:cursor-grabbing focus:outline-none"
+              aria-label={t('plansPage.aria.dragHandle')}
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical className="h-4 w-4" aria-hidden="true" />
+            </button>
+            <span className="truncate text-sm font-semibold" title={plan.name}>
+              {plan.name}
+            </span>
+          </div>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <Switch
+              checked={plan.isActive}
+              onCheckedChange={onToggleActive}
+              disabled={plan.isArchived}
+              className="scale-75"
+              aria-label={t('plansPage.aria.toggleActive')}
+            />
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={onEdit}
+              aria-label={t('plansPage.aria.edit')}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+            {plan.isArchived ? (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 text-emerald-500 hover:text-emerald-600"
+                onClick={onUnarchive}
+                disabled={unarchivePending}
+                aria-label={t('plansPage.aria.unarchive')}
+              >
+                <ArchiveRestore className="h-3.5 w-3.5" />
+              </Button>
+            ) : (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 text-muted-foreground"
+                onClick={onArchive}
+                disabled={archivePending}
+                aria-label={t('plansPage.aria.archive')}
+              >
+                <Archive className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Badges row */}
+        <div className="flex items-center gap-1 flex-wrap">
+          {plan.tag && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+              {plan.tag}
+            </Badge>
+          )}
+          <Badge
+            variant={plan.isActive ? 'default' : 'secondary'}
+            className="text-[10px] px-1.5 py-0"
+          >
+            {plan.isActive ? t('plansPage.status.active') : t('plansPage.status.inactive')}
+          </Badge>
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+            {plan.type}
+          </Badge>
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+            {plan.availability}
+          </Badge>
+          {plan.isArchived && (
+            <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+              {t('plansPage.status.archived')}
+            </Badge>
+          )}
+        </div>
+
+        {/* Stats row */}
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground pt-1 border-t">
+          <span>
+            {t('plansPage.labels.traffic')}:{' '}
+            <span className="text-foreground font-medium">{formatTraffic(plan.trafficLimit)}</span>
+          </span>
+          <span>
+            {t('plansPage.labels.devices')}:{' '}
+            <span className="text-foreground font-medium">
+              {plan.deviceLimit <= 0 ? '∞' : plan.deviceLimit}
+            </span>
+          </span>
+          <span>
+            {t('plansPage.labels.durations')}:{' '}
+            <span className="text-foreground font-medium">{plan.durations.length}</span>
+          </span>
+        </div>
+      </div>
     </div>
   )
 }

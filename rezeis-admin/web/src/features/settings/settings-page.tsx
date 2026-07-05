@@ -28,6 +28,7 @@ interface BrandingSettings {
   readonly webTitle?: string
   readonly channelUsername?: string
   readonly channelRecheck?: boolean
+  readonly requireTelegramWebCredentials?: boolean
   readonly verification?: BrandingVerificationSettings
 }
 
@@ -419,6 +420,9 @@ export function BrandingTab({ settings }: { settings: AdminSettings | undefined 
   const [webTitle, setWebTitle] = useState(branding.webTitle ?? '')
   const [channelUsername, setChannelUsername] = useState(branding.channelUsername ?? '')
   const [channelRecheck, setChannelRecheck] = useState(branding.channelRecheck ?? true)
+  const [requireTelegramWebCredentials, setRequireTelegramWebCredentials] = useState(
+    branding.requireTelegramWebCredentials ?? true,
+  )
 
   // Verification templates
   const verification = branding.verification ?? {}
@@ -439,6 +443,7 @@ export function BrandingTab({ settings }: { settings: AdminSettings | undefined 
       webTitle,
       channelUsername,
       channelRecheck,
+      requireTelegramWebCredentials,
       verification: {
         telegramTemplate: { ru: verifyTelegramRu, en: verifyTelegramEn },
         passwordResetTelegramTemplate: { ru: passwordResetRu, en: passwordResetEn },
@@ -494,6 +499,18 @@ export function BrandingTab({ settings }: { settings: AdminSettings | undefined 
             checked={channelRecheck}
             onCheckedChange={setChannelRecheck}
             aria-label={t('settingsPage.branding.channelRecheck')}
+          />
+        </div>
+
+        <div className="flex items-center justify-between rounded-lg border p-3">
+          <div className="pr-3">
+            <Label>{t('settingsPage.branding.requireTgWebCreds')}</Label>
+            <p className="text-xs text-muted-foreground">{t('settingsPage.branding.requireTgWebCredsHint')}</p>
+          </div>
+          <Switch
+            checked={requireTelegramWebCredentials}
+            onCheckedChange={setRequireTelegramWebCredentials}
+            aria-label={t('settingsPage.branding.requireTgWebCreds')}
           />
         </div>
 

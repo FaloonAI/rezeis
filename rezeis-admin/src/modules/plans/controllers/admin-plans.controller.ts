@@ -9,6 +9,7 @@ import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.inter
 import { extractRequestMetadata } from '../../auth/utils/request-metadata.util';
 import { CreatePlanDto } from '../dto/create-plan.dto';
 import { MovePlanDto } from '../dto/move-plan.dto';
+import { ReorderPlansDto } from '../dto/reorder-plans.dto';
 import { UpdatePlanDto } from '../dto/update-plan.dto';
 import { AdminPlanInterface } from '../interfaces/admin-plan.interface';
 import { PlansAdminService } from '../services/plans-admin.service';
@@ -33,6 +34,22 @@ export class AdminPlansController {
   @Get('options/external-squads')
   public async getExternalSquadOptions(): Promise<readonly RemnawaveSquadOptionInterface[]> {
     return this.plansAdminService.getExternalSquadOptions();
+  }
+
+  // Declared BEFORE the `:planId` routes so the literal `reorder` path is
+  // matched ahead of the `:planId` param (otherwise Nest would treat
+  // "reorder" as a planId).
+  @Patch('reorder')
+  @RequirePermission('plans', 'edit')
+  public async reorderPlans(
+    @Body() input: ReorderPlansDto,
+    @CurrentAdmin() currentAdmin: CurrentAdminInterface,
+    @Req() request: Request,
+  ): Promise<readonly AdminPlanInterface[]> {
+    return this.plansAdminService.reorderPlans(input.orderedIds, {
+      currentAdmin,
+      requestMetadata: extractRequestMetadata(request),
+    });
   }
 
   @Get(':planId')
