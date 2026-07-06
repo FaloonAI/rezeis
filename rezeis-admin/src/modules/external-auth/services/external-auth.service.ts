@@ -121,6 +121,35 @@ export class ExternalAuthService {
    */
   public async resolve(profile: ExternalUserProfile): Promise<ExternalAuthResolution> {
     const isTelegram = profile.provider === ExternalAuthProvider.TELEGRAM;
+    // Diagnostic: the external-auth account-matching decision is the source of
+    // the "existing user sent to finish-setup" reports. Logging the provider +
+    // provider user id (a public identifier — Telegram id / OAuth sub, never a
+    // secret) + the chosen branch lets us confirm, per real login, whether an
+    // existing account matched or a new shell was created.
+    this.logger.log(`resolve: provider=${profile.provider} providerUserId=${profile.providerUserId}`);
+
+    // 0. Telegram canonical identity. `User.telegramId` is the source of truth
+    // for a Telegram user, so match it FIRST — before the generic OAuth-link
+    // lookup. Otherwise a stale/duplicate shell link (e.g. an empty account a
+    // previous OIDC attempt created) hijacks the login and traps the user on
+    // finish-setup instead of their real (bot / already-registered) account —
+    // the "existing user asked to register again" bug. We (re)point the OAuth
+    // link to the canonical owner so the mapping self-heals for next time.
+    if (isTelegram) {
+      const telegramId = parseBigintOrNull(profile.providerUserId);
+      if (telegramId !== null) {
+        const owner = await this.prismaService.user.findUnique({
+          where: { telegramId },
+          select: { id: true, isBlocked: true },
+        });
+        if (owner) {
+          if (owner.isBlocked) return { action: 'denied' };
+          await this.upsertOAuthLink(owner.id, profile);
+          this.logger.log(`resolve: branch=telegram-id-canonical action=login userId=${owner.id}`);
+          return { action: 'login', userId: owner.id };
+        }
+      }
+    }
 
     // 1. Existing identity link.
     const link = await this.prismaService.userOAuthLink.findUnique({
@@ -136,14 +165,13 @@ export class ExternalAuthService {
       // Telegram identity is itself a credential — the user can always
       // re-authenticate via Telegram, so never force finish-setup on them.
       if (isTelegram) {
-        // Backfill `User.telegramId` on the login path. Older OIDC/widget
-        // sign-ins created only a `userOAuthLink` and left `User.telegramId`
-        // null, so the cabinet session carried no telegramId → the reiwa gate
-        // treated them as non-Telegram and forced finish-setup regardless of
-        // the operator's "don't require web credentials for Telegram" toggle.
-        // Setting it makes the session carry telegramId (toggle works) and lets
-        // bot notifications reach the user.
+        // Reached only when NO User owns this telegram id yet (step 0 found
+        // none) — e.g. a pre-fix shell whose `User.telegramId` was never set.
+        // Backfill it onto the linked account so the session carries telegramId
+        // (the reiwa credential-gate toggle then works) and bot notifications
+        // reach the user, and future logins match canonically via step 0.
         await this.ensureTelegramIdLinked(link.userId, profile.providerUserId);
+        this.logger.log(`resolve: branch=telegram-oauth-link action=login userId=${link.userId}`);
         return { action: 'login', userId: link.userId };
       }
       // For OAuth (email) providers: a shell created by a prior sign-up that
@@ -153,26 +181,6 @@ export class ExternalAuthService {
       return (await this.hasCompletedCredentials(link.userId))
         ? { action: 'login', userId: link.userId }
         : { action: 'finish_setup', userId: link.userId };
-    }
-
-    // 1.5 Telegram: match an EXISTING user by telegram id even when there is
-    // no web OAuth link yet. Bot / Mini-App users are created with
-    // `User.telegramId` but never had a web link, so without this they'd be
-    // treated as brand-new and wrongly sent to finish-setup ("создаёт новый
-    // аккаунт"). Link them and log in — Telegram is their credential.
-    if (isTelegram) {
-      const telegramId = parseBigintOrNull(profile.providerUserId);
-      if (telegramId !== null) {
-        const user = await this.prismaService.user.findUnique({
-          where: { telegramId },
-          select: { id: true, isBlocked: true },
-        });
-        if (user) {
-          if (user.isBlocked) return { action: 'denied' };
-          await this.createLink(user.id, profile);
-          return { action: 'login', userId: user.id };
-        }
-      }
     }
 
     // 2. Verified-email match → auto-link.
@@ -195,6 +203,13 @@ export class ExternalAuthService {
 
     // 3. New account → shell + finish-setup.
     const userId = await this.createShellAccount(profile);
+    // Smoking gun for "existing user asked to register again": nothing matched
+    // (no OAuth link, no Telegram-id user, no verified-email account) so a new
+    // shell was created. For Telegram this means the id wasn't on any User row
+    // — e.g. a web-first account whose Telegram was never linked.
+    this.logger.log(
+      `resolve: branch=new-shell action=finish_setup userId=${userId} isTelegram=${isTelegram}`,
+    );
     return { action: 'finish_setup', userId };
   }
 
@@ -385,6 +400,39 @@ export class ExternalAuthService {
     } catch (err) {
       this.logger.warn(`ensureTelegramIdLinked failed for ${userId}: ${(err as Error).message}`);
     }
+  }
+
+  /**
+   * Creates the provider→user OAuth link, or REPOINTS an existing one to the
+   * canonical owner. The `(provider, providerUserId)` pair is unique, so when a
+   * stale link exists (created for a since-abandoned shell during an earlier
+   * sign-in attempt) we move it to the real owner instead of failing on the
+   * unique constraint. Idempotent when it already points at `userId`.
+   */
+  private async upsertOAuthLink(userId: string, profile: ExternalUserProfile): Promise<void> {
+    const existing = await this.prismaService.userOAuthLink.findUnique({
+      where: {
+        provider_providerUserId: {
+          provider: profile.provider,
+          providerUserId: profile.providerUserId,
+        },
+      },
+      select: { id: true, userId: true },
+    });
+    if (!existing) {
+      await this.createLink(userId, profile);
+      return;
+    }
+    await this.prismaService.userOAuthLink.update({
+      where: { id: existing.id },
+      data: {
+        userId,
+        providerEmail: profile.email,
+        providerName: profile.name,
+        emailVerified: profile.emailVerified,
+        lastUsedAt: new Date(),
+      },
+    });
   }
 
   private async createLink(userId: string, profile: ExternalUserProfile): Promise<void> {
