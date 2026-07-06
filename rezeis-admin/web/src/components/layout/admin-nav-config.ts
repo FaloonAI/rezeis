@@ -4,7 +4,7 @@
  * Pure module — no React, no hooks. Components in `admin-sidebar/`
  * import these constants and the `resolveNavOrder` helper.
  */
-import type { ElementType } from 'react'
+import type { ElementType } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -29,38 +29,39 @@ import {
   Smile,
   LogIn,
   Map as MapIcon,
-} from 'lucide-react'
+  Globe,
+} from 'lucide-react';
 
-import type { SidebarGroupOrder } from '@/stores/sidebar-store'
-import { RemnawaveIcon } from '@/features/remnawave/remnawave-icon'
-import type { RbacAction } from '@/features/rbac'
+import type { SidebarGroupOrder } from '@/stores/sidebar-store';
+import { RemnawaveIcon } from '@/features/remnawave/remnawave-icon';
+import type { RbacAction } from '@/features/rbac';
 
 export interface NavItem {
   /** i18n key under `adminNav.items.*` */
-  readonly key: string
-  readonly path: string
-  readonly icon: ElementType
+  readonly key: string;
+  readonly path: string;
+  readonly icon: ElementType;
   readonly requiredPermission?: {
-    readonly resource: string
-    readonly action: RbacAction
-  }
+    readonly resource: string;
+    readonly action: RbacAction;
+  };
 }
 
 export interface NavGroup {
   /** i18n key under `adminNav.groups.*` */
-  readonly key: string
-  readonly items: ReadonlyArray<NavItem>
+  readonly key: string;
+  readonly items: ReadonlyArray<NavItem>;
 }
 
-type PermissionChecker = (resource: string, action: RbacAction) => boolean
+type PermissionChecker = (resource: string, action: RbacAction) => boolean;
 
 export function canShowNavItem(
   item: NavItem,
   permissionsLoaded: boolean,
   hasPermission: PermissionChecker,
 ): boolean {
-  if (!permissionsLoaded || !item.requiredPermission) return true
-  return hasPermission(item.requiredPermission.resource, item.requiredPermission.action)
+  if (!permissionsLoaded || !item.requiredPermission) return true;
+  return hasPermission(item.requiredPermission.resource, item.requiredPermission.action);
 }
 
 export const navGroups: ReadonlyArray<NavGroup> = [
@@ -70,7 +71,12 @@ export const navGroups: ReadonlyArray<NavGroup> = [
       { key: 'dashboard', path: '/', icon: LayoutDashboard },
       { key: 'users', path: '/users', icon: Users },
       { key: 'subscriptions', path: '/subscriptions', icon: CreditCard },
-      { key: 'payments', path: '/payments', icon: DollarSign, requiredPermission: { resource: 'payments', action: 'view' } },
+      {
+        key: 'payments',
+        path: '/payments',
+        icon: DollarSign,
+        requiredPermission: { resource: 'payments', action: 'view' },
+      },
       { key: 'supportTickets', path: '/support-tickets', icon: Bell },
       { key: 'fraudSignals', path: '/fraud', icon: ShieldAlert },
       { key: 'automations', path: '/automations', icon: Zap },
@@ -92,7 +98,12 @@ export const navGroups: ReadonlyArray<NavGroup> = [
     items: [
       { key: 'referrals', path: '/referrals', icon: Share2 },
       { key: 'partners', path: '/partners', icon: Handshake },
-      { key: 'advertising', path: '/advertising', icon: Megaphone, requiredPermission: { resource: 'advertising', action: 'view' } },
+      {
+        key: 'advertising',
+        path: '/advertising',
+        icon: Megaphone,
+        requiredPermission: { resource: 'advertising', action: 'view' },
+      },
     ],
   },
   {
@@ -100,8 +111,24 @@ export const navGroups: ReadonlyArray<NavGroup> = [
     items: [
       { key: 'platform', path: '/settings', icon: Settings },
       { key: 'webReiwa', path: '/web-reiwa', icon: Smartphone },
-      { key: 'gateways', path: '/payments/gateways', icon: CreditCard, requiredPermission: { resource: 'payment_gateways', action: 'view' } },
-      { key: 'externalAuth', path: '/external-auth', icon: LogIn, requiredPermission: { resource: 'external_auth', action: 'view' } },
+      {
+        key: 'subpageConfig',
+        path: '/subpage-config',
+        icon: Globe,
+        requiredPermission: { resource: 'subpage_config', action: 'view' },
+      },
+      {
+        key: 'gateways',
+        path: '/payments/gateways',
+        icon: CreditCard,
+        requiredPermission: { resource: 'payment_gateways', action: 'view' },
+      },
+      {
+        key: 'externalAuth',
+        path: '/external-auth',
+        icon: LogIn,
+        requiredPermission: { resource: 'external_auth', action: 'view' },
+      },
       { key: 'botMap', path: '/bot-map', icon: MapIcon },
       { key: 'remnawave', path: '/remnawave', icon: RemnawaveIcon },
       { key: 'notifications', path: '/notifications', icon: Bell },
@@ -113,16 +140,21 @@ export const navGroups: ReadonlyArray<NavGroup> = [
     items: [
       { key: 'panelSettings', path: '/settings/panel', icon: Settings },
       { key: 'admins', path: '/admins', icon: Shield },
-      { key: 'imports', path: '/imports', icon: Upload, requiredPermission: { resource: 'imports', action: 'view' } },
+      {
+        key: 'imports',
+        path: '/imports',
+        icon: Upload,
+        requiredPermission: { resource: 'imports', action: 'view' },
+      },
       { key: 'audit', path: '/audit', icon: ClipboardList },
     ],
   },
-]
+];
 
 /** Lookup map: item key → NavItem (for resolving custom orders). */
 export const navItemMap: ReadonlyMap<string, NavItem> = new Map(
   navGroups.flatMap((g) => g.items.map((item) => [item.key, item])),
-)
+);
 
 /**
  * Build the resolved nav structure from the user's persisted custom
@@ -138,48 +170,47 @@ export function resolveNavOrder(
   customGroups: ReadonlyArray<SidebarGroupOrder> | null,
   customGroupOrder: ReadonlyArray<string> | null,
 ): ReadonlyArray<NavGroup> {
-  if (!customGroups && !customGroupOrder) return navGroups
+  if (!customGroups && !customGroupOrder) return navGroups;
 
-  const defaultGroupMap = new Map(navGroups.map((g) => [g.key, g]))
-  const groupKeys = customGroupOrder ?? navGroups.map((g) => g.key)
+  const defaultGroupMap = new Map(navGroups.map((g) => [g.key, g]));
+  const groupKeys = customGroupOrder ?? navGroups.map((g) => g.key);
 
   const resolved = groupKeys
     .map((gKey) => {
-      const customGroup = customGroups?.find((cg) => cg.groupKey === gKey)
-      const defaultGroup = defaultGroupMap.get(gKey)
-      if (!defaultGroup && !customGroup) return null
+      const customGroup = customGroups?.find((cg) => cg.groupKey === gKey);
+      const defaultGroup = defaultGroupMap.get(gKey);
+      if (!defaultGroup && !customGroup) return null;
 
-      if (!customGroup) return defaultGroup ?? null
+      if (!customGroup) return defaultGroup ?? null;
 
       const items = customGroup.itemKeys
         .map((key) => navItemMap.get(key))
-        .filter((item): item is NavItem => item != null)
+        .filter((item): item is NavItem => item != null);
 
-      return { key: gKey, items }
+      return { key: gKey, items };
     })
-    .filter((g): g is NavGroup => g != null)
+    .filter((g): g is NavGroup => g != null);
 
   // Append any default items missing from the persisted order so newly
   // shipped pages still show up for operators with a customised sidebar.
-  const seen = new Set(resolved.flatMap((g) => g.items.map((i) => i.key)))
-  const mutableGroups = resolved.map((g) => ({ key: g.key, items: [...g.items] }))
-  const groupByKey = new Map(mutableGroups.map((g) => [g.key, g]))
+  const seen = new Set(resolved.flatMap((g) => g.items.map((i) => i.key)));
+  const mutableGroups = resolved.map((g) => ({ key: g.key, items: [...g.items] }));
+  const groupByKey = new Map(mutableGroups.map((g) => [g.key, g]));
 
   for (const defaultGroup of navGroups) {
     for (const item of defaultGroup.items) {
-      if (seen.has(item.key)) continue
-      seen.add(item.key)
-      const target =
-        groupByKey.get(defaultGroup.key) ?? mutableGroups[0] ?? null
+      if (seen.has(item.key)) continue;
+      seen.add(item.key);
+      const target = groupByKey.get(defaultGroup.key) ?? mutableGroups[0] ?? null;
       if (target) {
-        target.items.push(item)
+        target.items.push(item);
       } else {
-        const created = { key: defaultGroup.key, items: [item] }
-        mutableGroups.push(created)
-        groupByKey.set(defaultGroup.key, created)
+        const created = { key: defaultGroup.key, items: [item] };
+        mutableGroups.push(created);
+        groupByKey.set(defaultGroup.key, created);
       }
     }
   }
 
-  return mutableGroups
+  return mutableGroups;
 }

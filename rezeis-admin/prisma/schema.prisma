@@ -1763,6 +1763,23 @@ model ApiToken {
   @@map("api_tokens")
 }
 
+/// Subscription-page config (branding / app catalog / baseSettings /
+/// translations) consumed by rezeis-subpage. Single global config stored as
+/// one JSON blob in a singleton row (`key = "default"`). rezeis-admin is the
+/// source of truth; the subpage fetches + re-validates it against the full
+/// (AGPL) schema on its side.
+model SubpageConfig {
+  id        String   @id @default(cuid()) @map("id")
+  /// Singleton guard — always "default"; unique so only one row can exist.
+  key       String   @unique @default("default") @map("key")
+  /// Full subscription-page config (v1 raw shape) as JSON.
+  config    Json     @map("config")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("subpage_configs")
+}
+
 // =============================================================================
 //  PROMOCODES
 // =============================================================================

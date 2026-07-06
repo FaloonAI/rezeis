@@ -56,7 +56,8 @@ import { OAuthModule } from './modules/oauth/oauth.module';
 import { ExternalAuthModule } from './modules/external-auth/external-auth.module';
 import { EmailDeliveryModule } from './modules/email/email.module';
 import { PartnersModule } from './modules/partners/partners.module';
-import { AdvertisingModule } from './modules/advertising/advertising.module';import { AccountMergeModule } from './modules/account-merge/account-merge.module';
+import { AdvertisingModule } from './modules/advertising/advertising.module';
+import { AccountMergeModule } from './modules/account-merge/account-merge.module';
 import { PaymentAnalyticsModule } from './modules/payment-analytics/payment-analytics.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { PlansModule } from './modules/plans/plans.module';
@@ -67,6 +68,7 @@ import { RbacModule } from './modules/rbac/rbac.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { ReferralsModule } from './modules/referrals/referrals.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { SubpageConfigModule } from './modules/subpage-config/subpage-config.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { SupportTicketsModule } from './modules/support-tickets/support-tickets.module';
 import { SystemLogsModule } from './modules/system-logs/system-logs.module';
@@ -88,7 +90,17 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
       cache: true,
       expandVariables: true,
       validate: validateEnvironment,
-      load: [appConfig, advertisingConfig, authConfig, databaseConfig, emailConfig, paymentsConfig, redisConfig, remnawaveConfig, webhookConfig],
+      load: [
+        appConfig,
+        advertisingConfig,
+        authConfig,
+        databaseConfig,
+        emailConfig,
+        paymentsConfig,
+        redisConfig,
+        remnawaveConfig,
+        webhookConfig,
+      ],
     }),
     OutboundHttpModule,
     ServeStaticModule.forRoot({
@@ -166,6 +178,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     InternalUserModule,
     LinkingModule,
     SettingsModule,
+    SubpageConfigModule,
     UsersModule,
     WebAuthModule,
     WebhooksModule,

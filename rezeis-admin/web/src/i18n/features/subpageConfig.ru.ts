@@ -1,0 +1,114 @@
+/**
+ * Lazy-loaded i18n feature bundle (ru): subpageConfig
+ * Namespace: subpageConfigPage
+ */
+
+export const ru = {
+  subpageConfigPage: {
+    title: 'Страница подписки',
+    subtitle: 'Брендинг и приложения для rezeis-subpage. Изменения применяются сразу.',
+    usingDefault:
+      'Конфиг ещё не сохранён — отдаётся встроенный по умолчанию. Сохраните, чтобы переопределить.',
+    tabs: {
+      general: 'Основное',
+      clients: 'Клиенты',
+      icons: 'Иконки',
+      translations: 'Переводы',
+      advanced: 'JSON',
+    },
+    translations: {
+      title: 'Строки интерфейса',
+      description: 'Подписи на странице подписки, по языкам.',
+      empty: 'В конфиге нет переводов.',
+    },
+    icons: {
+      title: 'Библиотека иконок',
+      description: 'Именованные SVG-иконки, на которые ссылаются платформы, блоки и кнопки.',
+      key: 'Ключ (только латинские буквы)',
+      svg: 'SVG-разметка',
+      add: 'Добавить иконку',
+      remove: 'Удалить иконку',
+      keyError: 'Ключ может содержать только латинские буквы (a–z, A–Z).',
+      keyExists: 'Иконка с таким ключом уже существует.',
+    },
+    clients: {
+      addPlatform: 'Добавить платформу',
+      removePlatform: 'Удалить платформу',
+      platformIcon: 'Иконка платформы',
+      addApp: 'Добавить приложение',
+      newApp: 'Новое приложение',
+      featured: 'Рекомендуемое',
+      addBlock: 'Добавить блок',
+      addButton: 'Добавить кнопку',
+      icon: 'Иконка',
+      color: 'Цвет',
+      blockTitle: 'Заголовок',
+      blockDescription: 'Описание',
+      buttonType: 'Тип кнопки',
+      buttonLink: 'Ссылка (используйте {{SUBSCRIPTION_LINK}} для URL подписки)',
+      buttonText: 'Текст кнопки',
+      empty: 'Платформ пока нет — добавьте выше.',
+      types: {
+        external: 'Внешняя ссылка',
+        subscriptionLink: 'Deep-link подписки',
+        copyButton: 'Скопировать ссылку',
+      },
+    },
+    actions: {
+      save: 'Сохранить',
+      reset: 'Сбросить изменения',
+    },
+    branding: {
+      title: 'Брендинг',
+      description: 'Название, логотип и ссылка поддержки на странице.',
+      name: 'Название',
+      logoUrl: 'URL логотипа',
+      supportUrl: 'URL поддержки',
+    },
+    base: {
+      title: 'Настройки страницы',
+      description: 'Мета-теги и что показывает страница.',
+      metaTitle: 'Meta title',
+      metaDescription: 'Meta description',
+      showConnectionKeys: 'Показывать ключи подключения',
+      hideGetLinkButton: 'Скрыть кнопку «Получить ссылку»',
+    },
+    theme: {
+      title: 'Тема',
+      description: 'Цвета страницы подписки — применяются из панели вживую.',
+      primaryColor: 'Основной цвет',
+      backgroundColor: 'Фон',
+      accentColor: 'Акцент',
+    },
+    ui: {
+      title: 'Оформление',
+      description: 'Как отображаются блок подписки и инструкции по установке.',
+      infoBlock: 'Блок информации о подписке',
+      guideBlock: 'Блок инструкции по установке',
+      infoBlockTypes: {
+        collapsed: 'Свёрнутый',
+        expanded: 'Развёрнутый',
+        cards: 'Карточки',
+        hidden: 'Скрыт',
+      },
+      guideBlockTypes: {
+        cards: 'Карточки',
+        accordion: 'Аккордеон',
+        minimal: 'Минимальный',
+        timeline: 'Таймлайн',
+      },
+    },
+    advanced: {
+      title: 'Полный конфиг (JSON)',
+      description:
+        'Редактирование всего конфига, включая каталог приложений (platforms), переводы и svg-иконки. Невалидный JSON блокирует сохранение.',
+    },
+    toasts: {
+      saved: 'Конфиг страницы подписки сохранён',
+      saveFailed: 'Не удалось сохранить конфиг',
+      reset: 'Изменения сброшены',
+      fixJson: 'Исправьте ошибки JSON перед сохранением',
+      invalid: 'Конфиг невалиден',
+    },
+  },
+};

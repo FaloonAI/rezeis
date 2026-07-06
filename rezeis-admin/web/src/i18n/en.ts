@@ -45,9 +45,11 @@ export const en = {
   },
   externalAuthPage: {
     title: 'External authentication',
-    subtitle: 'Web-cabinet sign-in / registration via external providers + disposable-email protection.',
+    subtitle:
+      'Web-cabinet sign-in / registration via external providers + disposable-email protection.',
     accessDeniedTitle: 'Access restricted',
-    accessDeniedDescription: 'Your role lacks external_auth:view. Ask a superadmin to grant access.',
+    accessDeniedDescription:
+      'Your role lacks external_auth:view. Ask a superadmin to grant access.',
     enable: 'Enable',
     displayName: 'Button label',
     clientId: 'Client ID',
@@ -58,11 +60,14 @@ export const en = {
     usePkce: 'Use PKCE',
     telegramNote: 'Always available, reuses the bot token. No separate keys needed.',
     oauthNote: "Enter the provider's Client ID and Secret, then enable.",
-    telegramOidcNote: 'OIDC mode: sign-in via oauth.telegram.org using a Client ID/Secret (redirect flow, like Google).',
+    telegramOidcNote:
+      'OIDC mode: sign-in via oauth.telegram.org using a Client ID/Secret (redirect flow, like Google).',
     telegramUseOidc: 'Use OIDC (Client ID/Secret)',
-    telegramUseOidcHint: 'On — new method via oauth.telegram.org. Off — classic Login Widget (bot token + /setdomain).',
+    telegramUseOidcHint:
+      'On — new method via oauth.telegram.org. Off — classic Login Widget (bot token + /setdomain).',
     redirectUri: 'Redirect URI',
-    redirectUriRegisterHint: 'Register this URL in the provider console ({origin} = your cabinet domain).',
+    redirectUriRegisterHint:
+      'Register this URL in the provider console ({origin} = your cabinet domain).',
     helpAria: 'How to configure',
     redirectUriHint: 'Redirect URI: {{path}} (replace {origin} with your cabinet domain).',
     help: {
@@ -79,7 +84,8 @@ export const en = {
     saved: 'Saved',
     saveFailed: 'Could not save',
     policyTitle: 'Disposable-email protection',
-    policySubtitle: 'How email addresses are checked at registration (verified-OAuth emails bypass this).',
+    policySubtitle:
+      'How email addresses are checked at registration (verified-OAuth emails bypass this).',
     policySaved: 'Policy saved',
     policyMode: 'Mode',
     modes: {
@@ -120,6 +126,7 @@ export const en = {
       withdrawals: 'Withdrawals',
       platform: 'Platform',
       webReiwa: 'WEB Reiwa',
+      subpageConfig: 'Subscription page',
       gateways: 'Payment gateways',
       externalAuth: 'External auth',
       panelSettings: 'Panel settings',
@@ -446,7 +453,8 @@ export const en = {
     unarchiveFailed: 'Failed to unarchive plan',
     toggleActiveFailed: 'Failed to toggle plan active state',
     reorderFailed: 'Failed to change plan order',
-    orderHint: 'The card order here sets how tariffs appear to users in their cabinet. Drag a card by the grip on the left to reorder.',
+    orderHint:
+      'The card order here sets how tariffs appear to users in their cabinet. Drag a card by the grip on the left to reorder.',
     createTitle: 'Create plan',
     editTitle: 'Edit plan',
     tabs: {
@@ -537,7 +545,8 @@ export const en = {
       accessModeHints: {
         PUBLIC: 'Open registration — anyone can use the bot and purchase subscriptions',
         INVITED: 'Invite-only — only users with a valid invite link can register',
-        PURCHASE_BLOCKED: 'Purchases blocked — existing users can use VPN but no new purchases allowed',
+        PURCHASE_BLOCKED:
+          'Purchases blocked — existing users can use VPN but no new purchases allowed',
         REG_BLOCKED: 'Registration blocked — no new users can register, existing users unaffected',
         RESTRICTED: 'Fully restricted — all actions are blocked for all users',
       },
@@ -564,11 +573,14 @@ export const en = {
       webTitleHint: 'Browser tab title for the Mini App',
       channelUsername: 'Channel Username',
       channelRecheck: 'Re-check subscription',
-      channelRecheckHint: 'When on, channel membership is re-checked on every entry and a user who later leaves is gated again. When off, membership is checked only on first entry.',
+      channelRecheckHint:
+        'When on, channel membership is re-checked on every entry and a user who later leaves is gated again. When off, membership is checked only on first entry.',
       requireTgWebCreds: 'Require login/password on Telegram sign-in',
-      requireTgWebCredsHint: 'When on, a user signing in via Telegram for the first time (web widget or Mini App) must set a cabinet login and password. Already-registered users pass straight through. When off, Telegram is accepted as a sufficient credential and the user enters the cabinet without a login/password.',
+      requireTgWebCredsHint:
+        'When on, a user signing in via Telegram for the first time (web widget or Mini App) must set a cabinet login and password. Already-registered users pass straight through. When off, Telegram is accepted as a sufficient credential and the user enters the cabinet without a login/password.',
       verificationTemplates: 'Verification Templates',
-      verificationTemplatesHint: 'Templates for Telegram verification messages. Use {project_name} and {code} as placeholders.',
+      verificationTemplatesHint:
+        'Templates for Telegram verification messages. Use {project_name} and {code} as placeholders.',
       verificationRu: 'Verification (RU)',
       verificationEn: 'Verification (EN)',
       passwordResetRu: 'Password Reset (RU)',
@@ -597,7 +609,8 @@ export const en = {
     },
     botToken: {
       title: 'Bot Token',
-      description: 'Telegram bot token for direct media broadcast delivery. Stored encrypted at rest.',
+      description:
+        'Telegram bot token for direct media broadcast delivery. Stored encrypted at rest.',
       field: 'Bot token',
       placeholder: '123456:ABC-DEF...',
       hint: 'Only needed for photo/video broadcasts. Text broadcasts are delivered through the main reiwa bot and do not require a token here.',
@@ -610,9 +623,11 @@ export const en = {
     },
     webPush: {
       title: 'Web-push (browser notifications)',
-      description: 'VAPID keys for sending push notifications to the browser and installed PWA. The private key is stored encrypted. Keys live in rezeis (no need to set them in reiwa).',
+      description:
+        'VAPID keys for sending push notifications to the browser and installed PWA. The private key is stored encrypted. Keys live in rezeis (no need to set them in reiwa).',
       statusConfigured: 'Web-push is configured (source: {{source}}). You can send a test.',
-      statusMissing: 'Web-push is not configured — generate keys below or set the VAPID_* environment variables.',
+      statusMissing:
+        'Web-push is not configured — generate keys below or set the VAPID_* environment variables.',
       source: { settings: 'panel', env: 'environment' },
       publicKeyLabel: 'VAPID public key',
       emailLabel: 'Contact email (VAPID subject)',
@@ -622,13 +637,15 @@ export const en = {
       regenerateButton: 'Regenerate keys',
       clearButton: 'Remove keys',
       testButton: 'Send test to me',
-      testHint: 'The first click subscribes this browser (notification permission required) and sends a test push.',
+      testHint:
+        'The first click subscribes this browser (notification permission required) and sends a test push.',
       generated: 'VAPID keys generated and stored',
       generateFailed: 'Failed to generate keys',
       cleared: 'VAPID keys removed',
       testSent: 'Test push sent',
       testFailed: 'Failed to send test',
-      permissionDenied: 'Notification permission denied. Enable it in your browser settings and refresh.',
+      permissionDenied:
+        'Notification permission denied. Enable it in your browser settings and refresh.',
       disabledServer: 'Web-push is not configured on the server (no VAPID keys).',
       unsupported: 'This browser does not support web-push.',
     },
@@ -654,7 +671,8 @@ export const en = {
     empty: 'No packs yet — import your first via a set link',
     importSet: {
       title: 'Import by set link',
-      description: 'Paste an emoji set link — the bot parses the whole set with its token: image, animation (Lottie from .tgs), fallback glyph and custom_emoji_id.',
+      description:
+        'Paste an emoji set link — the bot parses the whole set with its token: image, animation (Lottie from .tgs), fallback glyph and custom_emoji_id.',
       linkLabel: 'Emoji set link',
       linkHint: 'e.g. https://t.me/addemoji/NewsEmoji — pulls the whole set in one call.',
       nameLabel: 'Pack name (optional)',
@@ -688,7 +706,8 @@ export const en = {
       slots: 'Emoji slots',
     },
     studio: {
-      subtitle: 'Each slot: a fallback glyph + a premium emoji from your packs. Premium renders only when the bot owner has Telegram Premium — otherwise the fallback shows.',
+      subtitle:
+        'Each slot: a fallback glyph + a premium emoji from your packs. Premium renders only when the bot owner has Telegram Premium — otherwise the fallback shows.',
       empty: 'No emoji slots configured.',
       colSlot: 'Slot',
       colUsedIn: 'Used in',
@@ -762,7 +781,8 @@ export const en = {
       enable: 'Enable Referral Program',
       enableHint: 'Allow users to invite others and earn rewards',
       invitedOnly: 'Invited users only',
-      invitedOnlyHint: 'The referral program is available only to users who registered via a referral link',
+      invitedOnlyHint:
+        'The referral program is available only to users who registered via a referral link',
       qualifyOnPurchase: 'Qualify on Purchase',
       qualifyOnPurchaseHint: 'Referral is qualified when referred user makes a purchase',
       accrualStrategy: 'Accrual Strategy',
@@ -823,11 +843,14 @@ export const en = {
       enable: 'Enable Partner Program',
       enableHint: 'Allow users to become partners and earn commissions',
       invitedOnly: 'Invited users only',
-      invitedOnlyHint: 'The partner program is available only to users who registered via a referral link',
+      invitedOnlyHint:
+        'The partner program is available only to users who registered via a referral link',
       allowBalancePayment: 'Pay subscriptions with balance',
-      allowBalancePaymentHint: 'Allow partners to pay for new subscriptions and renewals with their partner balance',
+      allowBalancePaymentHint:
+        'Allow partners to pay for new subscriptions and renewals with their partner balance',
       autoCalculate: 'Auto-calculate Commission',
-      autoCalculateHint: 'Automatically deduct gateway commission and tax before calculating partner earnings',
+      autoCalculateHint:
+        'Automatically deduct gateway commission and tax before calculating partner earnings',
       accrualStrategy: 'Accrual Strategy',
       onEachPayment: 'On each payment',
       onFirstPayment: 'On first payment only',
@@ -841,7 +864,8 @@ export const en = {
       level2: 'Level 2',
       level3: 'Level 3',
       taxPercent: 'Tax / Platform fee (%)',
-      taxPercentHint: 'Deducted from payment before calculating partner share (e.g. 6% for self-employed tax)',
+      taxPercentHint:
+        'Deducted from payment before calculating partner share (e.g. 6% for self-employed tax)',
     },
     withdrawal: {
       title: 'Withdrawal Rules',
@@ -850,7 +874,8 @@ export const en = {
     },
     gatewayCommissions: {
       title: 'Gateway Commissions',
-      description: 'Commission percentages for each payment gateway (used when auto-calculate is enabled)',
+      description:
+        'Commission percentages for each payment gateway (used when auto-calculate is enabled)',
     },
     validation: {
       percentRange: 'Value must be between 0 and 100',
@@ -1003,8 +1028,7 @@ export const en = {
     bulk: {
       button: 'Bulk approve ({{count}})',
       dialogTitle: 'Approve {{count}} withdrawals?',
-      description:
-        'Each request is processed independently. Errors do not stop the rest.',
+      description: 'Each request is processed independently. Errors do not stop the rest.',
       commentLabel: 'Admin comment (optional)',
       commentPlaceholder: 'Will be applied to every request in the batch',
       cancel: 'Cancel',
@@ -1147,7 +1171,8 @@ export const en = {
     tableTitle: 'Workspace preview',
     filtersTitle: 'Filters',
     emptyTitle: 'Structure is ready',
-    emptyDescription: 'Backend integration can be added here without changing the information architecture.',
+    emptyDescription:
+      'Backend integration can be added here without changing the information architecture.',
     localeNames: {
       en: 'English',
       ru: 'Russian',
@@ -1162,16 +1187,20 @@ export const en = {
     'Invalid login or password': 'Invalid login or password',
     'Admin user is inactive': 'Admin user is inactive',
     'User not found': 'User not found',
-    'User email lookup is ambiguous': 'More than one user matches this email. Use a more specific identifier.',
-    'Exactly one identifier must be provided: userId, telegramId, email, login, or referralCode': 'Provide exactly one identifier: user ID, Telegram ID, email, web login, or referral code.',
+    'User email lookup is ambiguous':
+      'More than one user matches this email. Use a more specific identifier.',
+    'Exactly one identifier must be provided: userId, telegramId, email, login, or referralCode':
+      'Provide exactly one identifier: user ID, Telegram ID, email, web login, or referral code.',
   },
   auth: {
     sessionCheckTitle: 'Checking admin session',
     sessionCheckDescription: 'Your access token is being verified before the workspace loads.',
     sessionCheckRetryingTitle: 'Retrying session verification',
-    sessionCheckRetryingDescription: 'The current admin session is being checked again before the workspace unlocks.',
+    sessionCheckRetryingDescription:
+      'The current admin session is being checked again before the workspace unlocks.',
     sessionCheckFailedTitle: 'Unable to verify admin session',
-    sessionCheckFailedDescription: 'The workspace stays locked until your current session can be verified.',
+    sessionCheckFailedDescription:
+      'The workspace stays locked until your current session can be verified.',
     sessionCheckRetry: 'Retry verification',
     sessionCheckRetryingAction: 'Retrying...',
     verifyingSession: 'Verifying session…',
@@ -1182,11 +1211,13 @@ export const en = {
     loginPage: {
       eyebrow: 'Rezeis Control Center',
       title: 'Secure admin access with login and password.',
-      description: 'Sign in with your admin login and password to continue to the protected dashboard shell.',
+      description:
+        'Sign in with your admin login and password to continue to the protected dashboard shell.',
       cards: {
         auth: {
           title: 'Login-only access',
-          description: 'Admin authentication is login-first, with session restore and protected routes.',
+          description:
+            'Admin authentication is login-first, with session restore and protected routes.',
         },
         shell: {
           title: 'Structured admin shell',
@@ -1209,7 +1240,8 @@ export const en = {
           loginRequired: 'Enter your login',
           loginTooShort: 'Login must be at least 3 characters',
           loginTooLong: 'Login must be at most 64 characters',
-          loginInvalidFormat: 'Login may contain only letters, numbers, dots, underscores, and hyphens',
+          loginInvalidFormat:
+            'Login may contain only letters, numbers, dots, underscores, and hyphens',
           passwordRequired: 'Enter your password',
           loginFailed: 'Unable to sign in. Check the credentials and try again.',
         },
@@ -1243,11 +1275,11 @@ export const en = {
     usersRecentActive: 'Recent Active',
     usersBlacklist: 'Blacklist',
     usersInvited: 'Invited Users',
-  broadcast: 'Broadcast',
-  promocodes: 'Promocodes',
-  referrals: 'Referrals',
-  partners: 'Partners',
-  accessMode: 'Access Mode',
+    broadcast: 'Broadcast',
+    promocodes: 'Promocodes',
+    referrals: 'Referrals',
+    partners: 'Partners',
+    accessMode: 'Access Mode',
     remnawave: 'Remnawave',
     imports: 'Imports',
     settings: 'Rezeis Settings',
@@ -1259,7 +1291,8 @@ export const en = {
   referrals: {
     eyebrow: 'Growth',
     title: 'Referral Program',
-    description: 'Inspect referral summary, invite lifecycle, and reward history for one selected user from the existing admin referrals seam.',
+    description:
+      'Inspect referral summary, invite lifecycle, and reward history for one selected user from the existing admin referrals seam.',
     contextBadge: 'User {{userId}}',
     lookup: {
       title: 'Lookup',
@@ -1272,7 +1305,8 @@ export const en = {
     states: {
       loading: 'Refreshing the referrals operator view from the protected admin backend.',
       idleTitle: 'Referral workflow is waiting for a user',
-      idleDescription: 'Enter a user UUID and load it into the route to inspect live referral state.',
+      idleDescription:
+        'Enter a user UUID and load it into the route to inspect live referral state.',
       invalidTitle: 'Referral workflow could not resolve this user ID',
       invalidDescription: 'Enter a valid user UUID to load the referral operator workflow.',
       emptyTitle: 'Referral state is not available',
@@ -1309,7 +1343,8 @@ export const en = {
       revokingAction: 'Revoking invite...',
       revokedBadge: 'Revoked',
       emptyTitle: 'No invites are currently available',
-      emptyDescription: 'Create a fresh invite when support needs a new referral token for this user.',
+      emptyDescription:
+        'Create a fresh invite when support needs a new referral token for this user.',
       expiresAt: 'Expires {{value}}',
       revokedAt: 'Revoked {{value}}',
     },
@@ -1325,17 +1360,20 @@ export const en = {
     },
     handoff: {
       title: 'Operator handoff',
-      description: 'Return to the broader user-support context while keeping the same selected user.',
+      description:
+        'Return to the broader user-support context while keeping the same selected user.',
       backToUserAction: 'Open in user search',
     },
   },
   partners: {
     eyebrow: 'Growth',
     title: 'Partner Program',
-    description: 'Inspect partner balance, earnings history, and withdrawal processing for one selected user from the existing partners admin seam.',
+    description:
+      'Inspect partner balance, earnings history, and withdrawal processing for one selected user from the existing partners admin seam.',
     lookup: {
       title: 'Lookup',
-      description: 'Use a user UUID to load the current partner operator workflow from the existing admin API.',
+      description:
+        'Use a user UUID to load the current partner operator workflow from the existing admin API.',
       userIdLabel: 'User UUID',
       userIdPlaceholder: '11111111-1111-4111-8111-111111111111',
       loadAction: 'Load partner state',
@@ -1343,8 +1381,10 @@ export const en = {
     },
     createWithdrawal: {
       title: 'Create withdrawal',
-      description: 'Create a new withdrawal from operator-entered values only. This route never hardcodes a payout payload.',
-      idleDescription: 'Select a user first to create a new withdrawal request from the existing admin seam.',
+      description:
+        'Create a new withdrawal from operator-entered values only. This route never hardcodes a payout payload.',
+      idleDescription:
+        'Select a user first to create a new withdrawal request from the existing admin seam.',
       amountLabel: 'Requested amount',
       amountPlaceholder: '300',
       currencyLabel: 'Requested currency',
@@ -1358,27 +1398,35 @@ export const en = {
     },
     states: {
       loading: 'Refreshing the partner operator workflow from the protected admin backend.',
-      creatingWithdrawal: 'Creating a new withdrawal request from the current operator-entered payload.',
+      creatingWithdrawal:
+        'Creating a new withdrawal request from the current operator-entered payload.',
       idleTitle: 'Partner workflow is waiting for a user',
-      idleDescription: 'Enter a user UUID to inspect partner balances, earnings, and withdrawals on this route.',
+      idleDescription:
+        'Enter a user UUID to inspect partner balances, earnings, and withdrawals on this route.',
       emptyTitle: 'Partner state is not available',
-      emptyDescription: 'The partners admin API did not return a summary, earnings, or withdrawals for this user.',
+      emptyDescription:
+        'The partners admin API did not return a summary, earnings, or withdrawals for this user.',
     },
     handoff: {
-      description: 'Opened from user search. Keep withdrawal handling status-gated and return to the full support cockpit when done.',
+      description:
+        'Opened from user search. Keep withdrawal handling status-gated and return to the full support cockpit when done.',
       backToUserAction: 'Back to user search',
       safeReturnHint: 'Open Users/Search separately when more context is needed.',
     },
     safety: {
       title: 'Partner actions mode',
-      description: 'Money-moving partner actions stay locked until the operator explicitly enables this mode.',
-      boundary: 'Create, approve, reject, and complete require confirmation and use the existing partners admin seam.',
-      hidden: 'Payout requisites, raw user IDs, withdrawal IDs, partner IDs, admin actors, and comments are hidden from read-only rows and dialogs.',
+      description:
+        'Money-moving partner actions stay locked until the operator explicitly enables this mode.',
+      boundary:
+        'Create, approve, reject, and complete require confirmation and use the existing partners admin seam.',
+      hidden:
+        'Payout requisites, raw user IDs, withdrawal IDs, partner IDs, admin actors, and comments are hidden from read-only rows and dialogs.',
       modeLabel: 'Partner actions mode',
     },
     errors: {
       missingUserId: 'Enter a user UUID before loading or creating a partner withdrawal.',
-      invalidCreateWithdrawal: 'Enter a positive amount plus currency, method, and requisites before creating a withdrawal.',
+      invalidCreateWithdrawal:
+        'Enter a positive amount plus currency, method, and requisites before creating a withdrawal.',
     },
     metrics: {
       balance: {
@@ -1411,7 +1459,8 @@ export const en = {
       title: 'Withdrawals',
       description: 'Status-aware partner withdrawal workflow over the existing admin endpoints.',
       emptyTitle: 'No withdrawals returned',
-      emptyDescription: 'Create a new withdrawal or load another user to inspect payout processing history.',
+      emptyDescription:
+        'Create a new withdrawal or load another user to inspect payout processing history.',
       rowTitle: '{{status}} • {{amount}} {{currency}}',
       createdAt: 'Created {{value}}',
       commentLabel: 'Admin comment',
@@ -1450,10 +1499,13 @@ export const en = {
         complete: 'Completing the withdrawal and refreshing the current payout row.',
       },
       gating: {
-        PENDING: 'This pending withdrawal can only be approved or rejected before payout processing starts.',
+        PENDING:
+          'This pending withdrawal can only be approved or rejected before payout processing starts.',
         PROCESSING: 'This processing withdrawal can only be completed in this bounded workflow.',
-        COMPLETED: 'This completed withdrawal is already closed for further actions in this bounded workflow.',
-        REJECTED: 'This rejected withdrawal is already closed for changes in this bounded workflow.',
+        COMPLETED:
+          'This completed withdrawal is already closed for further actions in this bounded workflow.',
+        REJECTED:
+          'This rejected withdrawal is already closed for changes in this bounded workflow.',
       },
     },
     withdrawalAudit: {
@@ -1461,7 +1513,8 @@ export const en = {
     },
     confirmation: {
       title: 'Confirm partner action',
-      description: 'Review safe metadata only. Raw payout details, user IDs, withdrawal IDs, comments, and admin actors are hidden.',
+      description:
+        'Review safe metadata only. Raw payout details, user IDs, withdrawal IDs, comments, and admin actors are hidden.',
       createTitle: 'Create withdrawal request',
       processTitle: '{{action}} withdrawal',
       cancel: 'Cancel',
@@ -1547,14 +1600,17 @@ export const en = {
     disabled: 'Push notifications disabled',
     permissionDenied: 'Notification permission was not granted',
     disabledServer: 'Push is disabled on the server (VAPID keys not configured).',
-    subscribeFailed: 'Could not create the push subscription (check the server VAPID keys and the browser push service).',
+    subscribeFailed:
+      'Could not create the push subscription (check the server VAPID keys and the browser push service).',
     unsupported: 'This browser does not support push notifications.',
     iosInstall: 'On iOS, add the panel to your Home Screen to enable push.',
     error: 'Failed to change the push setting.',
     categoriesTitle: 'Notification categories',
-    categoriesSubtitle: 'Choose what to be pushed about. Only categories your role permits are shown.',
+    categoriesSubtitle:
+      'Choose what to be pushed about. Only categories your role permits are shown.',
     noCategories: 'Your role does not grant access to any notification category.',
-    roleLegend: 'Available categories follow your role permissions: support → support_tickets, payments → payments, anti-fraud → fraud_signals, withdrawals → withdrawals, system → dashboard.',
+    roleLegend:
+      'Available categories follow your role permissions: support → support_tickets, payments → payments, anti-fraud → fraud_signals, withdrawals → withdrawals, system → dashboard.',
     categories: {
       support: 'Support',
       payment: 'Payments',
@@ -1572,7 +1628,8 @@ export const en = {
   },
   panelIcons: {
     title: 'Icon library',
-    description: 'Upload your own icons (SVG, PNG, WebP) and reuse them across the panel. Set a colour to recolour monochrome glyphs to match the theme.',
+    description:
+      'Upload your own icons (SVG, PNG, WebP) and reuse them across the panel. Set a colour to recolour monochrome glyphs to match the theme.',
     save: 'Save',
     saved: 'Icons saved',
     saveFailed: 'Failed to save icons',
@@ -1617,7 +1674,8 @@ export const en = {
       namePlaceholder: 'John Doe',
       email: 'Email',
       emailPlaceholder: 'user@example.com',
-      telegramHint: 'If not provided, the user will not be linked to Telegram. A Reiwa ID will be generated automatically.',
+      telegramHint:
+        'If not provided, the user will not be linked to Telegram. A Reiwa ID will be generated automatically.',
       success: 'User created',
       error: 'Failed to create user',
       submit: 'Create',
@@ -1637,12 +1695,14 @@ export const en = {
     namePlaceholder: 'Premium 50GB',
     tag: 'Tag (optional)',
     tagPlaceholder: 'popular',
-    tagHint: 'Uppercase letters, digits, underscores only — max 16 characters. Used as Remnawave tag.',
+    tagHint:
+      'Uppercase letters, digits, underscores only — max 16 characters. Used as Remnawave tag.',
     tagInvalid: 'Only A-Z, 0-9, _ — up to 16 characters',
     icon: 'Plan icon',
     iconAuto: 'Auto',
     iconNone: 'By plan type',
-    iconHint: 'Shown on the plan card in the cabinet. "Auto" uses an icon derived from the plan type. You can also pick an emoji (including custom animated ones).',
+    iconHint:
+      'Shown on the plan card in the cabinet. "Auto" uses an icon derived from the plan type. You can also pick an emoji (including custom animated ones).',
     description: 'Description',
     descriptionPlaceholder: 'Best value for heavy users',
     planType: 'Plan type',
@@ -1694,11 +1754,13 @@ export const en = {
     archive: {
       title: 'Archive & Transitions',
       isArchived: 'Archived plan',
-      isArchivedHint: 'Archived plans are hidden from the catalog but existing subscriptions keep working.',
+      isArchivedHint:
+        'Archived plans are hidden from the catalog but existing subscriptions keep working.',
       renewMode: 'Renewal mode',
       selfRenew: 'Self-renew',
       replaceOnRenew: 'Replace on renewal',
-      renewModeHint: '"Replace" — on renewal the user is automatically moved to one of the specified plans.',
+      renewModeHint:
+        '"Replace" — on renewal the user is automatically moved to one of the specified plans.',
       replacementPlans: 'Replacement plans',
       replacementHint: 'Select plans that users will be migrated to on renewal.',
       noPlans: 'No plans available for replacement',
@@ -1726,14 +1788,18 @@ export const en = {
       pricing: 'Pricing',
       free: 'Free',
       paid: 'Paid',
-      paidNotice: 'A paid trial is billed like a normal purchase — set a price in at least one currency below.',
+      paidNotice:
+        'A paid trial is billed like a normal purchase — set a price in at least one currency below.',
       scope: 'Audience',
       scopeAll: 'Everyone',
       scopeInvited: 'Invited only',
-      scopeHint: '"Invited only" — the trial is available only to users who arrived via a referral or partner link.',
+      scopeHint:
+        '"Invited only" — the trial is available only to users who arrived via a referral or partner link.',
       requireTelegram: 'Require Telegram link',
-      requireTelegramHint: 'A trial (free or paid) can be activated only after linking a Telegram account. A web user without Telegram links it in the cabinet first.',
-      telegramNote: 'Reminder: connecting and using the subscription happens via the Telegram bot. A web-only user without a linked Telegram can link the account in the cabinet (Privacy → "Open bot") — the trial is then available to them.',
+      requireTelegramHint:
+        'A trial (free or paid) can be activated only after linking a Telegram account. A web user without Telegram links it in the cabinet first.',
+      telegramNote:
+        'Reminder: connecting and using the subscription happens via the Telegram bot. A web-only user without a linked Telegram can link the account in the cabinet (Privacy → "Open bot") — the trial is then available to them.',
       telegramNoteAria: 'More about the trial subscription',
     },
     validation: {
@@ -1774,8 +1840,10 @@ export const en = {
     planHint: 'The user receives a free subscription of the selected plan for this duration.',
     allowedPlans: 'Eligible plans',
     allowedPlansClear: 'Clear',
-    allowedPlansAllHint: 'The promo code can be activated on a subscription of any plan. Select plans to restrict it.',
-    allowedPlansHint: 'Activation is allowed only on subscriptions of the selected plans ({{count}}).',
+    allowedPlansAllHint:
+      'The promo code can be activated on a subscription of any plan. Select plans to restrict it.',
+    allowedPlansHint:
+      'Activation is allowed only on subscriptions of the selected plans ({{count}}).',
     rewardTypes: {
       DURATION: 'Extra duration',
       TRAFFIC: 'Extra traffic',
@@ -1809,14 +1877,17 @@ export const en = {
       ALLOWED: 'Allowed',
     },
     lifetime: 'Lifetime (days)',
-    lifetimeHint: 'How many days the promo code itself stays valid after creation. -1 = never expires.',
+    lifetimeHint:
+      'How many days the promo code itself stays valid after creation. -1 = never expires.',
     expiresAt: 'Expires at (date & time)',
-    expiresAtHint: 'Exact calendar deadline. When set it takes precedence over the lifetime in days. Empty = no deadline.',
+    expiresAtHint:
+      'Exact calendar deadline. When set it takes precedence over the lifetime in days. Empty = no deadline.',
     expiresNever: 'No deadline',
     expiresTime: 'Time',
     expiresClear: 'Clear',
     maxActivations: 'Max activations',
-    maxActivationsHint: 'Total activation cap across all users (each user can activate once). -1 = unlimited.',
+    maxActivationsHint:
+      'Total activation cap across all users (each user can activate once). -1 = unlimited.',
     unlimitedHint: '-1 = unlimited',
     active: 'Active (users can activate this code)',
     create: 'Create promocode',
@@ -1846,7 +1917,8 @@ export const en = {
     confirm: {
       warning: 'This action is destructive',
       typeToConfirm: 'Type {{value}} to confirm.',
-      deleteScopeNote: 'Bulk delete affects the local database only — Remnawave panel profiles are NOT removed.',
+      deleteScopeNote:
+        'Bulk delete affects the local database only — Remnawave panel profiles are NOT removed.',
     },
     runOn_one: 'Run on {{count}} user',
     runOn_other: 'Run on {{count}} users',
@@ -1864,8 +1936,10 @@ export const en = {
     subtitle:
       'Restrict the admin panel to a curated list of IPs / CIDR ranges. While the list is empty, access is open.',
     statusActive: 'Allowlist is active.',
-    statusActiveBody_one: 'Only requests from {{count}} listed entry are allowed. Make sure your current IP is included.',
-    statusActiveBody_other: 'Only requests from {{count}} listed entries are allowed. Make sure your current IP is included.',
+    statusActiveBody_one:
+      'Only requests from {{count}} listed entry are allowed. Make sure your current IP is included.',
+    statusActiveBody_other:
+      'Only requests from {{count}} listed entries are allowed. Make sure your current IP is included.',
     statusInactive: 'Allowlist is inactive.',
     statusInactiveBody: 'Anyone with valid credentials can sign in from any IP.',
     addEntry: 'Add entry',
@@ -1963,7 +2037,8 @@ export const en = {
       status: 'Status',
       rbacRole: 'Access role (RBAC)',
       rbacRoleNone: 'No role (account-type access)',
-      rbacRoleHint: 'Assign a role so the account only sees the sections it grants. Without a role the account-type defaults apply.',
+      rbacRoleHint:
+        'Assign a role so the account only sees the sections it grants. Without a role the account-type defaults apply.',
       mustChangePassword: 'Require password change on sign-in',
       mustChangePasswordHint: 'The account must set a new password on its first sign-in.',
     },
@@ -1990,7 +2065,8 @@ export const en = {
     },
     edit: {
       title: 'Edit administrator',
-      description: 'Update settings for {{username}}. Leave the password blank to keep it unchanged.',
+      description:
+        'Update settings for {{username}}. Leave the password blank to keep it unchanged.',
       passwordLabel: 'New password',
       passwordPlaceholder: 'Leave blank to keep current',
       submit: 'Save changes',
@@ -2017,7 +2093,8 @@ export const en = {
   },
   fraudPage: {
     title: 'Fraud signals',
-    subtitle: 'Persistent anti-fraud findings emitted by the detectors. Run cron-driven by default — you can also trigger an immediate sweep.',
+    subtitle:
+      'Persistent anti-fraud findings emitted by the detectors. Run cron-driven by default — you can also trigger an immediate sweep.',
     runDetectors: 'Run detectors now',
     versionInfo: {
       label: 'How detectors depend on the panel version',
@@ -2107,7 +2184,8 @@ export const en = {
     enforce: {
       button: 'Drop connections',
       title: 'Drop active connections',
-      description: 'Forcibly drop active connections for this signal via Remnawave. This cannot be undone — clients will have to reconnect.',
+      description:
+        'Forcibly drop active connections for this signal via Remnawave. This cannot be undone — clients will have to reconnect.',
       modeLabel: 'What to drop',
       modeUser: 'All connections for the user',
       modeIp: 'Only the recorded IPs',
@@ -2292,7 +2370,8 @@ export const en = {
     title: 'Payments',
     subtitle: 'Transactions, gateways, and webhook events',
     accessDeniedTitle: 'Payment access is restricted',
-    accessDeniedDescription: 'Your admin role does not include payments:view. Ask a superadmin to grant access before inspecting payment operations.',
+    accessDeniedDescription:
+      'Your admin role does not include payments:view. Ask a superadmin to grant access before inspecting payment operations.',
     tabs: {
       transactions: 'Transactions',
       gateways: 'Gateways',
@@ -2402,7 +2481,8 @@ export const en = {
     title: 'Authentication Methods',
     subtitle: 'Configure OAuth2 providers for admin panel login.',
     accessDeniedTitle: 'Authentication provider access is restricted',
-    accessDeniedDescription: 'Your admin role does not include auth_providers:view. Ask a superadmin to grant access before managing OAuth login methods.',
+    accessDeniedDescription:
+      'Your admin role does not include auth_providers:view. Ask a superadmin to grant access before managing OAuth login methods.',
     enabled: 'Enabled',
     disabled: 'Disabled',
     save: 'Save',
@@ -2441,7 +2521,8 @@ export const en = {
   },
   rolesPage: {
     title: 'Roles & Permissions',
-    subtitle: 'Manage RBAC roles and the admin panel permission matrix. System roles sync automatically with the resource catalog.',
+    subtitle:
+      'Manage RBAC roles and the admin panel permission matrix. System roles sync automatically with the resource catalog.',
     syncButton: 'Sync system roles',
     syncSuccess: 'System roles synced',
     syncFailed: 'Failed to sync: {{message}}',
@@ -2461,7 +2542,8 @@ export const en = {
       descriptionPlaceholder: 'What this role can do',
       systemRole: 'System role',
       systemReadOnly: 'Permission matrix is read-only',
-      systemReadOnlyDescription: 'System roles receive their grants from the application\'s resource catalog. Use the "Sync system roles" button at the top to refresh.',
+      systemReadOnlyDescription:
+        'System roles receive their grants from the application\'s resource catalog. Use the "Sync system roles" button at the top to refresh.',
       permissions: 'Permissions',
       resourceColumn: 'Resource',
       meta_one: 'name: {{name}} · {{adminsCount}} admin · {{permsCount}} permissions',
@@ -2479,7 +2561,8 @@ export const en = {
     },
     createDialog: {
       title: 'Create custom role',
-      dialogDescription: 'Pick a stable name (lowercase, used internally), a friendly display name, and tick the permission grants this role should have.',
+      dialogDescription:
+        'Pick a stable name (lowercase, used internally), a friendly display name, and tick the permission grants this role should have.',
       stableName: 'Stable name',
       stableNamePlaceholder: 'ops_lead',
       stableNameHint: 'Lowercase, alphanumerics and underscores. Cannot be changed later.',
@@ -2536,7 +2619,8 @@ export const en = {
     },
     deleteDialog: {
       title: 'Delete backup?',
-      description: 'This will permanently delete the backup file and record. This action cannot be undone.',
+      description:
+        'This will permanently delete the backup file and record. This action cannot be undone.',
       cancel: 'Cancel',
       delete: 'Delete',
     },
@@ -2558,13 +2642,15 @@ export const en = {
     restoreUpload: 'Restore from file',
     restoreDialog: {
       title: 'Restore database?',
-      description: 'Current data will be overwritten with backup data. This action is irreversible. We recommend creating a fresh backup before restoring.',
+      description:
+        'Current data will be overwritten with backup data. This action is irreversible. We recommend creating a fresh backup before restoring.',
       cancel: 'Cancel',
       confirm: 'Restore',
     },
     uploadRestoreDialog: {
       title: 'Restore from uploaded file?',
-      description: 'The database will be fully overwritten with the contents of "{{filename}}". This action is irreversible. We recommend creating a fresh backup before restoring.',
+      description:
+        'The database will be fully overwritten with the contents of "{{filename}}". This action is irreversible. We recommend creating a fresh backup before restoring.',
       cancel: 'Cancel',
       confirm: 'Restore',
     },
@@ -2584,7 +2670,8 @@ export const en = {
       saved: 'Backup settings saved',
       saveFailed: 'Failed to save settings',
       noTokenTitle: 'Bot token not configured',
-      noTokenDesc: 'To deliver the backup file to Telegram, set a bot token in Settings → Telegram delivery. Without a token the file is not sent — only the event is.',
+      noTokenDesc:
+        'To deliver the backup file to Telegram, set a bot token in Settings → Telegram delivery. Without a token the file is not sent — only the event is.',
     },
   },
   addOnsPage: {
@@ -2656,7 +2743,8 @@ export const en = {
       active: 'Active',
       icon: 'Add-on icon',
       iconAuto: 'Auto',
-      iconHint: 'Shown on the add-on card in the cabinet. "Auto" uses a type-derived icon. You can also pick an emoji (including custom animated ones).',
+      iconHint:
+        'Shown on the add-on card in the cabinet. "Auto" uses a type-derived icon. You can also pick an emoji (including custom animated ones).',
       plans: 'Applicable plans',
       plansHint: 'Empty = available for all plans',
       noPlans: 'No plans found',
@@ -2677,8 +2765,7 @@ export const en = {
       heading: 'Subscriptions ({{count}})',
       empty: 'No subscriptions yet. Create one above.',
       newTitle: 'New subscription',
-      newDescription:
-        'Use "*" to subscribe to every event, or namespace wildcards like payment.*',
+      newDescription: 'Use "*" to subscribe to every event, or namespace wildcards like payment.*',
       fields: {
         name: 'Name',
         namePlaceholder: 'Slack alerts',
@@ -2775,9 +2862,11 @@ export const en = {
     subtitle:
       'Export operator-curated configuration (roles, automations, webhooks, settings, FAQ, IP lists, notification templates) as a portable JSON file. Import it on another deployment with a strategy + dry-run preview.',
     accessDeniedTitle: 'Configuration portability access is restricted',
-    accessDeniedDescription: 'You need config_portability:view to inspect available export sections.',
+    accessDeniedDescription:
+      'You need config_portability:view to inspect available export sections.',
     readOnlyTitle: 'Configuration portability is read-only',
-    readOnlyDescription: 'Export and import actions require config_portability:export or config_portability:import.',
+    readOnlyDescription:
+      'Export and import actions require config_portability:export or config_portability:import.',
     sections: {
       title: 'Sections',
       description: 'Empty selection means "all sections".',
@@ -2791,7 +2880,8 @@ export const en = {
     },
     import: {
       title: 'Import',
-      description: 'Existing rows are matched by primary key. Choose a strategy and try a dry-run first.',
+      description:
+        'Existing rows are matched by primary key. Choose a strategy and try a dry-run first.',
       file: 'JSON file',
       pickFirst: 'Pick a JSON file first',
       invalid: 'File does not look like a rezeis-admin config export',
@@ -2822,7 +2912,8 @@ export const en = {
   },
   brandingPage: {
     title: 'WEB Reiwa',
-    subtitle: 'Customize how the user-facing app (reiwa) looks — logo, colors, card style, fonts, and effects.',
+    subtitle:
+      'Customize how the user-facing app (reiwa) looks — logo, colors, card style, fonts, and effects.',
     reset: 'Reset',
     save: 'Save',
     saving: 'Saving…',
@@ -2842,7 +2933,8 @@ export const en = {
     sections: {
       nav: {
         title: 'Cabinet navigation',
-        description: 'Choose which sections appear in the cabinet bottom navigation and in what order. Hidden sections stay reachable from Settings.',
+        description:
+          'Choose which sections appear in the cabinet bottom navigation and in what order. Hidden sections stay reachable from Settings.',
         maxHint: 'Up to {{count}} sections can be shown in the navigation.',
         locked: 'always',
         moveUp: 'Move up',
@@ -2887,7 +2979,8 @@ export const en = {
       },
       pwaIcon: {
         title: 'App icon (PWA)',
-        description: 'The icon and name shown when the cabinet is installed on a phone home screen.',
+        description:
+          'The icon and name shown when the cabinet is installed on a phone home screen.',
         urlPlaceholder: 'URL or upload a file',
         hint: 'Square PNG 512×512 (1024 ok), opaque background, logo with ~10% safe padding from the edges. Used as the home-screen icon (Android/iOS) and launch splash. If empty, the brand logo is used, otherwise the Reiwa icon.',
         previewEmpty: 'No icon',
@@ -2927,21 +3020,25 @@ export const en = {
       },
       cardLogo: {
         title: 'Card Logo',
-        description: 'Watermark glyph in the corner of the subscription card. Pick a built-in icon or upload your own.',
+        description:
+          'Watermark glyph in the corner of the subscription card. Pick a built-in icon or upload your own.',
         customUrl: 'Custom logo (URL or data:image)',
         customUrlPlaceholder: 'https://… or data:image/svg+xml;base64,…',
-        customHint: 'When a custom logo is set it replaces the glyph. SVG or PNG with a transparent background works best.',
+        customHint:
+          'When a custom logo is set it replaces the glyph. SVG or PNG with a transparent background works best.',
         clearCustom: 'Clear',
       },
       cardEffect: {
         title: 'Animated Card Background',
-        description: 'A live effect behind the subscription card. Pick an effect and tune its parameters.',
+        description:
+          'A live effect behind the subscription card. Pick an effect and tune its parameters.',
         opacity: 'Effect opacity',
         previewHint: 'The effect is shown live in the preview on the right.',
       },
       cardEffectSlots: {
         title: 'Background by card position',
-        description: 'Assign a different effect to each subscription card by creation order: slot 1 → first subscription, slot 2 → second, and so on. Subscriptions beyond the defined slots use the global card background above.',
+        description:
+          'Assign a different effect to each subscription card by creation order: slot 1 → first subscription, slot 2 → second, and so on. Subscriptions beyond the defined slots use the global card background above.',
         empty: 'No slots defined — every card uses the global card background above.',
         slotLabel: 'Slot {{index}}',
         removeSlot: 'Remove',
@@ -2954,7 +3051,8 @@ export const en = {
       },
       appBackground: {
         title: 'App Background',
-        description: 'The background behind the whole cabinet: plain colour, static gradient, texture, or animation. Rendered once, so it stays light on the device.',
+        description:
+          'The background behind the whole cabinet: plain colour, static gradient, texture, or animation. Rendered once, so it stays light on the device.',
         kinds: {
           none: 'None',
           gradient: 'Gradient',
@@ -2991,7 +3089,8 @@ export const en = {
       },
       iconColors: {
         title: 'Menu Icon Colors',
-        description: 'Section icons in the cabinet: each in its own colour, all in the theme colour, or a custom colour per icon.',
+        description:
+          'Section icons in the cabinet: each in its own colour, all in the theme colour, or a custom colour per icon.',
         mode_default: 'Default',
         mode_theme: 'Theme colour',
         mode_custom: 'Custom',
@@ -3027,7 +3126,8 @@ export const en = {
       },
       planCards: {
         title: 'Tariff cards',
-        description: 'Give each plan its own card look in the cabinet: gradient, accent and a texture (preset or uploaded image). Plans you leave untouched get a distinct auto gradient.',
+        description:
+          'Give each plan its own card look in the cabinet: gradient, accent and a texture (preset or uploaded image). Plans you leave untouched get a distinct auto gradient.',
         empty: 'No plans yet — create plans in the plan configurator first.',
         archived: 'archived',
         custom: 'custom',
@@ -3337,7 +3437,8 @@ export const en = {
       active: 'Active',
       disabled: 'Disabled',
       buttons: 'Buttons',
-      cannotConnectInfo: 'Notification and Mini App nodes can’t be linked manually — their routes are defined in the bot code.',
+      cannotConnectInfo:
+        'Notification and Mini App nodes can’t be linked manually — their routes are defined in the bot code.',
     },
     palette: 'Blocks',
     newScreen: 'New Screen',
@@ -3354,11 +3455,13 @@ export const en = {
     screenEditorHint: 'Select a screen on the canvas to edit its text and buttons',
     fields: {
       name: 'Name (internal)',
-      nameHint: 'Reserved names override built-in bot sub-menus: "help" → support sub-menu, "rules" → rules sub-menu, "invite" → referral program sub-menu. Any other name becomes a regular screen accessible via "Navigate to screen" buttons.',
+      nameHint:
+        'Reserved names override built-in bot sub-menus: "help" → support sub-menu, "rules" → rules sub-menu, "invite" → referral program sub-menu. Any other name becomes a regular screen accessible via "Navigate to screen" buttons.',
       textRu: 'Message text (RU)',
       textEn: 'Message text (EN)',
       parseMode: 'Format',
-      parseModeHint: 'HTML — formatting tags (<b>, <i>, <u>, <s>, <code>, <pre>, <a>, <blockquote>) and premium emoji. "Plain" — text is sent as-is.',
+      parseModeHint:
+        'HTML — formatting tags (<b>, <i>, <u>, <s>, <code>, <pre>, <a>, <blockquote>) and premium emoji. "Plain" — text is sent as-is.',
       parseModes: {
         HTML: 'HTML',
         PLAIN: 'Plain',
@@ -3371,14 +3474,17 @@ export const en = {
       textEnPlaceholder: 'Message text in English…',
       mediaHint: 'Click to upload a screen banner (image or video)',
       placeholders: {
-        invite: 'Available placeholders: {{link}} — user referral link. System buttons «📤 Share» / «📋 Copy» / «◀️ Back to menu» are appended automatically.',
-        rules: 'Available placeholder: {{rulesLink}} — service rules URL. When the URL is set in Platform Policy, the bot adds an «📜 Open rules» button. «◀️ Back to menu» is always appended. Add your own buttons via «Add button».',
+        invite:
+          'Available placeholders: {{link}} — user referral link. System buttons «📤 Share» / «📋 Copy» / «◀️ Back to menu» are appended automatically.',
+        rules:
+          'Available placeholder: {{rulesLink}} — service rules URL. When the URL is set in Platform Policy, the bot adds an «📜 Open rules» button. «◀️ Back to menu» is always appended. Add your own buttons via «Add button».',
         help: 'Available placeholder: {{supportHandle}} — support @username. The main-menu «🆘 Help» button opens the support chat directly; this screen is shown only when no support handle is configured.',
       },
     },
     systemButtons: {
       title: 'System buttons',
-      description: 'These buttons are appended automatically by the bot — their action depends on user data (referral link, support handle) and is fixed. You can edit their label (RU/EN) and give them a premium emoji (icon) below. To add your own buttons, use «Add button» below.',
+      description:
+        'These buttons are appended automatically by the bot — their action depends on user data (referral link, support handle) and is fixed. You can edit their label (RU/EN) and give them a premium emoji (icon) below. To add your own buttons, use «Add button» below.',
       back: '◀️ Back to menu',
       labelRu: 'Label (RU)',
       labelEn: 'Label (EN)',
@@ -3405,7 +3511,8 @@ export const en = {
       url: 'URL',
       webAppUrl: 'Mini App URL',
       callbackAction: 'Callback action',
-      supportUrlHint: 'Opens the Telegram support chat (`BOT_SUPPORT_USERNAME` from .env) with a prefilled "Hello! I need help." message. The bot fills in the handle and text automatically.',
+      supportUrlHint:
+        'Opens the Telegram support chat (`BOT_SUPPORT_USERNAME` from .env) with a prefilled "Hello! I need help." message. The bot fills in the handle and text automatically.',
       row: 'Row',
       col: 'Pos',
       labelRuPlaceholder: 'RU',
@@ -3415,7 +3522,8 @@ export const en = {
       manualEmojiHint: 'Get a Telegram custom emoji ID from the @stickers bot',
       emojiTabPacks: 'Packs',
       emojiPacksEmpty: 'No packs yet — import them on the "Emoji packs" page',
-      emojiPacksHint: 'The button icon comes from the emoji-pack registry. Shown to bot owners with Telegram Premium.',
+      emojiPacksHint:
+        'The button icon comes from the emoji-pack registry. Shown to bot owners with Telegram Premium.',
     },
     actions: {
       NAVIGATE: 'Navigate to screen',
@@ -3450,21 +3558,26 @@ export const en = {
       emojis: 'Emojis',
       texts: 'Texts',
       savePositions: 'Save positions',
-      saveHint: 'Saves the layout of every block on the canvas — screens and notification / Mini App nodes. Texts, buttons and emojis are persisted on every edit.',
+      saveHint:
+        'Saves the layout of every block on the canvas — screens and notification / Mini App nodes. Texts, buttons and emojis are persisted on every edit.',
       publishFlow: 'Publish flow',
-      publishHint: 'Publishes the draft screen graph as a new version and busts the bot cache in the same action — no separate refresh needed. Reply keyboard / emojis / texts are persisted automatically.',
+      publishHint:
+        'Publishes the draft screen graph as a new version and busts the bot cache in the same action — no separate refresh needed. Reply keyboard / emojis / texts are persisted automatically.',
       autoSaved: 'Auto-saved',
       fetchBlocks: 'Fetch blocks',
-      fetchBlocksHint: 'Restores the bot standard built-in screens (help / rules / invite) if any were removed. Existing screens are untouched.',
+      fetchBlocksHint:
+        'Restores the bot standard built-in screens (help / rules / invite) if any were removed. Existing screens are untouched.',
       fetchBlocksAria: 'Fetch the bot standard blocks',
       fetchBlocksAdded: 'Added {{count}} block(s)',
       fetchBlocksNone: 'All standard blocks are already present',
       fetchBlocksError: 'Failed to fetch blocks',
       refreshBot: 'Refresh bot',
-      refreshBotHint: 'Drops the bot cache and forces it to re-fetch the live configuration from admin. Saves trigger this automatically, but the button helps when data was changed outside admin or for debugging.',
+      refreshBotHint:
+        'Drops the bot cache and forces it to re-fetch the live configuration from admin. Saves trigger this automatically, but the button helps when data was changed outside admin or for debugging.',
       refreshBotAria: 'Force-refresh the bot cache',
       refreshBotSuccess: 'Bot picked up the fresh config',
-      refreshBotUnreachable: 'Bot is unreachable — changes will land within 5 minutes (standard TTL)',
+      refreshBotUnreachable:
+        'Bot is unreachable — changes will land within 5 minutes (standard TTL)',
       refreshBotError: 'Failed to send the refresh request',
       banner: 'Banner',
     },
@@ -3481,25 +3594,34 @@ export const en = {
       nodeHint: 'Always visible under the chat input. Click to edit.',
       empty: 'No buttons yet — pre-seeded keyboard will appear after the bot first boots.',
       title: 'Reply keyboard',
-      subtitle: 'Persistent menu under the chat input. Reorder, hide, or rename without redeploying the bot.',
-      autoSaveHint: 'Changes go live immediately — no separate publish step needed. Reiwa picks them up on its 5-minute refresh.',
-      cannotConnect: 'Reply-keyboard buttons are global — they cannot link to a specific screen via edges.',
+      subtitle:
+        'Persistent menu under the chat input. Reorder, hide, or rename without redeploying the bot.',
+      autoSaveHint:
+        'Changes go live immediately — no separate publish step needed. Reiwa picks them up on its 5-minute refresh.',
+      cannotConnect:
+        'Reply-keyboard buttons are global — they cannot link to a specific screen via edges.',
       bannerAlt: 'Bot banner preview',
       bannerPlaceholder: 'No banner set — use the «🖼️ Banner» button at the top to upload one',
       bannerSection: {
         title: 'Bot banner',
-        subtitle: 'Banner image for the bot. Pick from the library, upload your own, or clear it. Applies immediately — reiwa picks it up on the next refresh.',
+        subtitle:
+          'Banner image for the bot. Pick from the library, upload your own, or clear it. Applies immediately — reiwa picks it up on the next refresh.',
         applyAll: 'One banner for all screens',
-        applyAllHint: 'On — the bot uses this banner as a single banner for every screen. Off — each screen and notification can carry its own banner.',
-        defaultInUse: 'No custom banner set — the bot uses the bundled project default (shown below).',
+        applyAllHint:
+          'On — the bot uses this banner as a single banner for every screen. Off — each screen and notification can carry its own banner.',
+        defaultInUse:
+          'No custom banner set — the bot uses the bundled project default (shown below).',
         saved: 'Banner saved',
         saveFailed: 'Failed to save the banner',
       },
     },
     drawers: {
-      emojisDescription: 'Premium custom_emoji_id mapping. Reiwa picks these up on its 5-minute refresh.',
-      textsDescription: 'Copy strings (welcome messages, banners, support text…). Edits propagate to the bot on its next refresh.',
-      bannerDescription: 'Image sent as the first message on /start. Upload a file — it persists on the admin host and reaches the bot automatically.',
+      emojisDescription:
+        'Premium custom_emoji_id mapping. Reiwa picks these up on its 5-minute refresh.',
+      textsDescription:
+        'Copy strings (welcome messages, banners, support text…). Edits propagate to the bot on its next refresh.',
+      bannerDescription:
+        'Image sent as the first message on /start. Upload a file — it persists on the admin host and reaches the bot automatically.',
     },
   },
   'screen.cabinet': 'Cabinet (external URL)',
@@ -3508,7 +3630,8 @@ export const en = {
   'screen.help': 'Support',
   botBanner: {
     title: 'Bot banner',
-    description: 'The image is sent as the first message on /start. Supported formats: PNG, JPEG, WebP, GIF. Max file size: 8 MB.',
+    description:
+      'The image is sent as the first message on /start. Supported formats: PNG, JPEG, WebP, GIF. Max file size: 8 MB.',
     pickHint: 'Click to choose a file',
     pickAria: 'Choose banner image',
     formats: 'PNG, JPEG, WebP or GIF, up to 8 MB',
@@ -3521,7 +3644,8 @@ export const en = {
     uploadErrorGeneric: 'Upload failed',
     fileTooLarge: 'File is too large (8 MB max)',
     unsupportedType: 'Unsupported format — need PNG, JPEG, WebP or GIF',
-    urlHint: 'This URL is saved under the `bot.banner_url` BotText key. Reiwa downloads the image and forwards it to Telegram on every /start.',
+    urlHint:
+      'This URL is saved under the `bot.banner_url` BotText key. Reiwa downloads the image and forwards it to Telegram on every /start.',
   },
   botConfigPage: {
     title: 'Bot configuration',
@@ -3534,10 +3658,12 @@ export const en = {
     },
     buttons: {
       helpText: 'Drag the handle to reorder. Hidden buttons are skipped in the Telegram keyboard.',
-      empty: 'No buttons yet. Create the first one — the default keyboard was seeded on first boot.',
+      empty:
+        'No buttons yet. Create the first one — the default keyboard was seeded on first boot.',
       create: 'Create button',
       createTitle: 'New button',
-      createDescription: 'The button id is hard-wired in reiwa and selects which callbackQuery handler picks it up. Use a stable short slug.',
+      createDescription:
+        'The button id is hard-wired in reiwa and selects which callbackQuery handler picks it up. Use a stable short slug.',
       editTitle: 'Edit button',
       cancel: 'Cancel',
       save: 'Save',
@@ -3562,11 +3688,15 @@ export const en = {
             SUPPORT_URL: 'Support chat',
           },
           hint: {
-            CALLBACK: 'Plain inline button. Reiwa handles the press internally — useful when the button id matches a screen shortId or you intercept the callback in code.',
+            CALLBACK:
+              'Plain inline button. Reiwa handles the press internally — useful when the button id matches a screen shortId or you intercept the callback in code.',
             URL: 'Opens an external URL in the in-app Telegram browser. Only https:// is accepted.',
-            WEBAPP: 'Opens a Telegram Mini App. URL must be https:// and the domain must be linked in @BotFather.',
-            SCREEN: 'Jumps to a bot screen from the navigation graph. Pick the screen from the list below.',
-            SUPPORT_URL: 'Opens the support chat via t.me/<username>?text=… . The username is taken from BOT_SUPPORT_USERNAME in reiwa .env.',
+            WEBAPP:
+              'Opens a Telegram Mini App. URL must be https:// and the domain must be linked in @BotFather.',
+            SCREEN:
+              'Jumps to a bot screen from the navigation graph. Pick the screen from the list below.',
+            SUPPORT_URL:
+              'Opens the support chat via t.me/<username>?text=… . The username is taken from BOT_SUPPORT_USERNAME in reiwa .env.',
           },
         },
         actionTarget: {
@@ -3581,7 +3711,8 @@ export const en = {
         },
         iconCustomEmojiId: 'Telegram custom emoji ID',
         iconCustomEmojiIdPlaceholder: '5278229211367179752',
-        iconCustomEmojiIdHint: 'Telegram premium emoji shown before the button label. Bot API 9.4+ supports this on inline-keyboard buttons when the bot owner has Telegram Premium. Get the ID from @stickers, or copy it from a custom emoji you sent to yourself in Telegram.',
+        iconCustomEmojiIdHint:
+          'Telegram premium emoji shown before the button label. Bot API 9.4+ supports this on inline-keyboard buttons when the bot owner has Telegram Premium. Get the ID from @stickers, or copy it from a custom emoji you sent to yourself in Telegram.',
         visible: 'Visible',
         visibleHint: 'When off, the button is not rendered in the keyboard',
         onePerRow: 'Own row',
@@ -3605,7 +3736,8 @@ export const en = {
       },
     },
     emojis: {
-      helpText: 'EMOJI_KEY ↔ unicode mapping with an optional Telegram premium custom_emoji_id. Reiwa prefers the premium id when present.',
+      helpText:
+        'EMOJI_KEY ↔ unicode mapping with an optional Telegram premium custom_emoji_id. Reiwa prefers the premium id when present.',
       empty: 'No emojis configured yet.',
       create: 'Create emoji',
       createTitle: 'New emoji',
@@ -3645,7 +3777,8 @@ export const en = {
       emptyValue: 'empty',
       create: 'Create text',
       createTitle: 'New text',
-      createDescription: 'The key is the identifier reiwa fetches the text by, e.g. bot.banner_url or welcome.title.ru.',
+      createDescription:
+        'The key is the identifier reiwa fetches the text by, e.g. bot.banner_url or welcome.title.ru.',
       editTitle: 'Edit text',
       cancel: 'Cancel',
       save: 'Save',
@@ -3667,9 +3800,11 @@ export const en = {
         keyHint: 'Letters, digits, dots, underscores, and dashes.',
         value: 'Value',
         visible: 'Use in bot',
-        visibleHint: 'When off — the text is hidden in the bot (the greeting is not shown; system strings fall back to the built-in copy)',
+        visibleHint:
+          'When off — the text is hidden in the bot (the greeting is not shown; system strings fall back to the built-in copy)',
         enToggle: 'English version',
-        enToggleHint: 'Add an English translation — users with English locale will see it. Paste the already-translated text.',
+        enToggleHint:
+          'Add an English translation — users with English locale will see it. Paste the already-translated text.',
         enValue: 'Value (EN)',
         preview: 'Preview',
       },
@@ -3752,7 +3887,8 @@ export const en = {
     },
     userEvents: {
       title: 'User events',
-      subtitle: 'User notifications (subscription expiry, referrals, partner payouts, manual messages)',
+      subtitle:
+        'User notifications (subscription expiry, referrals, partner payouts, manual messages)',
       empty: 'No user events found.',
       columns: {
         user: 'User',
@@ -3801,4 +3937,4 @@ export const en = {
     },
     save: 'Save',
   },
-} as const
+} as const;

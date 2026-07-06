@@ -1,25 +1,22 @@
-import i18n from 'i18next'
-import { initReactI18next } from 'react-i18next'
+import i18n from 'i18next';
+import { initReactI18next } from 'react-i18next';
 
-import { getStoredLocale } from '@/lib/locale-storage'
+import { getStoredLocale } from '@/lib/locale-storage';
 
-type SupportedLocale = 'ru' | 'en'
+type SupportedLocale = 'ru' | 'en';
 
-const initialLocale: SupportedLocale = getStoredLocale() === 'ru' ? 'ru' : 'en'
+const initialLocale: SupportedLocale = getStoredLocale() === 'ru' ? 'ru' : 'en';
 
-const loadedLocales = new Set<SupportedLocale>()
+const loadedLocales = new Set<SupportedLocale>();
 
 async function loadLocale(locale: SupportedLocale): Promise<void> {
-  if (loadedLocales.has(locale)) return
+  if (loadedLocales.has(locale)) return;
   // Vite splits each dynamic import into its own chunk; only the active
   // language reaches the user's browser on first paint. The second
   // language is fetched on demand (operator presses the language menu).
-  const dict =
-    locale === 'ru'
-      ? (await import('@/i18n/ru')).ru
-      : (await import('@/i18n/en')).en
-  i18n.addResourceBundle(locale, 'translation', dict, true, true)
-  loadedLocales.add(locale)
+  const dict = locale === 'ru' ? (await import('@/i18n/ru')).ru : (await import('@/i18n/en')).en;
+  i18n.addResourceBundle(locale, 'translation', dict, true, true);
+  loadedLocales.add(locale);
 }
 
 void i18n.use(initReactI18next).init({
@@ -29,7 +26,7 @@ void i18n.use(initReactI18next).init({
   interpolation: {
     escapeValue: false,
   },
-})
+});
 
 // Pre-load the initial language before first paint. Exposed as a promise so
 // the bootstrap (main.tsx) can await it — otherwise `t()` returns raw keys
@@ -37,21 +34,21 @@ void i18n.use(initReactI18next).init({
 // the dynamically-imported locale chunk lands, which is visible on slower
 // mobile/iOS networks. Subsequent changeLanguage() calls load lazily via the
 // languageChanged handler below.
-export const i18nReady: Promise<void> = loadLocale(initialLocale)
+export const i18nReady: Promise<void> = loadLocale(initialLocale);
 
 i18n.on('languageChanged', (lng: string): void => {
   if (lng === 'ru' || lng === 'en') {
-    void loadLocale(lng)
+    void loadLocale(lng);
     // Re-hydrate any feature bundles that have been loaded for the
     // previous language so the user sees translated keys immediately
     // after switching the UI language.
     for (const feature of loadedFeatureBundles) {
-      void loadFeatureBundle(feature)
+      void loadFeatureBundle(feature);
     }
   }
-})
+});
 
-export { i18n }
+export { i18n };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Feature bundles (lazy-loaded namespaces)
@@ -82,9 +79,10 @@ export type I18nFeature =
   | 'automations'
   | 'botMap'
   | 'advertising'
+  | 'subpageConfig';
 
-const loadedFeatureBundles = new Set<I18nFeature>()
-const featureLoadPromises = new Map<string, Promise<void>>()
+const loadedFeatureBundles = new Set<I18nFeature>();
+const featureLoadPromises = new Map<string, Promise<void>>();
 
 async function fetchFeatureBundle(
   feature: I18nFeature,
@@ -94,75 +92,79 @@ async function fetchFeatureBundle(
     case 'appearance':
       return locale === 'ru'
         ? (await import('@/i18n/features/appearance.ru')).ru
-        : (await import('@/i18n/features/appearance.en')).en
+        : (await import('@/i18n/features/appearance.en')).en;
     case 'userDetail':
       return locale === 'ru'
         ? (await import('@/i18n/features/userDetail.ru')).ru
-        : (await import('@/i18n/features/userDetail.en')).en
+        : (await import('@/i18n/features/userDetail.en')).en;
     case 'platformSettings':
       return locale === 'ru'
         ? (await import('@/i18n/features/platformSettings.ru')).ru
-        : (await import('@/i18n/features/platformSettings.en')).en
+        : (await import('@/i18n/features/platformSettings.en')).en;
     case 'notifications':
       return locale === 'ru'
         ? (await import('@/i18n/features/notifications.ru')).ru
-        : (await import('@/i18n/features/notifications.en')).en
+        : (await import('@/i18n/features/notifications.en')).en;
     case 'dashboard':
       return locale === 'ru'
         ? (await import('@/i18n/features/dashboard.ru')).ru
-        : (await import('@/i18n/features/dashboard.en')).en
+        : (await import('@/i18n/features/dashboard.en')).en;
     case 'remnawave':
       return locale === 'ru'
         ? (await import('@/i18n/features/remnawave.ru')).ru
-        : (await import('@/i18n/features/remnawave.en')).en
+        : (await import('@/i18n/features/remnawave.en')).en;
     case 'payments':
       return locale === 'ru'
         ? (await import('@/i18n/features/payments.ru')).ru
-        : (await import('@/i18n/features/payments.en')).en
+        : (await import('@/i18n/features/payments.en')).en;
     case 'twoFactor':
       return locale === 'ru'
         ? (await import('@/i18n/features/twoFactor.ru')).ru
-        : (await import('@/i18n/features/twoFactor.en')).en
+        : (await import('@/i18n/features/twoFactor.en')).en;
     case 'imports':
       return locale === 'ru'
         ? (await import('@/i18n/features/imports.ru')).ru
-        : (await import('@/i18n/features/imports.en')).en
+        : (await import('@/i18n/features/imports.en')).en;
     case 'analytics':
       return locale === 'ru'
         ? (await import('@/i18n/features/analytics.ru')).ru
-        : (await import('@/i18n/features/analytics.en')).en
+        : (await import('@/i18n/features/analytics.en')).en;
     case 'broadcast':
       return locale === 'ru'
         ? (await import('@/i18n/features/broadcast.ru')).ru
-        : (await import('@/i18n/features/broadcast.en')).en
+        : (await import('@/i18n/features/broadcast.en')).en;
     case 'automations':
       return locale === 'ru'
         ? (await import('@/i18n/features/automations.ru')).ru
-        : (await import('@/i18n/features/automations.en')).en
+        : (await import('@/i18n/features/automations.en')).en;
     case 'botMap':
       return locale === 'ru'
         ? (await import('@/i18n/features/botMap.ru')).ru
-        : (await import('@/i18n/features/botMap.en')).en
+        : (await import('@/i18n/features/botMap.en')).en;
     case 'advertising':
       return locale === 'ru'
         ? (await import('@/i18n/features/advertising.ru')).ru
-        : (await import('@/i18n/features/advertising.en')).en
+        : (await import('@/i18n/features/advertising.en')).en;
+    case 'subpageConfig':
+      return locale === 'ru'
+        ? (await import('@/i18n/features/subpageConfig.ru')).ru
+        : (await import('@/i18n/features/subpageConfig.en')).en;
   }
 }
 
 export async function loadFeatureBundle(feature: I18nFeature): Promise<void> {
-  const lng = (i18n.language as SupportedLocale) ?? initialLocale
-  const cacheKey = `${feature}|${lng}`
-  const existing = featureLoadPromises.get(cacheKey)
-  if (existing) return existing
+  const lng = (i18n.language as SupportedLocale) ?? initialLocale;
+  const cacheKey = `${feature}|${lng}`;
+  const existing = featureLoadPromises.get(cacheKey);
+  if (existing) return existing;
 
   const promise = (async () => {
-    const dict = await fetchFeatureBundle(feature, lng)
-    i18n.addResourceBundle(lng, 'translation', dict, true, true)
-    loadedFeatureBundles.add(feature)
-  })()
-  featureLoadPromises.set(cacheKey, promise)
-  return promise
+    const dict = await fetchFeatureBundle(feature, lng);
+    i18n.addResourceBundle(lng, 'translation', dict, true, true);
+    loadedFeatureBundles.add(feature);
+  })();
+  featureLoadPromises.set(cacheKey, promise);
+  return promise;
 }
 
 /**
@@ -178,7 +180,7 @@ export function withFeatureBundle<T>(
   importer: () => Promise<T>,
 ): () => Promise<T> {
   return async () => {
-    const [mod] = await Promise.all([importer(), loadFeatureBundle(feature)])
-    return mod
-  }
+    const [mod] = await Promise.all([importer(), loadFeatureBundle(feature)]);
+    return mod;
+  };
 }
