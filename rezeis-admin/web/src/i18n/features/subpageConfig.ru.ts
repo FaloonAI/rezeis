@@ -57,6 +57,7 @@ export const ru = {
     actions: {
       save: 'Сохранить',
       reset: 'Сбросить изменения',
+      download: 'Скачать JSON',
     },
     branding: {
       title: 'Брендинг',
@@ -107,6 +108,7 @@ export const ru = {
       saved: 'Конфиг страницы подписки сохранён',
       saveFailed: 'Не удалось сохранить конфиг',
       reset: 'Изменения сброшены',
+      downloaded: 'Конфиг скачан (subpage-config.json)',
       fixJson: 'Исправьте ошибки JSON перед сохранением',
       invalid: 'Конфиг невалиден',
     },

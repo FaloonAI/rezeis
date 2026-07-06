@@ -57,6 +57,7 @@ export const en = {
     actions: {
       save: 'Save',
       reset: 'Reset changes',
+      download: 'Download JSON',
     },
     branding: {
       title: 'Branding',
@@ -107,6 +108,7 @@ export const en = {
       saved: 'Subscription page config saved',
       saveFailed: 'Failed to save config',
       reset: 'Changes reset',
+      downloaded: 'Config downloaded (subpage-config.json)',
       fixJson: 'Fix the JSON errors before saving',
       invalid: 'Config is invalid',
     },

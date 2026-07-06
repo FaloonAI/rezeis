@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Globe, RotateCcw, Save } from 'lucide-react';
+import { Download, Globe, RotateCcw, Save } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -114,6 +114,18 @@ export default function SubpageConfigPage() {
     }
   }
 
+  function handleDownload(): void {
+    if (!config) return;
+    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'subpage-config.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(t('subpageConfigPage.toasts.downloaded'));
+  }
+
   if (isLoading || !config) {
     return (
       <div className="space-y-4">
@@ -134,6 +146,9 @@ export default function SubpageConfigPage() {
             <p className="text-muted-foreground">{t('subpageConfigPage.subtitle')}</p>
           </div>
           <div className="flex gap-2">
+            <Button variant="outline" onClick={handleDownload}>
+              <Download className="mr-2 h-4 w-4" /> {t('subpageConfigPage.actions.download')}
+            </Button>
             <Button variant="outline" onClick={handleReset} disabled={saveMutation.isPending}>
               <RotateCcw className="mr-2 h-4 w-4" /> {t('subpageConfigPage.actions.reset')}
             </Button>
