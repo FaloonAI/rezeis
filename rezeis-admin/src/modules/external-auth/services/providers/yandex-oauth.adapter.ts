@@ -57,7 +57,10 @@ export class YandexOAuthAdapter implements OAuthProviderAdapter {
       client_id: config.clientId,
       client_secret: config.clientSecret,
     });
-    if (input.codeVerifier) form.set('code_verifier', input.codeVerifier);
+    // PKCE all-or-nothing: only send the verifier when the config enabled PKCE
+    // (a matching `code_challenge` was sent on authorize). Sending a verifier
+    // without a challenge makes the token endpoint reject the exchange.
+    if (config.usePkce && input.codeVerifier) form.set('code_verifier', input.codeVerifier);
 
     const tokenResp = await firstValueFrom(
       this.httpService.post<YandexTokenResponse>(TOKEN_URL, form.toString(), {

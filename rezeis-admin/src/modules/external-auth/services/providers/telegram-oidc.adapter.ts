@@ -66,7 +66,11 @@ export class TelegramOidcAdapter implements OAuthProviderAdapter {
       client_id: config.clientId,
       client_secret: config.clientSecret,
     });
-    if (input.codeVerifier) form.set('code_verifier', input.codeVerifier);
+    // Only attach the PKCE verifier when the config actually enabled PKCE (so
+    // a `code_challenge` was sent on the authorize step). reiwa always mints a
+    // verifier, but sending it without a prior challenge makes the OIDC token
+    // endpoint reject the exchange (→ opaque 500). Keep PKCE all-or-nothing.
+    if (config.usePkce && input.codeVerifier) form.set('code_verifier', input.codeVerifier);
 
     const tokenResp = await firstValueFrom(
       this.httpService.post<TelegramTokenResponse>(TOKEN_URL, form.toString(), {

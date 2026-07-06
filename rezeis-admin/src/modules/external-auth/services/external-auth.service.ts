@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -74,8 +75,21 @@ export class ExternalAuthService {
     input: ExchangeInput,
   ): Promise<ExternalAuthResolution> {
     const adapter = this.requireOAuthAdapter(provider);
-    const config = await this.configService.getEnabledAdapterConfig(provider);
-    const profile = await adapter.exchange(config, input);
+    let profile: ExternalUserProfile;
+    try {
+      const config = await this.configService.getEnabledAdapterConfig(provider);
+      profile = await adapter.exchange(config, input);
+    } catch (err: unknown) {
+      // Preserve intentional 4xx (disabled / misconfigured / unauthorized). Any
+      // other failure — a client secret that can't be decrypted, or the provider
+      // token endpoint rejecting the code (invalid_grant / invalid_client /
+      // redirect_uri mismatch) — must NOT surface as an opaque 500: log the real
+      // cause and fail with a clean 401 so the callback shows a normal "sign-in
+      // failed" while the operator can see exactly why in the server logs.
+      if (err instanceof HttpException) throw err;
+      this.logger.error(`OAuth exchange failed for ${provider}: ${describeExchangeError(err)}`);
+      throw new UnauthorizedException(`External sign-in failed for ${provider}`);
+    }
     return this.resolve(profile);
   }
 
@@ -338,6 +352,34 @@ export class ExternalAuthService {
         lastUsedAt: new Date(),
       },
     });
+  }
+}
+
+/**
+ * Builds a diagnostic string from an OAuth-exchange failure — surfacing the
+ * provider token-endpoint error body (`{ error, error_description }`) and HTTP
+ * status when it's an axios error, so the operator can tell an `invalid_client`
+ * (wrong secret) from an `invalid_grant` (reused/expired code) or a decrypt
+ * failure. Never throws.
+ */
+function describeExchangeError(err: unknown): string {
+  if (typeof err === 'object' && err !== null) {
+    const e = err as { message?: unknown; response?: { status?: unknown; data?: unknown } };
+    const status = e.response?.status;
+    const statusStr = status !== undefined ? ` status=${String(status)}` : '';
+    const dataStr = e.response?.data !== undefined ? ` body=${safeJson(e.response.data)}` : '';
+    const msg = typeof e.message === 'string' ? e.message : String(err);
+    return `${msg}${statusStr}${dataStr}`;
+  }
+  return String(err);
+}
+
+/** JSON-stringify without throwing, truncated to keep logs bounded. */
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value).slice(0, 500);
+  } catch {
+    return '[unserializable]';
   }
 }
 
