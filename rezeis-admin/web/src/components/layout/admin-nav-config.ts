@@ -30,6 +30,7 @@ import {
   LogIn,
   Map as MapIcon,
   Globe,
+  LayoutTemplate,
 } from 'lucide-react';
 
 import type { SidebarGroupOrder } from '@/stores/sidebar-store';
@@ -116,6 +117,12 @@ export const navGroups: ReadonlyArray<NavGroup> = [
         path: '/subpage-config',
         icon: Globe,
         requiredPermission: { resource: 'subpage_config', action: 'view' },
+      },
+      {
+        key: 'landingBuilder',
+        path: '/landing-builder',
+        icon: LayoutTemplate,
+        requiredPermission: { resource: 'landing_config', action: 'view' },
       },
       {
         key: 'gateways',

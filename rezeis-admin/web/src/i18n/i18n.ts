@@ -79,7 +79,8 @@ export type I18nFeature =
   | 'automations'
   | 'botMap'
   | 'advertising'
-  | 'subpageConfig';
+  | 'subpageConfig'
+  | 'landingBuilder';
 
 const loadedFeatureBundles = new Set<I18nFeature>();
 const featureLoadPromises = new Map<string, Promise<void>>();
@@ -149,6 +150,10 @@ async function fetchFeatureBundle(
       return locale === 'ru'
         ? (await import('@/i18n/features/subpageConfig.ru')).ru
         : (await import('@/i18n/features/subpageConfig.en')).en;
+    case 'landingBuilder':
+      return locale === 'ru'
+        ? (await import('@/i18n/features/landingBuilder.ru')).ru
+        : (await import('@/i18n/features/landingBuilder.en')).en;
   }
 }
 

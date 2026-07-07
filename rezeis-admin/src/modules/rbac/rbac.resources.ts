@@ -96,6 +96,10 @@ export const RBAC_RESOURCES: Readonly<Record<string, readonly RbacAction[]>> = {
   /// Subscription-page config (branding / app catalog / baseSettings /
   /// translations) consumed by rezeis-subpage.
   subpage_config: ['view', 'edit'],
+  /// Web landing-page builder — the operator-authored marketing page shown to
+  /// unauthenticated web visitors before sign-in (consumed by reiwa). `edit`
+  /// covers save-draft, publish and rollback.
+  landing_config: ['view', 'edit'],
   /// SMTP email settings + connection test / test-send.
   email: ['view', 'edit'],
 

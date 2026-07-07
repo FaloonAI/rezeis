@@ -113,6 +113,9 @@ const ExternalAuthPage = lazy(() => import('@/features/external-auth/external-au
 const SubpageConfigPage = lazy(
   withFeatureBundle('subpageConfig', () => import('@/features/subpage-config/subpage-config-page')),
 );
+const LandingBuilderPage = lazy(
+  withFeatureBundle('landingBuilder', () => import('@/features/landing-builder/landing-builder-page')),
+);
 const ReferralSettingsPage = lazy(() => import('@/features/settings/referral-settings-page'));
 const PartnerSettingsPage = lazy(() => import('@/features/settings/partner-settings-page'));
 // Backup UI is now embedded as a tab in /settings/panel; old route redirects.
@@ -194,6 +197,7 @@ export const router = createBrowserRouter([
           { path: 'settings', element: withSuspense(<SettingsPage />) },
           { path: 'web-reiwa', element: withSuspense(<WebReiwaPage />) },
           { path: 'subpage-config', element: withSuspense(<SubpageConfigPage />) },
+          { path: 'landing-builder', element: withSuspense(<LandingBuilderPage />) },
           { path: 'settings/api-tokens', element: withSuspense(<ApiTokensPage />) },
           { path: 'settings/panel', element: withSuspense(<PanelSettingsHub />) },
           { path: 'bot-config', element: <Navigate to="/bot-map" replace /> },

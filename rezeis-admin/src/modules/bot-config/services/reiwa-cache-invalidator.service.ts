@@ -71,11 +71,22 @@ export class ReiwaCacheInvalidatorService {
     return this.dispatch('reiwa.branding.invalidate', { reason });
   }
 
+  /**
+   * Notify reiwa that the published web-landing config changed so the reiwa
+   * edge drops its cached `/api/v1/landing` payload and the next visitor sees
+   * the freshly-published landing without waiting for the HTTP cache TTL.
+   * Called explicitly on publish/rollback (never on draft save). Best-effort.
+   */
+  public async invalidateLanding(reason: string): Promise<boolean> {
+    return this.dispatch('reiwa.landing.invalidate', { reason });
+  }
+
   private async dispatch(
     event:
       | 'reiwa.bot.invalidate'
       | 'reiwa.platform.policy_invalidated'
-      | 'reiwa.branding.invalidate',
+      | 'reiwa.branding.invalidate'
+      | 'reiwa.landing.invalidate',
     metadata: Record<string, unknown>,
   ): Promise<boolean> {
     if (this.endpoint === null || this.secret === null) return false;

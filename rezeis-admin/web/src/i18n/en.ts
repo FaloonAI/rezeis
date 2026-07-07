@@ -127,6 +127,7 @@ export const en = {
       platform: 'Platform',
       webReiwa: 'WEB Reiwa',
       subpageConfig: 'Subscription page',
+      landingBuilder: 'Web landing',
       gateways: 'Payment gateways',
       externalAuth: 'External auth',
       panelSettings: 'Panel settings',

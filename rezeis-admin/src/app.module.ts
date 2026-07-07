@@ -65,6 +65,7 @@ import { ProfileSyncModule } from './modules/profile-sync/profile-sync.module';
 import { PromocodesModule } from './modules/promocodes/promocodes.module';
 import { InternalPushModule } from './modules/push/internal-push.module';
 import { RbacModule } from './modules/rbac/rbac.module';
+import { LandingConfigModule } from './modules/landing-config/landing-config.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { ReferralsModule } from './modules/referrals/referrals.module';
 import { SettingsModule } from './modules/settings/settings.module';
@@ -177,6 +178,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     PaymentAnalyticsModule,
     InternalUserModule,
     LinkingModule,
+    LandingConfigModule,
     SettingsModule,
     SubpageConfigModule,
     UsersModule,

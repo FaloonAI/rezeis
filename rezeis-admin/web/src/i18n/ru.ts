@@ -127,6 +127,7 @@
       platform: 'Платформа',
       webReiwa: 'WEB Reiwa',
       subpageConfig: 'Страница подписки',
+      landingBuilder: 'Веб-лендинг',
       gateways: 'Платёжные шлюзы',
       externalAuth: 'Внешняя авторизация',
       panelSettings: 'Настройки панели',

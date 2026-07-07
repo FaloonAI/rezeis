@@ -1786,6 +1786,45 @@ model SubpageConfig {
   @@map("subpage_configs")
 }
 
+/// Web landing-page builder — singleton draft config the operator is editing
+/// (`key = "default"`). The public site serves only the PUBLISHED revision
+/// (see `LandingRevision`); this row holds the in-progress draft plus a pointer
+/// to the currently-published revision and an optimistic-concurrency `version`.
+/// Mirrors the `SubpageConfig` singleton-JSON pattern. rezeis-admin is the
+/// source of truth; reiwa fetches the effective published config via the
+/// internal endpoint.
+model LandingConfig {
+  id        String   @id @default(cuid()) @map("id")
+  /// Singleton guard — always "default"; unique so only one row can exist.
+  key       String   @unique @default("default") @map("key")
+  /// Draft config JSON (schemaVersion + enabled + theme + sections).
+  draft     Json     @map("draft")
+  /// FK to the currently published revision (null until first publish).
+  publishedRevisionId String? @map("published_revision_id")
+  /// Optimistic-concurrency token: bumped on every successful draft save. A
+  /// save carrying a stale `version` is rejected 409 so a concurrent second
+  /// editor cannot silently clobber the first.
+  version   Int      @default(0) @map("version")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("landing_configs")
+}
+
+/// Append-only published landing snapshots (immutable). The effective public
+/// config is the revision referenced by `LandingConfig.publishedRevisionId`.
+/// Rollback copies an old snapshot into a NEW revision and repoints — history
+/// is never mutated. Retention is bounded (newest N kept, older pruned).
+model LandingRevision {
+  id            String   @id @default(cuid()) @map("id")
+  schemaVersion Int      @map("schema_version")
+  config        Json     @map("config")
+  publishedBy   String?  @map("published_by")
+  publishedAt   DateTime @default(now()) @map("published_at") @db.Timestamptz(3)
+
+  @@index([publishedAt])
+  @@map("landing_revisions")
+}
+
 // =============================================================================
 //  PROMOCODES
 // =============================================================================
