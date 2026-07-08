@@ -15,15 +15,11 @@ import {
   AdSignupBonusConfig,
 } from '../interfaces/advertising.interface';
 import { AdvertisingConfiguration } from '../../../common/config/advertising.config';
+import { readJsonObject } from '../../../common/utils/read-json-object.util';
 import { buildAdDeepLinks, buildAdPayload } from './tracking-code.util';
 
-/** Coerces a Prisma JSON value into a plain object (never null). */
-export function readJsonObject(value: Prisma.JsonValue | null): Record<string, unknown> {
-  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return {};
-}
+// Re-exported for existing import sites (single source of truth in common/utils).
+export { readJsonObject };
 
 function num(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;

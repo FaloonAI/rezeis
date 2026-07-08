@@ -17,6 +17,8 @@ import {
   SystemEventCategory,
   SystemEventsService,
 } from '../../../common/services/system-events.service';
+import { readJsonObject } from '../../../common/utils/read-json-object.util';
+import { buildAdminAuditLogData } from '../../../common/utils/admin-audit-log.util';
 import {
   mergePaymentOpsAlertSettings,
   readPaymentOpsAlertSettings,
@@ -180,6 +182,10 @@ const DEFAULT_INTERNAL_PLATFORM_POLICY: InternalPlatformPolicyInterface = {
 export class SettingsService {
   private readonly logger = new Logger(SettingsService.name);
 
+  /** Short-TTL cache of the singleton settings row (base-client reads only). */
+  private static readonly SETTINGS_CACHE_TTL_MS = 5_000;
+  private settingsCache: { record: Settings; at: number } | null = null;
+
   public constructor(
     private readonly prismaService: PrismaService,
     private readonly iconUploadService: IconUploadService,
@@ -229,18 +235,17 @@ export class SettingsService {
           },
         });
         await transactionClient.adminAuditLog.create({
-          data: {
+          data: buildAdminAuditLogData({
             action: 'settings.paymentOpsAlert.updated',
-            ipAddress: input.requestMetadata.remoteAddress,
-            userAgent: input.requestMetadata.userAgent,
+            actorId: input.currentAdmin.id,
+            requestMetadata: input.requestMetadata,
             metadata: buildAuditMetadata({
               requestId: input.requestMetadata.requestId,
               updatedFields: extractUpdatedPaymentOpsFields(
                 input.updatePaymentOpsAlertSettingsDto,
               ),
             }),
-            adminUser: { connect: { id: input.currentAdmin.id } },
-          },
+          }),
         });
         return updatedSettings;
       },
@@ -282,17 +287,16 @@ export class SettingsService {
       ),
     );
     await this.prismaService.adminAuditLog.create({
-      data: {
+      data: buildAdminAuditLogData({
         action: 'payments.alert.test.sent',
-        ipAddress: input.requestMetadata.remoteAddress,
-        userAgent: input.requestMetadata.userAgent,
+        actorId: input.currentAdmin.id,
+        requestMetadata: input.requestMetadata,
         metadata: {
           requestId: input.requestMetadata.requestId,
           chatId: settings.chatId,
           threadId: settings.threadId,
         },
-        adminUser: { connect: { id: input.currentAdmin.id } },
-      } as never,
+      }),
     });
   }
 
@@ -352,16 +356,15 @@ export class SettingsService {
           },
         });
         await transactionClient.adminAuditLog.create({
-          data: {
+          data: buildAdminAuditLogData({
             action: 'settings.branding.updated',
-            ipAddress: input.requestMetadata.remoteAddress,
-            userAgent: input.requestMetadata.userAgent,
+            actorId: input.currentAdmin.id,
+            requestMetadata: input.requestMetadata,
             metadata: buildAuditMetadata({
               requestId: input.requestMetadata.requestId,
               updatedFields,
             }),
-            adminUser: { connect: { id: input.currentAdmin.id } },
-          },
+          }),
         });
         return updated;
       },
@@ -426,16 +429,15 @@ export class SettingsService {
           data,
         });
         await transactionClient.adminAuditLog.create({
-          data: {
+          data: buildAdminAuditLogData({
             action: 'settings.platform.updated',
-            ipAddress: input.requestMetadata.remoteAddress,
-            userAgent: input.requestMetadata.userAgent,
+            actorId: input.currentAdmin.id,
+            requestMetadata: input.requestMetadata,
             metadata: buildAuditMetadata({
               requestId: input.requestMetadata.requestId,
               updatedFields: updateChanges.updatedFields,
             }),
-            adminUser: { connect: { id: input.currentAdmin.id } },
-          },
+          }),
         });
         return updatedSettings;
       },
@@ -639,13 +641,12 @@ export class SettingsService {
         data: { systemNotifications: nextSystemNotifications as Prisma.InputJsonValue },
       });
       await tx.adminAuditLog.create({
-        data: {
+        data: buildAdminAuditLogData({
           action,
-          ipAddress: requestMetadata.remoteAddress,
-          userAgent: requestMetadata.userAgent,
+          actorId: currentAdmin.id,
+          requestMetadata,
           metadata: buildAuditMetadata({ requestId: requestMetadata.requestId, updatedFields: ['webPush'] }),
-          adminUser: { connect: { id: currentAdmin.id } },
-        },
+        }),
       });
       return webPush?.publicKey ?? '';
     });
@@ -689,16 +690,15 @@ export class SettingsService {
           data,
         });
         await transactionClient.adminAuditLog.create({
-          data: {
+          data: buildAdminAuditLogData({
             action: 'settings.notifications.updated',
-            ipAddress: input.requestMetadata.remoteAddress,
-            userAgent: input.requestMetadata.userAgent,
+            actorId: input.currentAdmin.id,
+            requestMetadata: input.requestMetadata,
             metadata: buildAuditMetadata({
               requestId: input.requestMetadata.requestId,
               updatedFields,
             }),
-            adminUser: { connect: { id: input.currentAdmin.id } },
-          },
+          }),
         });
         return updated;
       },
@@ -808,16 +808,15 @@ export class SettingsService {
           },
         });
         await transactionClient.adminAuditLog.create({
-          data: {
+          data: buildAdminAuditLogData({
             action: 'settings.telegramDelivery.updated',
-            ipAddress: input.requestMetadata.remoteAddress,
-            userAgent: input.requestMetadata.userAgent,
+            actorId: input.currentAdmin.id,
+            requestMetadata: input.requestMetadata,
             metadata: buildAuditMetadata({
               requestId: input.requestMetadata.requestId,
               updatedFields,
             }),
-            adminUser: { connect: { id: input.currentAdmin.id } },
-          },
+          }),
         });
         return updated;
       },
@@ -855,10 +854,10 @@ export class SettingsService {
         throw new BadRequestException('TELEGRAM_DELIVERY_NOT_CONFIGURED');
       }
       await this.prismaService.adminAuditLog.create({
-        data: {
+        data: buildAdminAuditLogData({
           action: 'settings.telegramDelivery.test.sent',
-          ipAddress: input.requestMetadata.remoteAddress,
-          userAgent: input.requestMetadata.userAgent,
+          actorId: input.currentAdmin.id,
+          requestMetadata: input.requestMetadata,
           metadata: {
             requestId: input.requestMetadata.requestId,
             chatId: config.chatId,
@@ -866,8 +865,7 @@ export class SettingsService {
             category,
             via,
           },
-          adminUser: { connect: { id: input.currentAdmin.id } },
-        } as never,
+        }),
       });
       return;
     }
@@ -907,28 +905,32 @@ export class SettingsService {
       ),
     );
     await this.prismaService.adminAuditLog.create({
-      data: {
+      data: buildAdminAuditLogData({
         action: 'settings.telegramDelivery.test.sent',
-        ipAddress: input.requestMetadata.remoteAddress,
-        userAgent: input.requestMetadata.userAgent,
+        actorId: input.currentAdmin.id,
+        requestMetadata: input.requestMetadata,
         metadata: {
           requestId: input.requestMetadata.requestId,
           chatId: config.chatId,
           topicId: config.topicId,
         },
-        adminUser: { connect: { id: input.currentAdmin.id } },
-      } as never,
+      }),
     });
   }
 
   private async getOrCreateSettingsRecord(settingsClient: SettingsClient): Promise<Settings> {
+    // A non-base (transaction) client means a WRITE is in progress — drop the
+    // read cache so post-commit reads repopulate fresh.
+    if (settingsClient !== this.prismaService) {
+      this.settingsCache = null;
+    }
     const existingSettings: Settings | null = await this.getSettingsRecord(settingsClient);
     if (existingSettings) {
       return existingSettings;
     }
-    return settingsClient.settings.create({
-      data: {},
-    });
+    const created = await settingsClient.settings.create({ data: {} });
+    this.settingsCache = null;
+    return created;
   }
 
   /**
@@ -950,16 +952,15 @@ export class SettingsService {
         data: { referralSettings: next as unknown as Prisma.InputJsonValue },
       });
       await tx.adminAuditLog.create({
-        data: {
+        data: buildAdminAuditLogData({
           action: 'settings.referralSettings.update',
-          ipAddress: input.requestMetadata.remoteAddress,
-          userAgent: input.requestMetadata.userAgent,
+          actorId: input.currentAdmin.id,
+          requestMetadata: input.requestMetadata,
           metadata: {
             requestId: input.requestMetadata.requestId,
             patchKeys: Object.keys(input.patch),
           },
-          adminUser: { connect: { id: input.currentAdmin.id } },
-        } as never,
+        }),
       });
       return next;
     });
@@ -989,16 +990,15 @@ export class SettingsService {
         data: { partnerSettings: next as unknown as Prisma.InputJsonValue },
       });
       await tx.adminAuditLog.create({
-        data: {
+        data: buildAdminAuditLogData({
           action: 'settings.partnerSettings.update',
-          ipAddress: input.requestMetadata.remoteAddress,
-          userAgent: input.requestMetadata.userAgent,
+          actorId: input.currentAdmin.id,
+          requestMetadata: input.requestMetadata,
           metadata: {
             requestId: input.requestMetadata.requestId,
             patchKeys: Object.keys(input.patch),
           },
-          adminUser: { connect: { id: input.currentAdmin.id } },
-        } as never,
+        }),
       });
       return next;
     });
@@ -1094,17 +1094,16 @@ export class SettingsService {
         data: { supportSettings: next as unknown as Prisma.InputJsonValue },
       });
       await tx.adminAuditLog.create({
-        data: {
+        data: buildAdminAuditLogData({
           action: 'settings.supportSettings.update',
-          ipAddress: input.requestMetadata.remoteAddress,
-          userAgent: input.requestMetadata.userAgent,
+          actorId: input.currentAdmin.id,
+          requestMetadata: input.requestMetadata,
           metadata: {
             requestId: input.requestMetadata.requestId,
             // Never log the secret itself — only that it was touched.
             patchKeys: Object.keys(input.patch),
           },
-          adminUser: { connect: { id: input.currentAdmin.id } },
-        } as never,
+        }),
       });
       return updated;
     });
@@ -1148,16 +1147,15 @@ export class SettingsService {
         data: { remnawaveCleanupSettings: next as unknown as Prisma.InputJsonValue },
       });
       await tx.adminAuditLog.create({
-        data: {
+        data: buildAdminAuditLogData({
           action: 'settings.remnawaveCleanupSettings.update',
-          ipAddress: input.requestMetadata.remoteAddress,
-          userAgent: input.requestMetadata.userAgent,
+          actorId: input.currentAdmin.id,
+          requestMetadata: input.requestMetadata,
           metadata: {
             requestId: input.requestMetadata.requestId,
             patchKeys: Object.keys(input.patch),
           },
-          adminUser: { connect: { id: input.currentAdmin.id } },
-        } as never,
+        }),
       });
       return updated;
     });
@@ -1199,16 +1197,15 @@ export class SettingsService {
         data: { customIcons: next as unknown as Prisma.InputJsonValue },
       });
       await tx.adminAuditLog.create({
-        data: {
+        data: buildAdminAuditLogData({
           action: 'settings.customIcons.update',
-          ipAddress: input.requestMetadata.remoteAddress,
-          userAgent: input.requestMetadata.userAgent,
+          actorId: input.currentAdmin.id,
+          requestMetadata: input.requestMetadata,
           metadata: {
             requestId: input.requestMetadata.requestId,
             count: next.length,
           },
-          adminUser: { connect: { id: input.currentAdmin.id } },
-        } as never,
+        }),
       });
       return { updated, previous };
     });
@@ -1221,10 +1218,30 @@ export class SettingsService {
     return readCustomIcons(settings.updated.customIcons);
   }
 
+  /**
+   * Reads the singleton settings row. Hit on many hot paths (branding, policy,
+   * bot token, telegram, cleanup), so base-client reads are served from a
+   * short-TTL in-memory cache to collapse repeated fetches. Bounded staleness
+   * (≤ {@link SettingsService.SETTINGS_CACHE_TTL_MS}) with no manual-invalidation
+   * risk: write transactions use a non-base client (never cached) AND drop the
+   * cache in `getOrCreateSettingsRecord`, and the TTL self-heals regardless.
+   */
   private async getSettingsRecord(settingsClient: SettingsClient): Promise<Settings | null> {
-    return settingsClient.settings.findFirst({
+    const isBaseClient = settingsClient === this.prismaService;
+    if (
+      isBaseClient &&
+      this.settingsCache !== null &&
+      Date.now() - this.settingsCache.at < SettingsService.SETTINGS_CACHE_TTL_MS
+    ) {
+      return this.settingsCache.record;
+    }
+    const record = await settingsClient.settings.findFirst({
       orderBy: { updatedAt: 'asc' },
     });
+    if (isBaseClient && record !== null) {
+      this.settingsCache = { record, at: Date.now() };
+    }
+    return record;
   }
 }
 
@@ -1474,13 +1491,6 @@ export interface TelegramDeliveryConfig {
   /** Event-selection mode + allow-list (which events reach Telegram). */
   readonly eventsMode: 'all' | 'selected';
   readonly events: readonly string[];
-}
-
-function readJsonObject(value: unknown): Record<string, unknown> {
-  if (value === null || value === undefined) return {};
-  if (typeof value !== 'object') return {};
-  if (Array.isArray(value)) return {};
-  return value as Record<string, unknown>;
 }
 
 /** Normalise a contact email into the `mailto:` subject VAPID (RFC 8292) wants. */

@@ -1454,7 +1454,13 @@ export class RemnawaveApiService {
         }),
       );
       return response.data;
-    } catch {
+    } catch (err: unknown) {
+      // Log once at the transport layer so the ~30 read methods that swallow
+      // this into a null/[]/{} fallback are still observable (a panel outage
+      // is otherwise indistinguishable from "no data").
+      this.logger.warn(
+        `Remnawave ${input.method.toUpperCase()} ${input.url} failed: ${(err as Error).message}`,
+      );
       throw new ServiceUnavailableException('Remnawave integration is unavailable');
     }
   }

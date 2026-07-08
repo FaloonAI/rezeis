@@ -45,7 +45,15 @@ export class InternalBackupDownloadController {
       throw new NotFoundException('Backup file not found');
     }
     res.setHeader('Content-Type', 'application/gzip');
-    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    // Sanitize the filename before it enters the response header: strip CR/LF
+    // (header-injection) and quotes/backslashes (attribute break-out), and add
+    // an RFC 5987 `filename*` for non-ASCII names. Defence-in-depth even though
+    // backup filenames are system-generated.
+    const asciiName = file.filename.replace(/[\r\n"\\]/g, '_');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
+    );
     createReadStream(file.fullPath).pipe(res);
   }
 }

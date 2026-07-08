@@ -51,11 +51,16 @@ export default defineConfig({
             // ── 3D / GPU-effects libraries — only loaded when the
             // operator turns on a React-Bits background. Keep them
             // out of the core bundle entirely.
+            // `ogl` is a tiny standalone WebGL lib used by the DEFAULT
+            // `liquidChrome` background — keep it out of the heavy three.js
+            // chunk so the default first load pulls ~70 KB, not ~976 KB.
+            if (id.includes('/ogl/')) {
+              return 'vendor-ogl'
+            }
             if (
               id.includes('/three/') ||
               id.includes('@react-three/') ||
               id.includes('/postprocessing/') ||
-              id.includes('/ogl/') ||
               id.includes('/maath/')
             ) {
               return 'vendor-three'

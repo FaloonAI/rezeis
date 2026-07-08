@@ -1193,6 +1193,10 @@ model Subscription {
   @@index([expiresAt])
   @@index([isTrial])
   @@index([createdAt])
+  /// Backs the per-minute expiry sweep + warnings (`status=ACTIVE AND
+  /// expiresAt<now`) and the profile-cleanup sweep — equality column first,
+  /// range column last.
+  @@index([status, expiresAt])
   @@map("subscriptions")
 }
 
@@ -1356,6 +1360,9 @@ model Transaction {
   @@index([gatewayType])
   @@index([purchaseType])
   @@index([createdAt])
+  /// Backs the anti-fraud failed-payment groupBy + payment analytics
+  /// (`status=… AND createdAt>=window`) — equality first, range last.
+  @@index([status, createdAt])
   @@map("transactions")
 }
 
@@ -1619,6 +1626,9 @@ model UserNotificationEvent {
   @@index([type])
   @@index([readAt])
   @@index([createdAt])
+  /// Backs the auto-renew warning dedup lookup
+  /// (`userId=… AND type=… AND createdAt>threshold`).
+  @@index([userId, type, createdAt])
   @@map("user_notification_events")
 }
 

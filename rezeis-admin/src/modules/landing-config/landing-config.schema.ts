@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 
 /**
@@ -405,10 +404,6 @@ function isLocalizedText(node: object): boolean {
   return keys.every((key) => /^[a-z]{2}$/.test(key));
 }
 
-/** Coerces a Prisma JSON column value into a plain object (never null/array). */
-export function readJsonObject(value: Prisma.JsonValue | null): Record<string, unknown> {
-  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return {};
-}
+/** Coerces a Prisma JSON column value into a plain object (single source of
+ *  truth in `common/utils`). Re-exported for existing import sites. */
+export { readJsonObject } from '../../common/utils/read-json-object.util';

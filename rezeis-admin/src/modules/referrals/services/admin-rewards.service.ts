@@ -177,12 +177,19 @@ export class AdminRewardsService {
     let failed = 0;
     const errors: Array<{ id: string; error: string }> = [];
 
+    // Preload the eligibility snapshot for every id in ONE query instead of a
+    // findUnique per id. `issue()` still does its own transactional re-read,
+    // so correctness is unchanged; this only removes the N pre-check reads.
+    const uniqueIds = Array.from(new Set(ids));
+    const rows = await this.prismaService.referralReward.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true, isIssued: true, revokedAt: true },
+    });
+    const snapshot = new Map(rows.map((row) => [row.id, { isIssued: row.isIssued, revokedAt: row.revokedAt }]));
+
     for (const id of ids) {
       try {
-        const before = await this.prismaService.referralReward.findUnique({
-          where: { id },
-          select: { isIssued: true, revokedAt: true },
-        });
+        const before = snapshot.get(id) ?? null;
         if (before === null) {
           failed += 1;
           errors.push({ id, error: 'NOT_FOUND' });
@@ -197,6 +204,9 @@ export class AdminRewardsService {
           continue;
         }
         await this.issue(id, actorAdminId);
+        // Mark issued in the local snapshot so a duplicate id later in the
+        // same request is skipped (matches the previous per-id re-read).
+        before.isIssued = true;
         issued += 1;
       } catch (error: unknown) {
         failed += 1;

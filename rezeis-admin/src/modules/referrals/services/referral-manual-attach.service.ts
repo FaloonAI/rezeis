@@ -3,6 +3,7 @@ import { TransactionStatus } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { EVENT_TYPES, SystemEventsService } from '../../../common/services/system-events.service';
+import { toMinorUnits } from '../../../common/utils/money.util';
 import { PartnerEarningsService } from '../../partners/services/partner-earnings.service';
 import { ReferralQualificationService } from './referral-qualification.service';
 
@@ -118,7 +119,7 @@ export class ReferralManualAttachService {
       // Credit partner earnings
       await this.partnerEarningsService.processPartnerEarning({
         payerUserId: input.userId,
-        paymentAmountMinorUnits: Number(tx.amount) * 100, // Decimal → minor units
+        paymentAmountMinorUnits: toMinorUnits(tx.amount), // Decimal → minor units (rounded)
         gatewayType: tx.gatewayType,
         sourceTransactionId: tx.id,
       });

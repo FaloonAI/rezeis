@@ -88,20 +88,32 @@ export class AutoRenewService {
       take: 200,
     });
 
+    if (expiringSoon.length === 0) {
+      return 0;
+    }
+
+    // Dedup in ONE query instead of a findFirst per expiring subscription
+    // (previously ~200 queries per horizon, ×2 horizons, every minute). Build
+    // the set of users who already have a recent notification of this type,
+    // then also add each user we notify below so a user with several expiring
+    // subs still gets exactly one notification per run (same as before).
+    const userIds = Array.from(new Set(expiringSoon.map((sub) => sub.userId)));
+    const alreadyNotified = await this.prismaService.userNotificationEvent.findMany({
+      where: {
+        userId: { in: userIds },
+        type: input.notificationType,
+        createdAt: { gt: recentThreshold },
+      },
+      select: { userId: true },
+    });
+    const notifiedUserIds = new Set(alreadyNotified.map((event) => event.userId));
+
     let created = 0;
     for (const sub of expiringSoon) {
-      // Skip if already notified recently
-      const existing = await this.prismaService.userNotificationEvent.findFirst({
-        where: {
-          userId: sub.userId,
-          type: input.notificationType,
-          createdAt: { gt: recentThreshold },
-        },
-        select: { id: true },
-      });
-      if (existing !== null) {
+      if (notifiedUserIds.has(sub.userId)) {
         continue;
       }
+      notifiedUserIds.add(sub.userId);
 
       const planName = readPlanName(sub.planSnapshot);
       await this.userNotifications.create({

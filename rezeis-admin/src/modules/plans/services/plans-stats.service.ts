@@ -96,6 +96,15 @@ export class PlansStatsService {
       if (input.to) where.createdAt.lte = input.to;
     }
 
+    // When a specific plan is requested, push a JSON-path pre-filter into the
+    // DB so we don't load the ENTIRE completed-transaction history just to drop
+    // it in JS. The `planSnapshot.plan.id` predicate is identical to the JS
+    // `extractPlanRef(...).id === planId` check below, which is retained as the
+    // authoritative filter so the aggregated output is provably unchanged.
+    if (input.planId) {
+      where.planSnapshot = { path: ['plan', 'id'], equals: input.planId };
+    }
+
     const rows = (await this.prismaService.transaction.findMany({
       where,
       select: {
