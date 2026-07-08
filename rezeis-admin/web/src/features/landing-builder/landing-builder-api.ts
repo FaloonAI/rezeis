@@ -41,6 +41,7 @@ export const LANDING_BACKGROUNDS = [
   'noise',
   'blobs',
   'spotlight',
+  'network',
 ] as const
 export type LandingBackground = (typeof LANDING_BACKGROUNDS)[number]
 

@@ -260,7 +260,7 @@ export default function LandingBuilderPage() {
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid items-start gap-4 lg:grid-cols-2">
         <div>
           <Tabs defaultValue="sections">
             <TabsList>
@@ -374,7 +374,7 @@ export default function LandingBuilderPage() {
           </Tabs>
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-2 lg:sticky lg:top-4 self-start">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">{t('landingBuilderPage.preview.title')}</span>
             <div className="flex items-center gap-2">

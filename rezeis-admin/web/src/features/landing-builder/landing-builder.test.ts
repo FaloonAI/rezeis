@@ -27,11 +27,24 @@ describe('section-defaults', () => {
     }
   })
 
-  it('flags every configured locale missing on a freshly-added (empty) section', () => {
+  it('treats a freshly-added (all-empty) section as unset — no missing-locale badges', () => {
     const hero = buildDefaultSection('hero', LOCALES)
-    const missing = missingLocales(hero, LOCALES)
-    expect(missing).toContain('ru')
-    expect(missing).toContain('en')
+    // Nothing typed yet → every localized field is "unset" → no false badges.
+    expect(missingLocales(hero, LOCALES)).toEqual([])
+  })
+
+  it('flags the other locale once a field is filled in only one locale', () => {
+    const section: LandingSection = {
+      id: 'hero-1',
+      type: 'hero',
+      visible: true,
+      data: {
+        heading: { ru: 'Только русский', en: '' },
+        primaryCta: { label: { ru: 'Старт', en: 'Start' }, action: 'register', url: '' },
+        align: 'center',
+      },
+    }
+    expect(missingLocales(section, LOCALES)).toEqual(['en'])
   })
 
   it('reports no missing locales once every visible string is filled', () => {

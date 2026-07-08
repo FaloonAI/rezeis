@@ -130,6 +130,7 @@ export const ru = {
         noise: 'Шум',
         blobs: 'Пятна',
         spotlight: 'Прожектор',
+        network: 'Сеть (граф)',
       },
       contrastWarning: 'Низкий контраст между текстом и фоном — проверьте читаемость.',
       locale: 'Локаль превью',
@@ -139,6 +140,13 @@ export const ru = {
       fade: 'Проявление',
       fadeUp: 'Снизу вверх',
       zoom: 'Приближение',
+    },
+    enums: {
+      align: { left: 'Слева', center: 'По центру' },
+      source: { catalog: 'Живой каталог тарифов', static: 'Статичные тарифы' },
+      style: { solid: 'Сплошной', gradient: 'Градиент', outline: 'Контур' },
+      action: { register: 'Регистрация', login: 'Вход', url: 'Ссылка' },
+      currency: { RUB: '₽ RUB', USD: '$ USD', EUR: '€ EUR' },
     },
     templates: {
       button: 'Шаблоны',

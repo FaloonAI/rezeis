@@ -47,6 +47,16 @@ export const safeUrlSchema = z
     return /^https:\/\/[^\s]+$/i.test(value);
   }, 'URL must be https:// or a site-relative /path (no javascript:, data:, http:)');
 
+/**
+ * A user-fillable URL that MAY be empty (= "not set yet") while the operator
+ * is composing the landing. An empty value is safe: the renderer treats it as
+ * absent and drops the affordance (fail-closed). A non-empty value must pass
+ * the same allow-list as `safeUrlSchema`. Use this for optional/in-progress
+ * URL fields (CTA links, images, logo/footer/social hrefs) so adding a blank
+ * item and filling it later doesn't fail draft validation.
+ */
+export const fillableUrlSchema = z.union([z.literal(''), safeUrlSchema]);
+
 const iconNameSchema = z.enum([
   'shield',
   'lock',
@@ -75,11 +85,11 @@ const ctaActionSchema = z.enum(['register', 'login', 'url']);
 const ctaSchema = z.object({
   label: localizedTextSchema,
   action: ctaActionSchema,
-  url: safeUrlSchema.optional(),
+  url: fillableUrlSchema.optional(),
 });
 
 const imageFieldSchema = z.object({
-  src: safeUrlSchema,
+  src: fillableUrlSchema,
   alt: localizedTextSchema,
 });
 
@@ -188,7 +198,7 @@ const trustLogosData = z.object({
     .array(
       z.object({
         image: imageFieldSchema,
-        href: safeUrlSchema.optional(),
+        href: fillableUrlSchema.optional(),
       }),
     )
     .max(24),
@@ -207,7 +217,7 @@ const footerData = z.object({
       z.object({
         title: localizedTextSchema,
         links: z
-          .array(z.object({ label: localizedTextSchema, href: safeUrlSchema }))
+          .array(z.object({ label: localizedTextSchema, href: fillableUrlSchema }))
           .max(12),
       }),
     )
@@ -217,7 +227,7 @@ const footerData = z.object({
     .array(
       z.object({
         platform: z.enum(['telegram', 'x', 'github', 'youtube', 'instagram', 'vk', 'email']),
-        href: safeUrlSchema,
+        href: fillableUrlSchema,
       }),
     )
     .max(10)
@@ -242,6 +252,7 @@ export const LANDING_BACKGROUNDS = [
   'noise',
   'blobs',
   'spotlight',
+  'network',
 ] as const;
 /** Section/card surface style — `glass` = liquid-glass (backdrop-blur). */
 export const LANDING_SURFACE_STYLES = ['solid', 'glass', 'outline'] as const;
@@ -317,7 +328,7 @@ export const landingConfigSchema = z.object({
   locales: z.array(z.string().regex(/^[a-z]{2}$/)).min(1),
   defaultLocale: z.string().regex(/^[a-z]{2}$/),
   meta: z.object({ title: localizedTextSchema, description: localizedTextSchema }),
-  ogImage: safeUrlSchema.optional(),
+  ogImage: fillableUrlSchema.optional(),
   sections: z.array(sectionSchema).max(40),
 });
 
@@ -346,6 +357,11 @@ export function collectPublishStrictIssues(config: LandingConfigPayload): Publis
 
   const checkText = (value: LocalizedText | undefined, path: string): void => {
     if (value === undefined) return;
+    // "All-empty" localized field = intentionally unset (an optional field the
+    // operator left blank) → skip. Only require completeness once the field is
+    // in use (has a non-empty value in at least one configured locale).
+    const inUse = locales.some((locale) => (value[locale] ?? '').trim().length > 0);
+    if (!inUse) return;
     for (const locale of locales) {
       const text = value[locale];
       if (text === undefined || text.trim().length === 0) {

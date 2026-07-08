@@ -7,8 +7,36 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 import type { LandingSection } from './landing-builder-api'
+import { newArrayItem } from './section-defaults'
+
+/**
+ * Known enum fields → allowed options. Rendered as a dropdown instead of a raw
+ * text input so the operator can actually pick values (e.g. hero alignment
+ * left/center, pricing source, CTA action) without guessing the string.
+ */
+const ENUM_OPTIONS: Record<string, readonly (string | number)[]> = {
+  align: ['left', 'center'],
+  columns: [2, 3, 4],
+  source: ['catalog', 'static'],
+  style: ['solid', 'gradient', 'outline'],
+  currency: ['RUB', 'USD', 'EUR'],
+  action: ['register', 'login', 'url'],
+  platform: ['telegram', 'x', 'github', 'youtube', 'instagram', 'vk', 'email'],
+  icon: [
+    'shield', 'lock', 'zap', 'globe', 'server', 'wifi', 'eye-off', 'key', 'check',
+    'star', 'rocket', 'users', 'clock', 'download', 'smartphone', 'gauge', 'heart',
+    'award', 'refresh', 'help-circle',
+  ],
+}
 
 /**
  * SectionEditor — a data-driven recursive editor over a section's `data`.
@@ -96,7 +124,7 @@ export function SectionEditor({ section, locales, editorLocale, onChange }: Prop
       )
     }
 
-    if (typeof value === 'number') {
+    if (typeof value === 'number' && !ENUM_OPTIONS[key]) {
       return (
         <Input
           type="number"
@@ -104,6 +132,31 @@ export function SectionEditor({ section, locales, editorLocale, onChange }: Prop
           onChange={(e) => setAtPath(path, Number(e.target.value))}
           aria-label={fieldLabel(key)}
         />
+      )
+    }
+
+    // Enum field → dropdown (align, columns, source, style, currency, action, …).
+    if ((typeof value === 'string' || typeof value === 'number') && ENUM_OPTIONS[key]) {
+      const options = ENUM_OPTIONS[key]
+      return (
+        <Select
+          value={String(value)}
+          onValueChange={(v) => {
+            const asNumber = options.every((o) => typeof o === 'number')
+            setAtPath(path, asNumber ? Number(v) : v)
+          }}
+        >
+          <SelectTrigger aria-label={fieldLabel(key)}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((opt) => (
+              <SelectItem key={String(opt)} value={String(opt)}>
+                {t(`landingBuilderPage.enums.${key}.${opt}`, { defaultValue: String(opt) })}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )
     }
 
@@ -146,11 +199,7 @@ export function SectionEditor({ section, locales, editorLocale, onChange }: Prop
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              const template = value.length > 0 ? structuredClone(value[0]) : {}
-              const cleared = clearLocalized(template)
-              setAtPath(path, [...value, cleared])
-            }}
+            onClick={() => setAtPath(path, [...value, newArrayItem(key, locales, value)])}
           >
             <Plus className="mr-1 h-4 w-4" aria-hidden />
             {t('landingBuilderPage.fields.addItem')}
@@ -160,14 +209,34 @@ export function SectionEditor({ section, locales, editorLocale, onChange }: Prop
     }
 
     if (value !== null && typeof value === 'object') {
+      const obj = value as Record<string, unknown>
+      // A CTA's `url` is only meaningful when action === 'url' — hide it
+      // otherwise to keep the form clean (the key stays in data, seeded blank).
+      const isUrlAction = obj['action'] === 'url'
+      // Show a `url` field when the CTA action is `url` even if the key is
+      // absent (e.g. templates seed CTAs without it) — writing seeds the key.
+      const needsSyntheticUrl = isUrlAction && !('url' in obj)
       return (
         <div className="space-y-3 rounded-md border border-border/60 p-3">
-          {Object.entries(value as Record<string, unknown>).map(([childKey, childValue]) => (
-            <div key={childKey} className="space-y-1">
-              <Label className="text-xs text-muted-foreground">{fieldLabel(childKey)}</Label>
-              {renderValue(childValue, [...path, childKey], childKey)}
+          {Object.entries(obj)
+            .filter(([childKey]) => !(childKey === 'url' && 'action' in obj && !isUrlAction))
+            .map(([childKey, childValue]) => (
+              <div key={childKey} className="space-y-1">
+                <Label className="text-xs text-muted-foreground">{fieldLabel(childKey)}</Label>
+                {renderValue(childValue, [...path, childKey], childKey)}
+              </div>
+            ))}
+          {needsSyntheticUrl && (
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">{fieldLabel('url')}</Label>
+              <Input
+                value=""
+                placeholder="https://…"
+                onChange={(e) => setAtPath([...path, 'url'], e.target.value)}
+                aria-label={fieldLabel('url')}
+              />
             </div>
-          ))}
+          )}
         </div>
       )
     }
@@ -187,18 +256,4 @@ export function SectionEditor({ section, locales, editorLocale, onChange }: Prop
   )
 }
 
-/** Recursively blank out localized-text leaves in a cloned array template. */
-function clearLocalized(node: unknown): unknown {
-  if (isLocalized(node)) {
-    const cleared: Record<string, string> = {}
-    for (const k of Object.keys(node)) cleared[k] = ''
-    return cleared
-  }
-  if (Array.isArray(node)) return node.map(clearLocalized)
-  if (node !== null && typeof node === 'object') {
-    const out: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(node as Record<string, unknown>)) out[k] = clearLocalized(v)
-    return out
-  }
-  return typeof node === 'string' ? node : node
-}
+

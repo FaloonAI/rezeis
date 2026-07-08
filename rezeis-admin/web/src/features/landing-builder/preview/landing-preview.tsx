@@ -59,7 +59,7 @@ function themeVars(theme: LandingConfig['theme']): CSSProperties {
   return style as CSSProperties
 }
 
-/** Background layer — mirrors reiwa's LandingBg (CSS-only). */
+/** Background layer — mirrors reiwa's LandingBg (CSS-only + network canvas). */
 function PreviewBg({ theme }: { theme: LandingConfig['theme'] }) {
   const effect = theme.background
   if (!effect || effect === 'none') return null
@@ -70,6 +70,9 @@ function PreviewBg({ theme }: { theme: LandingConfig['theme'] }) {
       : theme.colors?.primary
         ? [theme.colors.primary]
         : []
+  if (effect === 'network') {
+    return <PreviewNetworkCanvas color={colors[0] ?? '#22c55e'} animate={animate} />
+  }
   const style: Record<string, string> = {}
   const [c1, c2, c3] = colors
   if (c1) style['--ls-c1'] = c1
@@ -83,6 +86,100 @@ function PreviewBg({ theme }: { theme: LandingConfig['theme'] }) {
       aria-hidden="true"
       data-ls-bg={effect}
     />
+  )
+}
+
+/** Network-graph background for the preview (mirrors reiwa's NetworkCanvas). */
+function PreviewNetworkCanvas({ color, animate }: { color: string; animate: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const wrap = wrapRef.current
+    if (canvas === null || wrap === null) return undefined
+    const ctx = canvas.getContext('2d')
+    if (ctx === null) return undefined
+    const win = canvas.ownerDocument.defaultView ?? window
+    const reduced = win.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    let width = 0
+    let height = 0
+    let nodes: Array<{ x: number; y: number; vx: number; vy: number }> = []
+    const seed = (): void => {
+      const count = Math.max(16, Math.min(60, Math.round((width * height) / 20000)))
+      nodes = Array.from({ length: count }, () => ({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vx: (Math.random() - 0.5) * 0.35,
+        vy: (Math.random() - 0.5) * 0.35,
+      }))
+    }
+    const resize = (): void => {
+      const dpr = Math.min(win.devicePixelRatio || 1, 2)
+      width = wrap.clientWidth || 1
+      height = wrap.clientHeight || 1
+      canvas.width = Math.round(width * dpr)
+      canvas.height = Math.round(height * dpr)
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      seed()
+    }
+    const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim())
+    let hex = m ? m[1] : '22c55e'
+    if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2]
+    const int = parseInt(hex, 16)
+    const rgb = { r: (int >> 16) & 255, g: (int >> 8) & 255, b: int & 255 }
+    const linkDist = 130
+    const draw = (): void => {
+      ctx.clearRect(0, 0, width, height)
+      for (let i = 0; i < nodes.length; i += 1) {
+        const a = nodes[i]
+        if (animate && !reduced) {
+          a.x += a.vx
+          a.y += a.vy
+          if (a.x < 0 || a.x > width) a.vx *= -1
+          if (a.y < 0 || a.y > height) a.vy *= -1
+        }
+        for (let j = i + 1; j < nodes.length; j += 1) {
+          const b = nodes[j]
+          const dist = Math.hypot(a.x - b.x, a.y - b.y)
+          if (dist < linkDist) {
+            const alpha = (1 - dist / linkDist) * 0.5
+            ctx.strokeStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha.toFixed(3)})`
+            ctx.lineWidth = 1
+            ctx.beginPath()
+            ctx.moveTo(a.x, a.y)
+            ctx.lineTo(b.x, b.y)
+            ctx.stroke()
+          }
+        }
+      }
+      ctx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},0.85)`
+      for (const n of nodes) {
+        ctx.beginPath()
+        ctx.arc(n.x, n.y, 1.6, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+    let raf = 0
+    const loop = (): void => {
+      draw()
+      raf = win.requestAnimationFrame(loop)
+    }
+    resize()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null
+    ro?.observe(wrap)
+    if (animate && !reduced) loop()
+    else draw()
+    return () => {
+      if (raf !== 0) win.cancelAnimationFrame(raf)
+      ro?.disconnect()
+    }
+  }, [color, animate])
+
+  return (
+    <div ref={wrapRef} className="ls-bg" aria-hidden="true" data-ls-bg="network">
+      <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
+    </div>
   )
 }
 interface ShellProps {
@@ -294,10 +391,11 @@ export function LandingPreview({
           styleEl.textContent = landingCss
           doc.head.appendChild(styleEl)
         }
-        doc.documentElement.style.height = '100%'
+        doc.documentElement.style.minHeight = '100%'
         doc.documentElement.style.margin = '0'
-        body.style.height = '100%'
+        body.style.minHeight = '100%'
         body.style.margin = '0'
+        body.style.overflowY = 'auto'
         setMountNode(body)
         return
       }

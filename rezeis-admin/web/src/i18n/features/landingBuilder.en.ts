@@ -130,6 +130,7 @@ export const en = {
         noise: 'Noise',
         blobs: 'Blobs',
         spotlight: 'Spotlight',
+        network: 'Network (graph)',
       },
       contrastWarning: 'Low contrast between foreground and background — check readability.',
       locale: 'Preview locale',
@@ -139,6 +140,13 @@ export const en = {
       fade: 'Fade',
       fadeUp: 'Fade up',
       zoom: 'Zoom',
+    },
+    enums: {
+      align: { left: 'Left', center: 'Center' },
+      source: { catalog: 'Live plan catalog', static: 'Static plans' },
+      style: { solid: 'Solid', gradient: 'Gradient', outline: 'Outline' },
+      action: { register: 'Register', login: 'Sign in', url: 'URL' },
+      currency: { RUB: '₽ RUB', USD: '$ USD', EUR: '€ EUR' },
     },
     templates: {
       button: 'Templates',
