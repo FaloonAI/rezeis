@@ -43,10 +43,38 @@ if [ "${PROCESS_ROLE}" != "worker" ] && [ "${SKIP_MIGRATIONS}" != "true" ]; then
   # Brief retry loop in case Postgres is still warming up. Compose health-checks
   # already gate startup, but this protects against external/managed DBs that
   # depends_on can't health-check.
+  #
+  # P3009 auto-recovery: if a previous deploy left a migration in the FAILED
+  # state, Prisma refuses to apply anything (a plain retry loop can never clear
+  # it). A Prisma/PostgreSQL migration runs in a transaction, so a failed one
+  # leaves NOTHING half-applied — marking it rolled-back lets the next deploy
+  # re-apply it cleanly (our migrations are idempotent, e.g. CREATE INDEX
+  # IF NOT EXISTS). Each distinct failed migration is rolled back at MOST once,
+  # so a genuinely-broken migration still fails fast instead of looping forever.
   attempt=0
   max_attempts=30
-  until npx prisma migrate deploy 2>&1; do
-    status=$?
+  resolved_migration=""
+  while true; do
+    if deploy_output="$(npx prisma migrate deploy 2>&1)"; then
+      status=0
+    else
+      status=$?
+    fi
+    echo "${deploy_output}"
+    if [ "${status}" -eq 0 ]; then
+      break
+    fi
+
+    if echo "${deploy_output}" | grep -q "P3009"; then
+      failed_migration="$(echo "${deploy_output}" | grep -oE '[0-9]{14}_[A-Za-z0-9_]+' | head -n 1)"
+      if [ -n "${failed_migration}" ] && [ "${failed_migration}" != "${resolved_migration}" ]; then
+        echo "[entrypoint] failed migration detected (P3009): ${failed_migration} — marking rolled-back so it can be re-applied"
+        npx prisma migrate resolve --rolled-back "${failed_migration}" 2>&1 || true
+        resolved_migration="${failed_migration}"
+        continue
+      fi
+    fi
+
     attempt=$((attempt + 1))
     if [ "${attempt}" -ge "${max_attempts}" ]; then
       echo "[entrypoint] FATAL: migrate deploy failed after ${attempt} attempts (last exit ${status})"
