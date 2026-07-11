@@ -772,6 +772,31 @@ export const en = {
       node_traffic_notify: 'Node traffic notice',
     },
   },
+  questPartnersSettings: {
+    title: 'Quest partners',
+    subtitle: 'Partner HMAC secrets used to verify partner-task quest completion (type “Partner task”).',
+    empty: 'No partners added yet.',
+    add: 'Add partner',
+    editSecret: 'Edit',
+    delete: 'Delete',
+    hasSecret: 'secret set',
+    noSecret: 'no secret',
+    columns: { slug: 'Slug', label: 'Label', secret: 'Secret', actions: 'Actions' },
+    slugLabel: 'Partner slug',
+    slugInvalid: 'Lowercase letters, digits, - and _ only (2–64 chars)',
+    slugHint:
+      'The slug must exactly match the “Partner slug” in the quest settings (type “Partner task”). The server uses it to look up the secret and verify the partner callback signature.',
+    labelLabel: 'Label (operator-facing)',
+    secretLabel: 'HMAC secret',
+    secretPlaceholder: 'Enter the partner secret',
+    secretKeepHint: 'Leave empty to keep the current secret unchanged.',
+    confirmDeleteTitle: 'Delete partner?',
+    confirmDeleteDesc:
+      'The secret will be removed. Quests with this slug will stop passing verification until a secret is set again.',
+    saved: 'Saved',
+    deleted: 'Partner deleted',
+    saveFailed: 'Failed to save',
+  },
   questsAdminPage: {
     title: 'Quests',
     subtitle: 'Gamification: reward actions — linking TG/email, invites, subscriptions',
@@ -923,7 +948,7 @@ export const en = {
       partnerMethod:
         'How the task is credited: an activation code the user enters, a signed server postback from the partner, or a visit to a link with a minimum dwell time.',
       partnerSlug:
-        'Partner identifier. Must match the slug an HMAC secret is configured for in QUEST_PARTNER_SECRETS.',
+        'Partner identifier. Must match the slug of a partner added in Panel settings → Security → Quest partners.',
       partnerCode: 'Activation code the user enters to complete the task (for the “Activation code” method).',
       partnerLandingUrl: 'Partner link (https only) the user is sent to.',
       partnerDwellSeconds: 'Minimum visit time in seconds before it counts (for the “Timed visit” method).',

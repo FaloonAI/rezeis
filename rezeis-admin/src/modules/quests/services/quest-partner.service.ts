@@ -15,7 +15,7 @@ import {
   resolveQuestPartnerConfig,
 } from '../utils/quest-partner-config.util';
 import { QuestProgressService, withinWindow } from './quest-progress.service';
-import { QuestPartnerSecretRegistry } from './quest-partner-secret.registry';
+import { SettingsService } from '../../settings/services/settings.service';
 
 export type QuestPartnerState = 'IN_PROGRESS' | 'COMPLETED' | 'CLAIMED';
 
@@ -34,7 +34,7 @@ export class QuestPartnerService {
     private readonly prismaService: PrismaService,
     private readonly progressService: QuestProgressService,
     private readonly cache: RawCacheService,
-    private readonly secretRegistry: QuestPartnerSecretRegistry,
+    private readonly settingsService: SettingsService,
   ) {}
 
   /** manual_code: user enters a code; complete when it matches (constant-time). */
@@ -127,7 +127,8 @@ export class QuestPartnerService {
     if (quest === null || quest.type !== QuestType.PARTNER_TASK) return null;
     const config = resolveQuestPartnerConfig(quest.params);
     if (config === null || config.partnerSlug !== partnerSlug) return null;
-    return this.secretRegistry.getSecret(partnerSlug);
+    const secrets = await this.settingsService.getQuestPartnerSecretsRuntime();
+    return secrets[partnerSlug] ?? null;
   }
 
   /** Idempotent COMPLETED upsert, shared by all three verification methods. */
@@ -201,7 +202,11 @@ export class QuestPartnerService {
       throw new BadRequestException('Quest is not available');
     }
     const config = resolveQuestPartnerConfig(quest.params);
-    if (config === null || !this.secretRegistry.has(config.partnerSlug)) {
+    if (config === null) {
+      throw new BadRequestException('Quest partner is not configured for verification');
+    }
+    const secrets = await this.settingsService.getQuestPartnerSecretsRuntime();
+    if (secrets[config.partnerSlug] === undefined) {
       throw new BadRequestException('Quest partner is not configured for verification');
     }
     if (!(await this.progressService.isEligible(quest, user.id))) {

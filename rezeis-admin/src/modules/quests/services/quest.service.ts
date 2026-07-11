@@ -18,19 +18,21 @@ import {
 } from '../interfaces/quest.interface';
 import { resolveQuestChannelConfig } from '../utils/quest-channel-config.util';
 import { resolveQuestPartnerConfig } from '../utils/quest-partner-config.util';
-import { QuestPartnerSecretRegistry } from './quest-partner-secret.registry';
-
-/** Narrow view of the secret registry the config gate needs (slug existence). */
-interface PartnerSlugChecker {
-  has(slug: string): boolean;
-}
+import { SettingsService } from '../../settings/services/settings.service';
 
 @Injectable()
 export class QuestService {
   public constructor(
     private readonly prismaService: PrismaService,
-    @Optional() private readonly partnerSecrets?: QuestPartnerSecretRegistry,
+    @Optional() private readonly settingsService?: Pick<SettingsService, 'getQuestPartnerSecretsRuntime'>,
   ) {}
+
+  /** Known partner slugs (from panel settings ∪ env). Empty set when unconfigured. */
+  private async knownPartnerSlugs(): Promise<ReadonlySet<string>> {
+    if (this.settingsService === undefined) return new Set();
+    const map = await this.settingsService.getQuestPartnerSecretsRuntime();
+    return new Set(Object.keys(map));
+  }
 
   public async list(): Promise<readonly QuestInterface[]> {
     const quests = await this.prismaService.quest.findMany({
@@ -52,7 +54,7 @@ export class QuestService {
     readonly dto: CreateQuestDto;
     readonly currentAdmin: CurrentAdminInterface;
   }): Promise<QuestInterface> {
-    assertCompletableType(input.dto.type, input.dto.params ?? null, this.partnerSecrets);
+    assertCompletableType(input.dto.type, input.dto.params ?? null, await this.knownPartnerSlugs());
     assertWindow(input.dto.startAt, input.dto.endAt);
     assertRewardConfig(
       input.dto.rewardType,
@@ -111,7 +113,7 @@ export class QuestService {
     assertCompletableType(
       dto.type ?? existing.type,
       dto.params !== undefined ? dto.params : (existing.params as Prisma.JsonValue),
-      this.partnerSecrets,
+      await this.knownPartnerSlugs(),
     );
     const nextStart = dto.startAt !== undefined ? parseDate(dto.startAt) : existing.startAt;
     const nextEnd = dto.endAt !== undefined ? parseDate(dto.endAt) : existing.endAt;
@@ -213,7 +215,7 @@ const COMPLETABLE_QUEST_TYPES: readonly QuestType[] = [
 function assertCompletableType(
   type: QuestType,
   params: Record<string, unknown> | Prisma.JsonValue | null,
-  partnerSlugs?: PartnerSlugChecker,
+  knownPartnerSlugs?: ReadonlySet<string>,
 ): void {
   if (!COMPLETABLE_QUEST_TYPES.includes(type)) {
     throw new BadRequestException('This quest type is not available yet');
@@ -225,7 +227,7 @@ function assertCompletableType(
     const config = resolveQuestPartnerConfig(params as Prisma.JsonValue);
     // The partner slug must resolve to a configured secret, otherwise the
     // callback / manual-code path can never verify and the quest is unshippable.
-    if (config === null || partnerSlugs === undefined || !partnerSlugs.has(config.partnerSlug)) {
+    if (config === null || knownPartnerSlugs === undefined || !knownPartnerSlugs.has(config.partnerSlug)) {
       throw new BadRequestException('A partner quest requires a valid, configured partner');
     }
   }

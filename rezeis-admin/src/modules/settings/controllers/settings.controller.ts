@@ -15,6 +15,8 @@ import { GenerateWebPushKeysDto } from '../dto/generate-web-push-keys.dto';
 import { UpdateNotificationsTogglesDto } from '../dto/update-notifications-toggles.dto';
 import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
 import { UpdateRemnawaveCleanupSettingsDto } from '../dto/update-remnawave-cleanup-settings.dto';
+import { UpdateQuestPartnerSecretsDto } from '../dto/update-quest-partner-secrets.dto';
+import type { QuestPartnerView } from '../utils/quest-partner-settings.util';
 import {
   SendPaymentOpsAlertTestDto,
   UpdatePaymentOpsAlertSettingsDto,
@@ -310,6 +312,31 @@ export class SettingsController {
     @Req() request: Request,
   ): Promise<Record<string, unknown>> {
     return this.settingsService.updatePartnerSettings({
+      currentAdmin,
+      requestMetadata: extractRequestMetadata(request),
+      patch: body,
+    });
+  }
+
+  /**
+   * Quest PARTNER_TASK per-partner HMAC secrets. GET returns a presence-only
+   * view (slug + label + configured) — the secret itself is never echoed. PATCH
+   * upserts/clears secrets (empty secret clears); secrets are stored
+   * AES-256-GCM-encrypted. `settings:edit` gates mutations (superadmin only).
+   */
+  @Get('quest-partner-secrets')
+  public async getQuestPartnerSecrets(): Promise<readonly QuestPartnerView[]> {
+    return this.settingsService.getQuestPartnerSecretsView();
+  }
+
+  @Patch('quest-partner-secrets')
+  @RequirePermission('settings', 'edit')
+  public async updateQuestPartnerSecrets(
+    @Body() body: UpdateQuestPartnerSecretsDto,
+    @CurrentAdmin() currentAdmin: CurrentAdminInterface,
+    @Req() request: Request,
+  ): Promise<readonly QuestPartnerView[]> {
+    return this.settingsService.updateQuestPartnerSecrets({
       currentAdmin,
       requestMetadata: extractRequestMetadata(request),
       patch: body,

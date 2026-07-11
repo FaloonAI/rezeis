@@ -198,7 +198,7 @@ describe('QuestService', () => {
           },
         },
       } as never,
-      { has: (slug: string) => slug === 'acme' } as never,
+      { getQuestPartnerSecretsRuntime: async () => ({ acme: 'partner-secret' }) } as never,
     );
 
     await service.create({
@@ -218,7 +218,7 @@ describe('QuestService', () => {
   it('rejects a partner quest whose slug has no configured secret', async () => {
     const service = new QuestService(
       { quest: {} } as never,
-      { has: () => false } as never,
+      { getQuestPartnerSecretsRuntime: async () => ({}) } as never,
     );
     await assert.rejects(
       () =>
@@ -239,7 +239,7 @@ describe('QuestService', () => {
   it('rejects a partner quest with no partner config at all', async () => {
     const service = new QuestService(
       { quest: {} } as never,
-      { has: () => true } as never,
+      { getQuestPartnerSecretsRuntime: async () => ({ acme: 'partner-secret' }) } as never,
     );
     await assert.rejects(
       () =>

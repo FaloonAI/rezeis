@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
 import { ProfileSyncModule } from '../profile-sync/profile-sync.module';
+import { SettingsModule } from '../settings/settings.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { AdminQuestController } from './controllers/admin-quest.controller';
 import { InternalQuestChannelController } from './controllers/internal-quest-channel.controller';
@@ -14,11 +15,11 @@ import { QuestIconService } from './services/quest-icon.service';
 import { QuestQueryService } from './services/quest-query.service';
 import { QuestEventListenerService } from './services/quest-event-listener.service';
 import { QuestPartnerService } from './services/quest-partner.service';
-import { QuestPartnerSecretRegistry } from './services/quest-partner-secret.registry';
 import { QuestProgressService } from './services/quest-progress.service';
 import { QuestReconcilerService } from './services/quest-reconciler.service';
 import { QuestRewardService } from './services/quest-reward.service';
 import { QuestService } from './services/quest.service';
+import { SettingsService } from '../settings/services/settings.service';
 
 /**
  * Quests module — gamification tasks that reward users (points / subscription
@@ -33,10 +34,11 @@ import { QuestService } from './services/quest.service';
  * Phase B: SUBSCRIBE_CHANNEL — bot-verified membership (fail-closed callback +
  * periodic recheck) via the internal channel controller.
  * Phase C: PARTNER_TASK — manual-code / signed-postback / timed-visit
- * verification with per-partner HMAC secrets and nonce replay protection.
+ * verification with per-partner HMAC secrets (panel-managed via SettingsService,
+ * env fallback) and nonce replay protection.
  */
 @Module({
-  imports: [AuthModule, ProfileSyncModule, SubscriptionsModule],
+  imports: [AuthModule, ProfileSyncModule, SubscriptionsModule, SettingsModule],
   controllers: [
     AdminQuestController,
     InternalQuestController,
@@ -50,13 +52,6 @@ import { QuestService } from './services/quest.service';
     QuestReconcilerService,
     QuestChannelService,
     QuestPartnerService,
-    {
-      // Per-partner HMAC secrets are process-level config (env JSON map), not
-      // per-request state — build the registry once at module init.
-      provide: QuestPartnerSecretRegistry,
-      useFactory: (): QuestPartnerSecretRegistry =>
-        QuestPartnerSecretRegistry.fromEnv(process.env.QUEST_PARTNER_SECRETS),
-    },
     QuestProgressService,
     QuestQueryService,
     QuestIconService,

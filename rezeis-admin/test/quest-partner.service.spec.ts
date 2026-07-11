@@ -6,7 +6,6 @@ import { describe, it } from 'node:test';
 import { Prisma, QuestCompletionStatus, QuestType } from '@prisma/client';
 
 import { QuestPartnerService } from '../src/modules/quests/services/quest-partner.service';
-import { QuestPartnerSecretRegistry } from '../src/modules/quests/services/quest-partner-secret.registry';
 
 function partnerQuest(partner: Record<string, unknown>, over: Record<string, unknown> = {}) {
   return {
@@ -50,8 +49,10 @@ function makeService(cfg: {
       return cfg.claimNonce ?? true;
     },
   };
-  const registry = new QuestPartnerSecretRegistry(cfg.secrets ?? { acme: 'partner-secret' });
-  const service = new QuestPartnerService(prisma as never, progress as never, cache as never, registry);
+  const registry = {
+    getQuestPartnerSecretsRuntime: async () => cfg.secrets ?? { acme: 'partner-secret' },
+  };
+  const service = new QuestPartnerService(prisma as never, progress as never, cache as never, registry as never);
   return { service, calls };
 }
 
@@ -139,8 +140,8 @@ describe('QuestPartnerService', () => {
     };
     const progress = { isEligible: async () => true };
     const cache = { claimOnce: async () => true };
-    const registry = new QuestPartnerSecretRegistry({ acme: 'partner-secret' });
-    const service = new QuestPartnerService(prisma as never, progress as never, cache as never, registry);
+    const registry = { getQuestPartnerSecretsRuntime: async () => ({ acme: 'partner-secret' }) };
+    const service = new QuestPartnerService(prisma as never, progress as never, cache as never, registry as never);
     const result = await service.verifyManualCode({ userRef: '42', questId: 'cmphfcr6i007v01jg0lcu653h', code: 'PROMO2026' });
     assert.equal(result.state, 'COMPLETED');
   });

@@ -44,6 +44,7 @@ const IconsTab = lazy(() => import('./panel-icons-tab'))
 const BackupTab = lazy(() => import('@/features/backup/backup-page'))
 const ConfigPortabilityTab = lazy(() => import('@/features/config-portability/config-portability-page'))
 const NotificationsTab = lazy(() => import('./panel-notifications-tab'))
+const QuestPartnersTab = lazy(() => import('./quest-partners-tab'))
 
 function TabFallback() {
   return (
@@ -129,6 +130,11 @@ export default function PanelSettingsHub() {
           <PermissionGate resource="auth_providers" action="view" hideWhileLoading>
             <Suspense fallback={<TabFallback />}>
               <AuthProvidersTab embedded />
+            </Suspense>
+          </PermissionGate>
+          <PermissionGate resource="settings" action="edit" hideWhileLoading>
+            <Suspense fallback={<TabFallback />}>
+              <QuestPartnersTab />
             </Suspense>
           </PermissionGate>
         </TabsContent>

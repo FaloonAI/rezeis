@@ -1730,6 +1730,10 @@ model Settings {
   referralSettings          Json       @default("{}") @map("referral_settings")
   /// Partner program tunables (donor: settings.partner_settings JSON).
   partnerSettings           Json       @default("{}") @map("partner_settings")
+  /// Quest PARTNER_TASK per-partner HMAC secrets (panel-managed, env fallback).
+  /// Shape: { partners: [{ slug, secretEnc, label? }] }. Secret is AES-256-GCM
+  /// encrypted at rest (never plaintext, never echoed to the SPA).
+  questPartnerSettings      Json       @default("{}") @map("quest_partner_settings")
   /// Multi-subscription policy (donor: settings.multi_subscription_settings JSON).
   multiSubscriptionSettings Json       @default("{}") @map("multi_subscription_settings")
   /// Branding settings (donor: settings.branding_settings JSON).

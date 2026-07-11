@@ -3,6 +3,22 @@ import { DEFAULT_PLATFORM_ACCESS_MODE, platformAccessModeSchema, type PlatformAc
 import { api } from '@/lib/api'
 import { unwrapPayload } from '@/lib/api-utils'
 
+/** Presence-only view of a quest partner secret — never carries the secret. */
+const questPartnerViewSchema = z.object({
+  slug: z.string(),
+  label: z.string().optional(),
+  configured: z.boolean().catch(true),
+})
+export type QuestPartnerView = z.infer<typeof questPartnerViewSchema>
+
+/** Upsert instruction: secret undefined=keep, ''=clear, non-empty=set. */
+export interface QuestPartnerUpsert {
+  slug: string
+  secret?: string
+  label?: string
+}
+
+
 const platformSettingsResponseSchema = z.object({
   rulesRequired: z.boolean().catch(false),
   rulesLink: z.string().nullable().optional(),
@@ -194,5 +210,13 @@ export const settingsApi = {
   async updatePartnerWithdrawalPolicy(payload: Partial<Omit<PartnerWithdrawalPolicy, 'updatedAt'>>): Promise<PartnerWithdrawalPolicy> {
     const response = await api.patch('/admin/settings/partner-withdrawal-policy', payload)
     return partnerWithdrawalPolicySchema.parse(unwrapPayload(response.data))
+  },
+  async getQuestPartnerSecrets(): Promise<readonly QuestPartnerView[]> {
+    const response = await api.get('/admin/settings/quest-partner-secrets')
+    return z.array(questPartnerViewSchema).parse(unwrapPayload(response.data))
+  },
+  async updateQuestPartnerSecrets(partners: QuestPartnerUpsert[]): Promise<readonly QuestPartnerView[]> {
+    const response = await api.patch('/admin/settings/quest-partner-secrets', { partners })
+    return z.array(questPartnerViewSchema).parse(unwrapPayload(response.data))
   },
 }

@@ -64,6 +64,15 @@ import {
   type StoredRemnawaveCleanupSettings,
 } from '../utils/remnawave-cleanup-settings.util';
 import { UpdateRemnawaveCleanupSettingsDto } from '../dto/update-remnawave-cleanup-settings.dto';
+import {
+  decryptQuestPartnerSecrets,
+  mergeQuestPartnerSecrets,
+  parseQuestPartnerEnv,
+  readQuestPartnerStore,
+  toQuestPartnerView,
+  type QuestPartnerView,
+} from '../utils/quest-partner-settings.util';
+import { UpdateQuestPartnerSecretsDto } from '../dto/update-quest-partner-secrets.dto';
 import { IconUploadService } from './icon-upload.service';
 
 interface UpdatePlatformSettingsInput {
@@ -1170,6 +1179,70 @@ export class SettingsService {
     return toRemnawaveCleanupSettingsView(
       readJsonObject(settings.remnawaveCleanupSettings) as StoredRemnawaveCleanupSettings,
     );
+  }
+
+  // ── Quest partner HMAC secrets (panel-managed, env fallback) ────────────
+
+  private async readStoredQuestPartners() {
+    const settings = await this.getSettingsRecord(this.prismaService);
+    return readQuestPartnerStore(settings?.questPartnerSettings ?? null);
+  }
+
+  /**
+   * Server-side slug→secret map for partner-callback signature verification.
+   * Panel-stored (decrypted) secrets take precedence; any slug only present in
+   * the `QUEST_PARTNER_SECRETS` env var is merged in as a fallback. Decryption
+   * failures degrade to the env value for that slug rather than throwing.
+   */
+  public async getQuestPartnerSecretsRuntime(): Promise<Record<string, string>> {
+    const envMap = parseQuestPartnerEnv(process.env.QUEST_PARTNER_SECRETS);
+    const stored = await this.readStoredQuestPartners();
+    const dbMap = decryptQuestPartnerSecrets(stored, this.applicationConfiguration.cryptKey);
+    return { ...envMap, ...dbMap }; // DB overrides env on slug collision
+  }
+
+  /** Admin-safe view (slug + label + configured), never the secret itself. */
+  public async getQuestPartnerSecretsView(): Promise<readonly QuestPartnerView[]> {
+    return toQuestPartnerView(await this.readStoredQuestPartners());
+  }
+
+  /** Upsert/clear panel-managed partner secrets. Empty secret clears a partner. */
+  public async updateQuestPartnerSecrets(input: {
+    readonly currentAdmin: CurrentAdminInterface;
+    readonly requestMetadata: RequestMetadataInterface;
+    readonly patch: UpdateQuestPartnerSecretsDto;
+  }): Promise<readonly QuestPartnerView[]> {
+    const cryptKey = this.applicationConfiguration.cryptKey;
+    const hasSecretWrite = input.patch.partners.some(
+      (p) => typeof p.secret === 'string' && p.secret.trim() !== '',
+    );
+    if (hasSecretWrite && !cryptKey) {
+      throw new BadRequestException('REZEIS_CRYPT_KEY is required to store a partner secret');
+    }
+
+    const settings = await this.prismaService.$transaction(async (tx) => {
+      const existing = await this.getOrCreateSettingsRecord(tx);
+      const previous = readQuestPartnerStore(existing.questPartnerSettings);
+      const next = mergeQuestPartnerSecrets(previous, input.patch.partners, cryptKey);
+      const updated = await tx.settings.update({
+        where: { id: existing.id },
+        data: { questPartnerSettings: next as unknown as Prisma.InputJsonValue },
+      });
+      await tx.adminAuditLog.create({
+        data: buildAdminAuditLogData({
+          action: 'settings.questPartnerSecrets.update',
+          actorId: input.currentAdmin.id,
+          requestMetadata: input.requestMetadata,
+          metadata: {
+            requestId: input.requestMetadata.requestId,
+            // Slugs only — never the secret values.
+            slugs: input.patch.partners.map((p) => p.slug),
+          },
+        }),
+      });
+      return updated;
+    });
+    return toQuestPartnerView(readQuestPartnerStore(settings.questPartnerSettings));
   }
 
   // ── Custom icon library ────────────────────────────────────────────────
