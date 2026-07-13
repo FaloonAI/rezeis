@@ -1,5 +1,5 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Logger } from '@nestjs/common';
+import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import { EffectiveProjectionState, Prisma, SubscriptionStatus, SyncAction, SyncJobStatus } from '@prisma/client';
 import { Job } from 'bullmq';
 
@@ -7,7 +7,11 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { SystemEventsService, EVENT_TYPES } from '../../common/services/system-events.service';
 import { resolveAddOnRolloutFlags } from '../add-on-entitlements/add-on-rollout.config';
 import { RemnawaveApiService } from '../remnawave/services/remnawave-api.service';
-import { PROFILE_SYNC_CONCURRENCY, PROFILE_SYNC_QUEUE } from './profile-sync.constants';
+import {
+  PROFILE_SYNC_CONCURRENCY,
+  PROFILE_SYNC_MAX_ATTEMPTS,
+  PROFILE_SYNC_QUEUE,
+} from './profile-sync.constants';
 import { ProfileSyncQueueService } from './profile-sync-queue.service';
 import { RemnawaveProfileNamingService } from './remnawave-profile-naming.service';
 
@@ -144,13 +148,22 @@ export class ProfileSyncProcessor extends WorkerHost {
           lastError: errorMessage,
         },
       });
-      // Emit error event
-      this.events.error(EVENT_TYPES.SYSTEM_ERROR, 'SYSTEM', `Profile sync failed: ${errorMessage}`, {
-        syncJobId,
-        action: syncJob.action,
-        subscriptionId: syncJob.subscription.id,
-        attempt: syncJob.attempts + 1,
-      });
+      // Only surface a SYSTEM error to the operator for a GENUINE, non-transient
+      // FINAL failure. A transient Remnawave outage (ServiceUnavailableException)
+      // is expected and retryable — BullMQ retries it and the recovery sweep
+      // re-drives it once the panel is back — so it stays in the logs and must
+      // never flood the operator on every attempt (the source of the alert spam).
+      const attempt = syncJob.attempts + 1;
+      const isFinalAttempt = attempt >= PROFILE_SYNC_MAX_ATTEMPTS;
+      const isTransient = err instanceof ServiceUnavailableException;
+      if (isFinalAttempt && !isTransient) {
+        this.events.error(EVENT_TYPES.SYSTEM_ERROR, 'SYSTEM', `Profile sync failed: ${errorMessage}`, {
+          syncJobId,
+          action: syncJob.action,
+          subscriptionId: syncJob.subscription.id,
+          attempt,
+        });
+      }
       throw err; // Let BullMQ retry
     }
   }

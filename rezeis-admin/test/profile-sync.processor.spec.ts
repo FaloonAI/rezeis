@@ -1,9 +1,44 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { ServiceUnavailableException } from '@nestjs/common';
 import { SubscriptionStatus, SyncAction, SyncJobStatus } from '@prisma/client';
 
 import { ProfileSyncProcessor } from '../src/modules/profile-sync/profile-sync.processor';
+
+/** Prisma mock for a DELETE job whose handler will throw, at a given attempt. */
+function deleteJobPrismaMock(attempts: number, onUpdate: (input: unknown) => void) {
+  return {
+    profileSyncJob: {
+      findUnique: async () => ({
+        id: 'sync-job-x',
+        action: SyncAction.DELETE,
+        status: SyncJobStatus.PENDING,
+        attempts,
+        supersededAt: null,
+        subscription: {
+          id: 'subscription-1',
+          userId: 'user-1',
+          remnawaveId: 'rem-user-1',
+          trafficLimit: null,
+          deviceLimit: 0,
+          internalSquads: [],
+          externalSquad: null,
+          expiresAt: new Date('2020-01-01T00:00:00.000Z'),
+          planSnapshot: {},
+        },
+      }),
+      updateMany: async () => ({ count: 1 }),
+      update: async (input: unknown) => { onUpdate(input); },
+    },
+    subscription: { update: async () => undefined },
+    $transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback({
+      $queryRaw: async () => [{ status: SubscriptionStatus.ACTIVE }],
+      subscription: { update: async () => undefined },
+      profileSyncJob: { findMany: async () => [], create: async () => ({ id: 'x' }) },
+    }),
+  };
+}
 
 describe('ProfileSyncProcessor', () => {
   it('skips superseded work before marking it running or calling Remnawave', async () => {
@@ -614,6 +649,43 @@ describe('ProfileSyncProcessor', () => {
         lastError: "Panel did not confirm deletion of Remnawave profile 'rem-user-1'",
       },
     }]);
+  });
+
+  it('does NOT emit a SYSTEM error for a transient Remnawave outage (retryable, non-final attempt)', async () => {
+    const errorEvents: unknown[] = [];
+    const processor = new ProfileSyncProcessor(
+      deleteJobPrismaMock(0, () => undefined) as never,
+      { deletePanelUser: async () => { throw new ServiceUnavailableException('Remnawave integration is unavailable'); } } as never,
+      {} as never,
+      { error: (...a: unknown[]) => { errorEvents.push(a); }, info: () => undefined } as never,
+    );
+    await assert.rejects(() => processor.process({ data: { syncJobId: 'sync-job-x' } } as never));
+    // Transient + not the final attempt → the failure stays in the logs, no operator alert.
+    assert.equal(errorEvents.length, 0);
+  });
+
+  it('does NOT emit a SYSTEM error for a transient outage even on the FINAL attempt (sweep will recover)', async () => {
+    const errorEvents: unknown[] = [];
+    const processor = new ProfileSyncProcessor(
+      deleteJobPrismaMock(4, () => undefined) as never, // attempt 5 = final
+      { deletePanelUser: async () => { throw new ServiceUnavailableException('Remnawave integration is unavailable'); } } as never,
+      {} as never,
+      { error: (...a: unknown[]) => { errorEvents.push(a); }, info: () => undefined } as never,
+    );
+    await assert.rejects(() => processor.process({ data: { syncJobId: 'sync-job-x' } } as never));
+    assert.equal(errorEvents.length, 0);
+  });
+
+  it('emits a single SYSTEM error for a genuine NON-transient failure on the final attempt', async () => {
+    const errorEvents: unknown[] = [];
+    const processor = new ProfileSyncProcessor(
+      deleteJobPrismaMock(4, () => undefined) as never, // attempt 5 = final
+      { deletePanelUser: async () => ({ isDeleted: false }) } as never, // → plain Error, non-transient
+      {} as never,
+      { error: (...a: unknown[]) => { errorEvents.push(a); }, info: () => undefined } as never,
+    );
+    await assert.rejects(() => processor.process({ data: { syncJobId: 'sync-job-x' } } as never));
+    assert.equal(errorEvents.length, 1);
   });
 
   it('marks missing and already-completed jobs as no-ops', async () => {
