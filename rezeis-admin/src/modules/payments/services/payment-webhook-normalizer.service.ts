@@ -30,6 +30,18 @@ const yookassaTrustedBlockList = createTrustedBlockList(YOOKASSA_TRUSTED_NETWORK
 
 @Injectable()
 export class PaymentWebhookNormalizerService {
+  public verifyWebhookSignature(input: Omit<NormalizeWebhookInput, 'verifySignature'>): void {
+    const rawPayload = parseWebhookPayload(input.rawBody, input.gatewayType);
+    this.verifySignature({
+      gatewayType: input.gatewayType,
+      rawBody: input.rawBody,
+      rawPayload,
+      headers: input.headers,
+      gatewaySettings: readGatewaySettings(input.gatewaySettings as never),
+      clientIp: input.clientIp,
+    });
+  }
+
   public normalizeWebhook(input: NormalizeWebhookInput): PaymentWebhookEnvelopeInterface {
     const rawPayload = parseWebhookPayload(input.rawBody, input.gatewayType);
     const gatewaySettings = readGatewaySettings(input.gatewaySettings as never);
