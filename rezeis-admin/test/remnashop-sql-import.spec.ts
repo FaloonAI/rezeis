@@ -98,6 +98,19 @@ describe('parseRemnashopBackup — SQL dump', () => {
     assert.equal(data.subscriptions.length, 1);
   });
 
+  it('accepts a plan COPY block without optional allowed_user_ids', async () => {
+    const legacyDump = SQL_DUMP.replace(
+      'device_limit, allowed_user_ids, internal_squads',
+      'device_limit, internal_squads',
+    ).replace(
+      '\t5\t{}\t{954f9c34-c461-4f48-880c-63898fd924ad}',
+      '\t5\t{954f9c34-c461-4f48-880c-63898fd924ad}',
+    );
+
+    const data = await parseRemnashopBackup(Buffer.from(legacyDump, 'utf-8'));
+    assert.deepEqual(data.plans[0].allowed_user_ids, []);
+  });
+
   it('accepts the official backup .tar.gz with a nested bot_dump_*.sql.gz', async () => {
     const tarGz = await buildTarGz([
       { name: 'backup_meta.info', content: Buffer.from('DUMP_TYPE="dumpall"\n') },
