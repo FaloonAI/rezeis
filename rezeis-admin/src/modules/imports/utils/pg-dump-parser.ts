@@ -106,7 +106,7 @@ export function pgBigInt(v: string | null): number {
  * which never contain commas or quotes inside an element.
  */
 export function pgArray(v: string | null | undefined): string[] {
-  if (v === null) return [];
+  if (v == null) return [];
   const t = v.trim();
   if (!t.startsWith('{') || !t.endsWith('}')) return [];
   const inner = t.slice(1, -1).trim();
