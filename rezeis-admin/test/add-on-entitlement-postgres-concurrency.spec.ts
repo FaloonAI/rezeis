@@ -744,7 +744,7 @@ run('add-on entitlement PostgreSQL concurrency', () => {
       data: {
         id: txId, paymentId: `${txId}-pay`, userId, subscriptionId: id, status: 'COMPLETED',
         purchaseType: 'ADDITIONAL', channel: 'WEB', gatewayType: 'YOOKASSA', currency: 'USD',
-        amount: new Prisma.Decimal('2.50'), planSnapshot: {},
+         amount: new Prisma.Decimal('2.50'), planSnapshot: { combinedRenewal: true },
       },
     });
 
@@ -947,7 +947,7 @@ run('add-on entitlement PostgreSQL concurrency', () => {
           paymentId: `${id}-pay`, userId, subscriptionId: id, status: 'COMPLETED',
           purchaseType: 'RENEW', channel: 'WEB', gatewayType: 'YOOKASSA', currency: 'USD',
           amount: new Prisma.Decimal('2.50'),
-          planSnapshot: { id: planId, selectedDurationDays: 30 },
+           planSnapshot: { combinedRenewal: true, id: planId, selectedDurationDays: 30 },
         },
       });
       await mutation.applyCompletedTransaction(txn);
@@ -983,7 +983,7 @@ run('add-on entitlement PostgreSQL concurrency', () => {
         data: {
           paymentId: `${onId}-pay2`, userId, subscriptionId: onId, status: 'COMPLETED',
           purchaseType: 'RENEW', channel: 'WEB', gatewayType: 'YOOKASSA', currency: 'USD',
-          amount: new Prisma.Decimal('2.50'), planSnapshot: { id: planId, selectedDurationDays: 30 },
+           amount: new Prisma.Decimal('2.50'), planSnapshot: { combinedRenewal: true, id: planId, selectedDurationDays: 30 },
         },
       });
       await mutation.applyCompletedTransaction(txn2);
