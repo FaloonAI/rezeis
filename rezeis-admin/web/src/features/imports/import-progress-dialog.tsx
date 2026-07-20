@@ -249,8 +249,8 @@ export function ImportProgressDialog({
         if (!next && isTerminal) onClose()
       }}
     >
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[min(90vh,720px)] max-w-lg flex-col gap-4 overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{t(titleKey, { source: capitalize(source) })}</DialogTitle>
           {!isTerminal ? (
             <DialogDescription>
@@ -259,16 +259,18 @@ export function ImportProgressDialog({
           ) : null}
         </DialogHeader>
 
-        {!isTerminal ? (
-          <InProgressBody
-            stageIndex={stageIndex}
-            timedOut={timedOut}
-          />
-        ) : (
-          <DoneBody record={record!} summary={summary} mode={mode} />
-        )}
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          {!isTerminal ? (
+            <InProgressBody
+              stageIndex={stageIndex}
+              timedOut={timedOut}
+            />
+          ) : (
+            <DoneBody record={record!} summary={summary} mode={mode} />
+          )}
+        </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="shrink-0 gap-2 sm:gap-0">
           {!isTerminal && importRecordId !== null ? (
             <Button
               variant="outline"
@@ -409,7 +411,7 @@ function DoneBody({
       {/* Stat grid — values default to "—" when the field is not present
           for this importer, so we never show "0" for "we did not measure". */}
       {summary ? (
-        <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+        <div className="grid max-w-full grid-cols-2 gap-2 overflow-hidden text-sm sm:grid-cols-3">
           <Stat label={t('importsPage.progressDialog.stats.fetched')} value={summary.fetched} />
           <Stat label={t('importsPage.progressDialog.stats.created')} value={summary.created} />
           <Stat label={t('importsPage.progressDialog.stats.updated')} value={summary.updated} />
@@ -472,11 +474,11 @@ function Stat({
   readonly tone?: 'neutral' | 'danger'
 }): JSX.Element {
   return (
-    <div className="rounded-md border bg-card px-3 py-2">
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+    <div className="min-w-0 overflow-hidden rounded-md border bg-card px-3 py-2">
+      <p className="truncate text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
       <p
         className={cn(
-          'text-lg font-semibold tabular-nums',
+          'truncate text-lg font-semibold tabular-nums',
           tone === 'danger' && Number(value) > 0 ? 'text-destructive' : 'text-foreground',
         )}
       >

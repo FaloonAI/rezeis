@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import {
+  AddOnType,
   Currency,
   ImportStatus,
   Locale,
@@ -210,6 +211,19 @@ export class StealthnetImporterService {
       }
     }
 
+    // Ensure sellable EXTRA_DEVICES catalog rows exist for any observed
+    // STEALTHNET extra-device prices (tariff price_per_extra_device or
+    // subscription-level monthly extras). Idempotent by name.
+    const derivedAddOns = deriveExtraDeviceAddOns(tariffs, subscriptions);
+    let addOnsCreated = 0;
+    try {
+      addOnsCreated = await this.ensureExtraDeviceAddOns(derivedAddOns);
+    } catch (err) {
+      const message = `extra-device add-ons: ${(err as Error).message}`;
+      errors.push(message);
+      this.logger.warn(message);
+    }
+
     const finalStatus = errors.length === 0 ? ImportStatus.COMMITTED : ImportStatus.FAILED;
     const resultPayload: Prisma.InputJsonValue = {
       mode,
@@ -222,6 +236,7 @@ export class StealthnetImporterService {
       transactionsProcessed: payments.length,
       transactionsCreated,
       pointsGranted,
+      addOnsCreated,
       errors,
       rollback: { createdUserIds },
       // Catalog snapshot — reused by BackupPlanClonerService for the
@@ -233,6 +248,10 @@ export class StealthnetImporterService {
           plans: tariffs.map((t) => mapTariffToPlanRow(t, tariffCategories)),
           planDurations: deriveDurations(tariffs, tariffPriceOptions),
           planPrices: derivePrices(tariffs, tariffPriceOptions),
+          // STEALTHNET does not have a separate add_ons table — extra
+          // devices are tariff/subscription fields. Surface a synthetic
+          // EXTRA_DEVICES catalog so clone/operator can recreate pricing.
+          addOns: derivedAddOns,
         }),
       ),
     };
@@ -425,6 +444,12 @@ export class StealthnetImporterService {
     const tariff = sub.tariff_id ? tariffById.get(sub.tariff_id) : undefined;
     const tariffSquads = tariff?.internal_squad_uuids ? [...tariff.internal_squad_uuids] : [];
 
+    const baseDevices =
+      tariff?.device_limit ??
+      (tariff?.included_devices && tariff.included_devices > 0 ? tariff.included_devices : 0);
+    const extraDevices = Math.max(0, sub.extra_devices ?? 0);
+    const backupDeviceLimit = baseDevices + extraDevices;
+
     const planSnapshot: Prisma.InputJsonValue = {
       importedFrom: 'stealthnet',
       sourceSubscriptionId: sub.id,
@@ -432,11 +457,23 @@ export class StealthnetImporterService {
       // Mirror altshop's `originalPlanSnapshot.id` shape so the Plan
       // Cloner's `extractSourcePlanId()` walks both seamlessly.
       originalPlanSnapshot: tariff
-        ? { id: tariff.id, name: tariff.name, duration_days: tariff.duration_days }
+        ? {
+            id: tariff.id,
+            name: tariff.name,
+            duration_days: tariff.duration_days,
+            included_devices: tariff.included_devices,
+            max_extra_devices: tariff.max_extra_devices,
+            price_per_extra_device: tariff.price_per_extra_device,
+          }
         : null,
       tariffName: tariff?.name ?? null,
       currency: tariff?.currency ?? null,
       durationDays: tariff?.duration_days ?? null,
+      // STEALTHNET "extra devices" are per-subscription, not a separate
+      // entitlement table — surface them for clone/analytics + device sum.
+      extraDevices,
+      extraDevicesMonthlyPrice: sub.extra_devices_monthly_price ?? 0,
+      backupExpireAt: sub.expire_at,
     };
 
     // Remnawave is the source of truth. If the panel still has this profile,
@@ -448,18 +485,25 @@ export class StealthnetImporterService {
       panelLookup,
       (uuid) => this.remnawaveApiService.getPanelUser(uuid),
     );
+    const backupExpiresAt = parseOptionalDate(sub.expire_at);
     const dataShared = panel
       ? (() => {
           const fresh = panelSubscriptionState(panel);
+          // Prefer panel device limit; if panel reports 0/null but the dump
+          // has included+extra devices, keep the higher backup sum so the
+          // operator does not lose paid extra slots during import.
+          const panelDevices = fresh.deviceLimit ?? 0;
+          const deviceLimit =
+            panelDevices > 0 ? Math.max(panelDevices, backupDeviceLimit) : backupDeviceLimit || panelDevices;
           return {
             status: fresh.status,
             isTrial: false,
             trafficLimit: fresh.trafficLimit,
-            deviceLimit: fresh.deviceLimit,
+            deviceLimit,
             internalSquads: fresh.internalSquads.length > 0 ? fresh.internalSquads : tariffSquads,
             externalSquad: fresh.externalSquad,
             configUrl: fresh.configUrl,
-            expiresAt: fresh.expiresAt,
+            expiresAt: fresh.expiresAt ?? backupExpiresAt,
             planSnapshot,
           };
         })()
@@ -470,9 +514,9 @@ export class StealthnetImporterService {
             tariff?.traffic_limit_bytes && tariff.traffic_limit_bytes > 0
               ? Math.max(1, Math.round(Number(tariff.traffic_limit_bytes) / 1024 ** 3))
               : null,
-          deviceLimit: tariff?.device_limit ?? tariff?.included_devices ?? 0,
+          deviceLimit: backupDeviceLimit,
           internalSquads: tariffSquads,
-          expiresAt: null,
+          expiresAt: backupExpiresAt,
           planSnapshot,
         };
 
@@ -634,6 +678,56 @@ export class StealthnetImporterService {
     };
     return validCurrencies[upper] ?? null;
   }
+
+  /**
+   * Create missing EXTRA_DEVICES catalog items (+ prices) for STEALTHNET
+   * extra-device unit prices. Existing names are left alone (idempotent).
+   */
+  private async ensureExtraDeviceAddOns(
+    rows: ReadonlyArray<Record<string, unknown>>,
+  ): Promise<number> {
+    let created = 0;
+    for (const row of rows) {
+      const name = typeof row.name === 'string' ? row.name : null;
+      if (!name) continue;
+      const existing = await this.prismaService.addOn.findFirst({
+        where: { name },
+        select: { id: true },
+      });
+      if (existing) continue;
+      const currencyRaw =
+        Array.isArray(row.prices) &&
+        row.prices[0] &&
+        typeof (row.prices[0] as { currency?: string }).currency === 'string'
+          ? (row.prices[0] as { currency: string }).currency
+          : 'RUB';
+      const priceRaw =
+        Array.isArray(row.prices) &&
+        row.prices[0] &&
+        typeof (row.prices[0] as { price?: number }).price === 'number'
+          ? (row.prices[0] as { price: number }).price
+          : 0;
+      const currency = this.mapCurrency(currencyRaw) ?? Currency.RUB;
+      await this.prismaService.addOn.create({
+        data: {
+          name,
+          description:
+            typeof row.description === 'string'
+              ? row.description
+              : 'Imported from STEALTHNET extra-device pricing',
+          type: AddOnType.EXTRA_DEVICES,
+          value: 1,
+          isActive: true,
+          orderIndex: typeof row.order_index === 'number' ? row.order_index : 0,
+          prices: {
+            create: [{ currency, price: priceRaw }],
+          },
+        },
+      });
+      created += 1;
+    }
+    return created;
+  }
 }
 
 // ── Module-level helpers ────────────────────────────────────────────────────
@@ -643,16 +737,25 @@ export class StealthnetImporterService {
 // importer emits.
 
 /**
- * Converts a leftover STEALTHNET wallet balance into loyalty points using the
- * operator-chosen rate (points per 1 currency unit), floored and never
- * negative. Credited once per migrated user (guarded by a `points = 0`
- * conditional update in the run loop) so both freshly-created and re-matched
- * existing users keep the value they had in the old bot without double-credit.
+ * Converts a leftover STEALTHNET wallet balance into loyalty points.
+ *
+ * STEALTHNET stores balance as major currency units (double, e.g. RUB).
+ * Fractional coppers/kopecks are first rounded half-up to 2 decimals so
+ * float dust (`10.005`, `19.999999`) does not strand or invent value,
+ * then `major * rate` is rounded half-up to whole points.
+ *
+ * Rate = points per 1 major unit (default 1:1). Never negative.
+ * Credited once per migrated user (guarded by `points = 0` updateMany).
  */
-function balanceToPoints(balance: number, rate: number): number {
+export function balanceToPoints(balance: number, rate: number): number {
   if (!Number.isFinite(balance) || balance <= 0) return 0;
   if (!Number.isFinite(rate) || rate <= 0) return 0;
-  return Math.floor(balance * rate);
+  // Integer kopecks (half-up). Small epsilon kills IEEE dust on *100
+  // (e.g. 1.005 * 100 → 100.4999… without epsilon).
+  const kopecks = Math.round(balance * 100 + 1e-8);
+  if (kopecks <= 0) return 0;
+  // points = (kopecks/100) * rate, half-up via integer arithmetic.
+  return Math.round((kopecks * rate) / 100 + 1e-8);
 }
 
 /**
@@ -679,6 +782,57 @@ function parseTelegramId(raw: string | null): bigint | null {
  * `result.catalog.plans[].id/name/internal_squads/...` directly so the
  * field names matter.
  */
+function parseOptionalDate(raw: string | null | undefined): Date | null {
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Build synthetic EXTRA_DEVICES add-on rows from tariff
+ * `price_per_extra_device` and any observed subscription extras.
+ * Rezeis stores paid extras as catalog add-ons + entitlements; STEALTHNET
+ * only stores counters — cloning recreates the sellable unit.
+ */
+function deriveExtraDeviceAddOns(
+  tariffs: readonly StealthnetTariff[],
+  subscriptions: readonly StealthnetSubscription[],
+): ReadonlyArray<Record<string, unknown>> {
+  const prices = new Map<string, { currency: string; price: number }>();
+  for (const t of tariffs) {
+    if (t.price_per_extra_device > 0) {
+      const currency = (t.currency || 'rub').toUpperCase();
+      prices.set(`${currency}:${t.price_per_extra_device}`, {
+        currency,
+        price: t.price_per_extra_device,
+      });
+    }
+  }
+  for (const s of subscriptions) {
+    if (s.extra_devices > 0 && s.extra_devices_monthly_price > 0) {
+      // Subscription-level monthly price is in major units of the shop
+      // default (RUB in this dump). Use RUB unless tariffs say otherwise.
+      const currency = 'RUB';
+      const key = `${currency}:${s.extra_devices_monthly_price}`;
+      if (!prices.has(key)) {
+        prices.set(key, { currency, price: s.extra_devices_monthly_price });
+      }
+    }
+  }
+  return Array.from(prices.values()).map((p, index) => ({
+    id: stableHashId(`extra-device-${p.currency}-${p.price}`),
+    name: `Extra device (${p.price} ${p.currency}/mo)`,
+    description: 'Imported from STEALTHNET tariff/subscription extra-device pricing',
+    type: 'EXTRA_DEVICES',
+    value: 1,
+    is_active: true,
+    order_index: index,
+    lifetime: 'UNTIL_SUBSCRIPTION_END',
+    prices: [{ currency: p.currency, price: p.price }],
+    source: 'stealthnet',
+  }));
+}
+
 function mapTariffToPlanRow(
   tariff: StealthnetTariff,
   categories: readonly StealthnetTariffCategory[],
@@ -687,6 +841,12 @@ function mapTariffToPlanRow(
   // STEALTHNET CUIDs into stable integers so the cloner's internal
   // `Map<number, string>` works without changes.
   const sortIndex = categories.findIndex((c) => c.id === tariff.category_id);
+  const deviceLimit =
+    tariff.device_limit !== null && tariff.device_limit !== undefined && tariff.device_limit > 0
+      ? tariff.device_limit
+      : tariff.included_devices > 0
+        ? tariff.included_devices
+        : 0;
   return {
     id: stableHashId(tariff.id),
     order_index: tariff.sort_order,
@@ -698,11 +858,14 @@ function mapTariffToPlanRow(
     name: tariff.name,
     description: tariff.description,
     tag: null,
+    device_limit: deviceLimit,
+    included_devices: tariff.included_devices,
+    max_extra_devices: tariff.max_extra_devices,
+    price_per_extra_device: tariff.price_per_extra_device,
     traffic_limit:
       tariff.traffic_limit_bytes && tariff.traffic_limit_bytes > 0
         ? Number(tariff.traffic_limit_bytes)
         : 0,
-    device_limit: tariff.device_limit ?? tariff.included_devices,
     traffic_limit_strategy: mapResetMode(tariff.traffic_reset_mode),
     replacement_plan_ids: [],
     upgrade_to_plan_ids: [],
