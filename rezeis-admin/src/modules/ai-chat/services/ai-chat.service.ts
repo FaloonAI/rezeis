@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import type { ChatCompletionTool } from 'openai/resources/chat/completions';
 
@@ -8,6 +7,7 @@ import { PurchaseChannel } from '../../../common/types/prisma-enums';
 import type { PlanCatalogQueryContextInterface } from '../../plans/interfaces/plan-catalog.interface';
 import { PlanCatalogService } from '../../plans/services/plan-catalog.service';
 import { FaqService } from '../../faq/services/faq.service';
+import { AiConfigService } from '../../ai-config/services/ai-config.service';
 
 // ── Exported types / constants ──────────────────────────────────────────────
 
@@ -99,36 +99,38 @@ let messageCounter = 0;
 @Injectable()
 export class AiChatService {
   private readonly logger = new Logger(AiChatService.name);
-  private readonly openai: OpenAI | null = null;
-  private readonly model: string;
 
   /** Number of recent message pairs to include as context. */
   private readonly contextWindow = 10;
 
   public constructor(
-    private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
     private readonly planCatalogService: PlanCatalogService,
     private readonly faqService: FaqService,
-  ) {
-    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
-    const baseUrl = this.configService.get<string>('OPENAI_API_URL');
-    this.model = this.configService.get<string>('OPENAI_MODEL') ?? 'gpt-4o-mini';
+    private readonly aiConfigService: AiConfigService,
+  ) {}
 
-    if (apiKey) {
-      this.openai = new OpenAI({
-        apiKey,
-        ...(baseUrl ? { baseURL: baseUrl } : {}),
-      });
-      this.logger.log(
-        `AI Chat initialised with model=${this.model} url=${baseUrl || 'https://api.openai.com/v1'}`,
-      );
-    } else {
-      this.logger.warn(
-        'OPENAI_API_KEY is not set — AI Chat is unavailable. ' +
-          'Set OPENAI_API_KEY (and optionally OPENAI_API_URL / OPENAI_MODEL) in .env to enable.',
-      );
+  /**
+   * Builds an OpenAI client from panel AI-Support settings (encrypted key).
+   * Returns null when disabled or unconfigured — never reads OPENAI_* env.
+   */
+  private async resolveClient(): Promise<{
+    openai: OpenAI;
+    model: string;
+    systemPrompt: string;
+  } | null> {
+    const settings = await this.aiConfigService.getSettings();
+    if (!settings.enabled || !settings.apiKey) {
+      return null;
     }
+    return {
+      openai: new OpenAI({
+        apiKey: settings.apiKey,
+        ...(settings.baseUrl ? { baseURL: settings.baseUrl } : {}),
+      }),
+      model: settings.model || 'gpt-4o-mini',
+      systemPrompt: settings.systemPrompt || '',
+    };
   }
 
   /**
@@ -145,11 +147,12 @@ export class AiChatService {
     message: string,
     conversationId?: string,
   ): Promise<{ reply: string; conversationId: string }> {
-    if (!this.openai) {
+    const runtime = await this.resolveClient();
+    if (!runtime) {
       return {
         reply:
           '🤖 AI-чат временно недоступен. Пожалуйста, обратитесь в поддержку ' +
-          'через тикеты или напишите в Telegram. (OPENAI_API_KEY не настроен)',
+          'через тикеты или напишите в Telegram. (настройте AI-Support в панели)',
         conversationId: conversationId ?? 'none',
       };
     }
@@ -161,7 +164,7 @@ export class AiChatService {
     const history = this.getHistory(convoId);
     const recentMessages = history.slice(-this.contextWindow * 2);
 
-    const systemPrompt = this.buildSystemPrompt();
+    const systemPrompt = this.buildSystemPrompt(runtime.systemPrompt);
 
     // Use OpenAI SDK native types so we can pass tool messages
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -174,8 +177,8 @@ export class AiChatService {
     ];
 
     try {
-      let response = await this.openai.chat.completions.create({
-        model: this.model,
+      let response = await runtime.openai.chat.completions.create({
+        model: runtime.model,
         messages,
         tools: [...AI_TOOL_DEFINITIONS],
         tool_choice: 'auto',
@@ -217,8 +220,8 @@ export class AiChatService {
         }
 
         // Next iteration — send tool results back to the model
-        response = await this.openai.chat.completions.create({
-          model: this.model,
+        response = await runtime.openai.chat.completions.create({
+          model: runtime.model,
           messages,
           tools: [...AI_TOOL_DEFINITIONS],
           tool_choice: 'auto',
@@ -355,30 +358,32 @@ export class AiChatService {
 
   /**
    * Builds the system prompt for the AI support persona.
+   * Operator `systemPrompt` from panel is appended as lower-priority context.
    */
-  private buildSystemPrompt(): string {
-    return [
-      'Ты — дружелюбный и компетентный ассистент технической поддержки Rezeis.',
-      'Ты отвечаешь исключительно на русском языке, вежливо и понятно.',
+  private buildSystemPrompt(operatorPersona?: string): string {
+    const base = [
+      'Ты — дружелюбный и компетентный ассистент технической поддержки.',
+      'Ты отвечаешь вежливо и понятно (по умолчанию на русском).',
       '',
-      'Твоя задача — помогать пользователям с вопросами о сервисе Rezeis:',
+      'Твоя задача — помогать с публичными вопросами о сервисе:',
       '- Настройка и использование VPN-приложений',
       '- Решение проблем с подключением',
       '- Информация о тарифах и подписках',
       '- Общие вопросы о платформе',
       '',
       'ВАЖНЫЕ ПРАВИЛА:',
+      '- Только рекомендации: нет системных действий (подписки, платежи, доступы).',
       '- НЕ упоминай Remnawave, Xray, протоколы или технические детали реализации.',
       '- НЕ раскрывай внутреннюю архитектуру сервиса.',
       '- НЕ давай инструкции по обходу блокировок или настройке в обход правил.',
       '- Если не знаешь ответа — предложи обратиться в поддержку через тикеты.',
       '- Будь краток и по делу. Не используй сложную техническую лексику.',
-      '- Обращайся к пользователю на «ты».',
       '',
-      'Ты можешь запрашивать актуальные тарифы и FAQ из панели управления, когда это необходимо для ответа пользователю.',
-      '',
-      'Приветствуй пользователя дружелюбно и предлагай помощь по списку выше.',
+      'Ты можешь запрашивать актуальные тарифы и FAQ из панели управления, когда это необходимо.',
     ].join('\n');
+    const extra = (operatorPersona ?? '').trim();
+    if (!extra) return base;
+    return `${base}\n\n--- Контекст оператора (справочно) ---\n${extra.slice(0, 8_000)}\n---`;
   }
 
   /**

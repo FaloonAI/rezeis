@@ -1,3 +1,19 @@
+# Rezeis Admin v0.9.6.54
+
+🤖 **AI-Support: ключ только в панели (encrypted)** — provider credentials из AI-Support settings (AES-GCM), без OPENAI_* в .env; admin chat на том же источнике. Парный кабинет: **reiwa v0.9.6.36**.
+
+### 🐛 / поведение
+- **AiChatService (admin JWT):** credentials из `AiConfigService` (panel), не `OPENAI_API_KEY` env.
+- **UI copy:** ключ «шифруется при сохранении», не дублируется в .env кабинета.
+- Хранение: `apiKeyEnc` AES-256-GCM (`REZEIS_CRYPT_KEY`); SPA видит mask, internal BFF — decrypt.
+
+### ✅ Гейты
+- `ai-config-cipher` 6/6, `ai-anonymize` 11/11.
+- Codex pre-release gate: PASS (panel-only key, fail-closed enable).
+
+**Полный список изменений:** https://github.com/dizzzable/rezeis/compare/v0.9.6.53...v0.9.6.54
+
+---
 # Rezeis Admin v0.9.6.53
 
 🛡️ **Лимит мульти-подписок + product codes + UI импорта** — safe filter сохраняет allowlist-коды для BFF, модалка STEALTHNET-импорта не давит кнопки. Парный кабинет: **reiwa v0.9.6.35**.
