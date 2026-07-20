@@ -1,3 +1,18 @@
+# Rezeis Admin v0.9.6.53
+
+🛡️ **Лимит мульти-подписок + product codes + UI импорта** — safe filter сохраняет allowlist-коды для BFF, модалка STEALTHNET-импорта не давит кнопки. Парный кабинет: **reiwa v0.9.6.35**.
+
+### 🐛 Исправления
+- **AdminSafeExceptionFilter:** allowlist product codes (`SUBSCRIPTION_LIMIT_REACHED` и др.) → `code` + `errorCode` в ответе, BFF/SPA видят лимит, а не generic 500.
+- **Import progress dialog:** `max-w-2xl`, footer column/wrap, «Откатить» отдельно от «Не назначать / Клонировать / Назначить» — без наложения RU-кнопок.
+
+### ✅ Гейты
+- `admin-safe-exception.filter.spec.ts` — 6/6 (в т.ч. preserve / deny non-allowlist codes).
+- Codex quality pass: capacity NEW/ADDITIONAL hard-block; add-on/renew/upgrade не режутся слотом.
+
+**Полный список изменений:** https://github.com/dizzzable/rezeis/compare/v0.9.6.52...v0.9.6.53
+
+---
 # Rezeis Admin v0.9.6.52
 
 🔧 **Патч STEALTHNET-импорта** — подписки из dump снова поднимаются, extra devices / expire / баланс→points (копейки), модалки импорта не переполняются.

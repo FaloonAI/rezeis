@@ -10,11 +10,32 @@ interface SafeErrorResponse {
   statusCode: number;
   message: string | string[];
   errorCode: string;
+  /**
+   * Stable product code from intentional HttpException bodies
+   * (`{ code: 'SUBSCRIPTION_LIMIT_REACHED', message: '...' }`). Allowlisted —
+   * never forwards arbitrary exception fields.
+   */
+  code?: string;
   error?: string;
 }
 
 const GENERIC_INTERNAL_ERROR_MESSAGE = 'Internal server error';
 const GENERIC_INTERNAL_ERROR_CODE = 'INTERNAL_SERVER_ERROR';
+/**
+ * Product codes that BFF/SPA may branch on. Only these survive the safe filter
+ * when thrown as `new BadRequestException({ code, message })`.
+ */
+const SAFE_PRODUCT_CODES = new Set<string>([
+  'SUBSCRIPTION_LIMIT_REACHED',
+  'REGISTRATION_DISABLED',
+  'INVITE_REQUIRED',
+  'SERVICE_RESTRICTED',
+  'PURCHASES_DISABLED',
+  'PAYMENT_DRAFT_QUOTE_NOT_ELIGIBLE',
+  'PAYMENT_DRAFT_TRIAL_UNSUPPORTED',
+  'PARTNER_BALANCE_DISABLED',
+  'PARTNER_BALANCE_NOT_AVAILABLE',
+]);
 const SENSITIVE_HTTP_TEXT_PATTERNS = [
   /\b(?:postgres|mysql|mongodb|redis|amqp|http|https):\/\/\S+/iu,
   /\b(?:auth|authorization|bearer|cookie|credential|password|profile|secret|token)\b/iu,
@@ -87,13 +108,17 @@ export class AdminSafeExceptionFilter implements ExceptionFilter {
       const response = exception.getResponse();
       const message = extractHttpExceptionMessage(response, exception.message, statusCode);
       const error = extractHttpExceptionError(response, statusCode);
+      const productCode = extractSafeProductCode(response);
       return {
         timestamp,
         path,
         requestId,
         statusCode,
         message,
-        errorCode: mapStatusToErrorCode(statusCode),
+        // Prefer the stable product code for BFF branching when present;
+        // otherwise keep the generic status-derived code.
+        errorCode: productCode ?? mapStatusToErrorCode(statusCode),
+        ...(productCode ? { code: productCode } : {}),
         ...(error ? { error } : {}),
       };
     }
@@ -132,6 +157,23 @@ function extractHttpExceptionMessage(response: string | object, fallback: string
 function extractHttpExceptionError(response: string | object, statusCode: number): string | undefined {
   if (isRecord(response) && typeof response.error === 'string') {
     return sanitizeHttpExceptionError(response.error, statusCode);
+  }
+  return undefined;
+}
+
+/**
+ * Pull a stable product `code` from intentional HttpException object bodies.
+ * Nested Nest shape `{ message: { code, message } }` is also accepted.
+ */
+function extractSafeProductCode(response: string | object): string | undefined {
+  if (!isRecord(response)) return undefined;
+  const direct = response.code;
+  if (typeof direct === 'string' && SAFE_PRODUCT_CODES.has(direct)) {
+    return direct;
+  }
+  const nested = response.message;
+  if (isRecord(nested) && typeof nested.code === 'string' && SAFE_PRODUCT_CODES.has(nested.code)) {
+    return nested.code;
   }
   return undefined;
 }

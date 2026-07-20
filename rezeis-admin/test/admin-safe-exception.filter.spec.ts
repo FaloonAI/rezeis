@@ -109,6 +109,46 @@ describe('AdminSafeExceptionFilter', () => {
     assert.equal(body.errorCode, 'NOT_FOUND');
     assert.equal(body.path, '/api/missing/:redacted');
   });
+
+  it('preserves allowlisted product codes for BFF branching (subscription limit)', () => {
+    const captured = runFilter(
+      new BadRequestException({
+        code: 'SUBSCRIPTION_LIMIT_REACHED',
+        message: 'The user has reached the maximum number of active subscriptions.',
+      }),
+      {
+        originalUrl: '/api/internal/payments/transactions/draft',
+        headers: { 'x-request-id': 'request.safe-limit-1' },
+      },
+    );
+
+    assert.equal(captured.statusCode, 400);
+    const body = assertResponseBody(captured.body);
+    assert.equal(body.statusCode, 400);
+    assert.equal(body.code, 'SUBSCRIPTION_LIMIT_REACHED');
+    assert.equal(body.errorCode, 'SUBSCRIPTION_LIMIT_REACHED');
+    assert.equal(
+      body.message,
+      'The user has reached the maximum number of active subscriptions.',
+    );
+    assert.equal(body.requestId, 'request.safe-limit-1');
+  });
+
+  it('does not forward non-allowlisted product codes from exception bodies', () => {
+    const captured = runFilter(
+      new BadRequestException({
+        code: 'INTERNAL_DB_LEAK_CODE',
+        message: 'Plain client-facing validation issue',
+      }),
+      { originalUrl: '/api/internal/x', headers: {} },
+    );
+
+    assert.equal(captured.statusCode, 400);
+    const body = assertResponseBody(captured.body);
+    assert.equal(body.code, undefined);
+    assert.equal(body.errorCode, 'BAD_REQUEST');
+    assert.equal(body.message, 'Plain client-facing validation issue');
+  });
 });
 
 function assertResponseBody(body: unknown): Record<string, unknown> {
