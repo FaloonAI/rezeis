@@ -180,63 +180,65 @@ export function ClonePlansDialog({
         if (!next && !cloneMutation.isPending) onClose()
       }}
     >
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[min(90vh,760px)] max-w-2xl flex-col gap-4 overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{t('importsPage.clonePlans.title')}</DialogTitle>
           <DialogDescription>{t('importsPage.clonePlans.description')}</DialogDescription>
         </DialogHeader>
 
-        {previewQuery.isLoading ? (
-          <div className="space-y-2 py-4">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-14 w-full" />
-            ))}
-          </div>
-        ) : previewQuery.isError || !previewQuery.data ? (
-          <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm">
-            <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
-            <p>{t('importsPage.clonePlans.previewError')}</p>
-          </div>
-        ) : previewQuery.data.plans.length === 0 ? (
-          <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-            {t('importsPage.clonePlans.emptyCatalog')}
-          </div>
-        ) : (
-          <>
-            <ScrollArea className="max-h-80 rounded-md border">
-              <ul className="divide-y">
-                {previewQuery.data.plans.map((plan) => (
-                  <PlanRow
-                    key={plan.sourcePlanId}
-                    plan={plan}
-                    checked={selected[plan.sourcePlanId] === true}
-                    onToggle={() => handleToggle(plan.sourcePlanId)}
-                  />
-                ))}
-              </ul>
-            </ScrollArea>
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          {previewQuery.isLoading ? (
+            <div className="space-y-2 py-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 w-full" />
+              ))}
+            </div>
+          ) : previewQuery.isError || !previewQuery.data ? (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm">
+              <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
+              <p>{t('importsPage.clonePlans.previewError')}</p>
+            </div>
+          ) : previewQuery.data.plans.length === 0 ? (
+            <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+              {t('importsPage.clonePlans.emptyCatalog')}
+            </div>
+          ) : (
+            <>
+              <ScrollArea className="h-[min(40vh,320px)] max-h-80 rounded-md border">
+                <ul className="divide-y">
+                  {previewQuery.data.plans.map((plan) => (
+                    <PlanRow
+                      key={plan.sourcePlanId}
+                      plan={plan}
+                      checked={selected[plan.sourcePlanId] === true}
+                      onToggle={() => handleToggle(plan.sourcePlanId)}
+                    />
+                  ))}
+                </ul>
+              </ScrollArea>
 
-            <Separator />
+              <Separator className="my-3" />
 
-            <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
-              <Checkbox
-                checked={linkSubscriptions}
-                onCheckedChange={(c) => setLinkSubscriptions(c === true)}
-                className="mt-0.5"
-              />
-              <span className="space-y-1">
-                <span className="block text-sm font-medium">
-                  {t('importsPage.clonePlans.linkSubscriptions')}
+              <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
+                <Checkbox
+                  checked={linkSubscriptions}
+                  onCheckedChange={(c) => setLinkSubscriptions(c === true)}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0 space-y-1">
+                  <span className="block text-sm font-medium">
+                    {t('importsPage.clonePlans.linkSubscriptions')}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {t('importsPage.clonePlans.linkSubscriptionsHint')}
+                  </span>
                 </span>
-                <span className="block text-xs text-muted-foreground">
-                  {t('importsPage.clonePlans.linkSubscriptionsHint')}
-                </span>
-              </span>
-            </label>
-          </>
-        )}
+              </label>
+            </>
+          )}
+        </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="shrink-0 gap-2 sm:gap-0">
           <Button variant="outline" onClick={onClose} disabled={cloneMutation.isPending}>
             {t('importsPage.clonePlans.cancel')}
           </Button>
@@ -293,10 +295,10 @@ function PlanRow({
       <button
         type="button"
         onClick={onToggle}
-        className="flex flex-1 cursor-pointer flex-col gap-1 text-left"
+        className="flex min-w-0 flex-1 cursor-pointer flex-col gap-1 text-left"
       >
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-medium">{plan.name}</span>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="truncate font-medium">{plan.name}</span>
           {plan.finalName !== plan.name ? (
             <Badge variant="outline" className="text-[10px]">
               {t('importsPage.clonePlans.row.willBeNamed', { name: plan.finalName })}

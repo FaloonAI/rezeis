@@ -54,9 +54,14 @@ export interface StealthnetClient {
 }
 
 /**
- * `secondary_subscriptions` row — STEALTHNET supports multiple
+ * `subscriptions` row (historical dumps may still use
+ * `secondary_subscriptions`). STEALTHNET supports multiple
  * subscriptions per client; each one carries a remnawave UUID and an
  * optional `tariff_id` (pointing at the active plan).
+ *
+ * Extra-device add-ons are **not** a separate catalog table — they live
+ * on the subscription (`extra_devices` + monthly price) and on the tariff
+ * (`included_devices` / `max_extra_devices` / `price_per_extra_device`).
  */
 export interface StealthnetSubscription {
   readonly id: string;
@@ -68,6 +73,11 @@ export interface StealthnetSubscription {
   readonly gifted_to_client_id: string | null;
   readonly created_at: string;
   readonly updated_at: string;
+  /** Panel expire when known; may be null for legacy rows. */
+  readonly expire_at: string | null;
+  /** Paid extra device slots on top of tariff.included_devices. */
+  readonly extra_devices: number;
+  readonly extra_devices_monthly_price: number;
 }
 
 /**
@@ -218,9 +228,14 @@ function parseSqlDump(sql: string): StealthnetBackupData {
     i = j;
   }
 
+  // STEALTHNET renamed secondary_subscriptions → subscriptions. Prefer the
+  // modern name; fall back so older dumps still parse.
+  const subscriptionBlock =
+    blocksByTable.get('subscriptions') ?? blocksByTable.get('secondary_subscriptions');
+
   return {
     clients: extractClients(blocksByTable.get('clients')),
-    subscriptions: extractSubscriptions(blocksByTable.get('secondary_subscriptions')),
+    subscriptions: extractSubscriptions(subscriptionBlock),
     tariffs: extractTariffs(blocksByTable.get('tariffs')),
     tariffCategories: extractTariffCategories(blocksByTable.get('tariff_categories')),
     tariffPriceOptions: extractTariffPriceOptions(blocksByTable.get('tariff_price_options')),
@@ -436,6 +451,9 @@ function extractSubscriptions(block: CopyBlock | undefined): StealthnetSubscript
   const giftedToIdx = colIndex(block, 'gifted_to_client_id');
   const createdAtIdx = colIndex(block, 'created_at');
   const updatedAtIdx = colIndex(block, 'updated_at');
+  const expireAtIdx = colIndex(block, 'expire_at');
+  const extraDevicesIdx = colIndex(block, 'extra_devices');
+  const extraDevicesPriceIdx = colIndex(block, 'extra_devices_monthly_price');
 
   return block.rows.map((row) => ({
     id: readString(row, idIdx),
@@ -447,6 +465,9 @@ function extractSubscriptions(block: CopyBlock | undefined): StealthnetSubscript
     gifted_to_client_id: readNullableString(row, giftedToIdx),
     created_at: readString(row, createdAtIdx, new Date().toISOString()),
     updated_at: readString(row, updatedAtIdx, new Date().toISOString()),
+    expire_at: readNullableString(row, expireAtIdx),
+    extra_devices: Math.max(0, readInt(row, extraDevicesIdx, 0)),
+    extra_devices_monthly_price: Math.max(0, readNumber(row, extraDevicesPriceIdx, 0)),
   }));
 }
 
