@@ -65,10 +65,10 @@ describe('PaymentProviderExecutionService checkout execution', () => {
         paymentId: 'payment-1',
         transactionId: 'transaction-1',
         userId: 'user-1',
-        savePaymentMethod: true,
+        savePaymentMethod: false,
       },
-      save_payment_method: true,
     });
+    assert.equal(call.body['save_payment_method'], undefined);
     assert.deepStrictEqual(call.options.auth, { username: 'shop-1', password: 'secret-1' });
     assert.deepStrictEqual(call.options.headers, { 'Idempotence-Key': 'payment-1' });
     assert.equal(typeof call.options.validateStatus, 'function');
@@ -78,8 +78,11 @@ describe('PaymentProviderExecutionService checkout execution', () => {
     assert.equal(result.providerMode, 'REDIRECT');
     assert.equal(result.providerStatus, 'pending');
     assert.equal(result.yookassaPaymentPayload !== undefined, true);
-    assert.equal(result.gatewayData['savePaymentMethod'], true);
-    assert.equal(result.gatewayData['savePaymentMethodReason'], 'legacy_gateway_default');
+    // Omitted client fields → fail-closed: no silent card bind.
+    assert.equal(result.gatewayData['savePaymentMethod'], false);
+    assert.equal(result.gatewayData['savePaymentMethodReason'], 'consent_required_omit');
+    assert.equal(result.gatewayData['consentAt'], null);
+    assert.equal(result.gatewayData['consentVersion'], null);
     assert.equal(result.gatewayData['provider'], 'YOOKASSA');
     assert.equal(result.gatewayData['checkoutUrl'], 'https://checkout.example/yookassa');
   });
@@ -150,6 +153,9 @@ describe('PaymentProviderExecutionService checkout execution', () => {
     assert.equal(body['save_payment_method'], true);
     assert.equal(result.gatewayData['savePaymentMethodConsent'], true);
     assert.equal(result.gatewayData['savePaymentMethodReason'], 'request_with_consent');
+    assert.equal(result.gatewayData['consentVersion'], 'yookassa-autopay-v1');
+    assert.equal(typeof result.gatewayData['consentAt'], 'string');
+    assert.ok(String(result.gatewayData['consentAt']).length > 0);
   });
 
   it('honours per-request savePaymentMethod:false', async () => {

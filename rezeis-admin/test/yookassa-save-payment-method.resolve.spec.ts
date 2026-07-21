@@ -52,13 +52,13 @@ describe('resolveYookassaSavePaymentMethod', () => {
     assert.deepEqual(ok, { save: true, consent: true, reason: 'request_with_consent' });
   });
 
-  it('legacy omit keeps gateway-default save without consent stamp', () => {
+  it('omitted request does not auto-save (fail-closed consent)', () => {
     const r = resolveYookassaSavePaymentMethod({
       paymentMethodId: null,
       gatewayAllows: true,
       requestSave: undefined,
       consent: undefined,
     });
-    assert.deepEqual(r, { save: true, consent: false, reason: 'legacy_gateway_default' });
+    assert.deepEqual(r, { save: false, consent: false, reason: 'consent_required_omit' });
   });
 });

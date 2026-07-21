@@ -40,8 +40,8 @@ export const YOOKASSA_AUTOPAY_CONSENT_VERSION = 'yookassa-autopay-v1';
  * 2. Gateway `savePaymentMethod: false` → never save
  * 3. Request `savePaymentMethod: false` → never save
  * 4. Request `savePaymentMethod: true` requires `consent === true`
- * 5. Request omitted → legacy gateway default (true), without consent stamp
- *    (older clients); new cabinets always send an explicit boolean + consent
+ * 5. Request omitted → no save (fail-closed for YooKassa informed-consent rules;
+ *    cabinets must send explicit true + consent after the user ticks the box)
  */
 export function resolveYookassaSavePaymentMethod(input: {
   readonly paymentMethodId: string | null;
@@ -65,8 +65,8 @@ export function resolveYookassaSavePaymentMethod(input: {
     // Explicit save without consent is rejected (YooKassa requires informed consent).
     return { save: false, consent: false, reason: 'consent_required' };
   }
-  // Legacy clients that omit the field: keep previous gateway-default behaviour.
-  return { save: true, consent: false, reason: 'legacy_gateway_default' };
+  // Omitted fields: do not auto-bind (old clients no longer get silent save).
+  return { save: false, consent: false, reason: 'consent_required_omit' };
 }
 
 interface ProviderCheckoutResult {

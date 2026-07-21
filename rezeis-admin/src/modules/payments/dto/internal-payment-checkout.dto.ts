@@ -106,8 +106,9 @@ export class InternalPaymentCheckoutDto {
    * Per-request YooKassa bind-card intent (interactive checkout only).
    * - `true`  → request `save_payment_method` (requires consent below)
    * - `false` → do not bind a card for this payment
-   * - omit    → gateway setting default (operators can force-off globally)
+   * - omit    → do not bind (fail-closed; cabinets send explicit true + consent)
    * Ignored for off-session charges (`savedPaymentMethodId` set).
+   * Operators can still force-off globally via gateway `savePaymentMethod: false`.
    */
   @IsOptional()
   @IsBoolean()

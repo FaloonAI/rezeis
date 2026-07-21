@@ -1,3 +1,22 @@
+# Rezeis Admin v0.9.6.58
+
+💳 **Согласие на сохранение карты (YooKassa) + AI-Support без дубля** — карта для автоплатежей только с явного согласия; AI-Support только в сайдбаре. Кабинет: **reiwa v0.9.6.39**.
+
+### ✨ Что нового
+- **Сохранение карты** — `save_payment_method` только при галочке согласия (покупка + продление в кабинете).
+- **Fail-closed** — без полей consent карта **не** привязывается (старые клиенты тоже).
+- **Аудит** — `consentAt` / `consentVersion` в gatewayData при реальном согласии.
+- **AI-Support** — убрана вкладка из «Настройки панели» (остался пункт в меню «Конфигурация»).
+- **Cleanup** — удалён мёртвый `YookassaAdapter`; unit-тесты на все ветки resolver.
+
+### ✅ Гейты
+- focused tests: **19 pass** (resolver + execution) + checkout suite.
+- typecheck: ✅
+- Codex pre-release: **BLOCK → fix fail-closed → ship** (high).
+
+**Полный список изменений:** https://github.com/dizzzable/rezeis/compare/v0.9.6.57...v0.9.6.58
+
+---
 # Rezeis Admin v0.9.6.57
 
 💳 **YooKassa autopay + уведомление о первом трафике** — усилена обработка автоплатежей; операторская карточка, когда пользователь впервые начал трафик. Кабинет без изменений: **reiwa v0.9.6.38**.
