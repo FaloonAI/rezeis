@@ -1,3 +1,20 @@
+# Rezeis Admin v0.9.6.56
+
+🔒 **Security: Trivy code-scanning (21 open)** — закрыты HIGH/MEDIUM findings в runtime-образе. Парный кабинет: **reiwa v0.9.6.38**.
+
+### Fixes
+- **axios** `1.16.1` → `1.18.1` (backend + web) — GHSA-gcfj-64vw-6mp9 и связанные DoS/prototype-pollution advisories.
+- **body-parser** `2.2.2` → `2.3.0` (npm override) — CVE-2026-12590.
+- **Runtime Docker:** удалены global `npm`/`npx` и их tree (`tar`/`undici`/`brace-expansion` из official Node image).
+- **Entrypoint:** migrations через app-local `./node_modules/.bin/prisma` (prisma в production deps, без `npx`).
+
+### ✅
+- `npm audit --omit=dev` backend + web: **0 vulnerabilities**.
+- Codex-assisted remediation; typecheck gates green.
+
+**Полный список изменений:** https://github.com/dizzzable/rezeis/compare/v0.9.6.55...v0.9.6.56
+
+---
 # Rezeis Admin v0.9.6.55
 
 🔧 **Операторский UX: календарь, поиск, подписки, задания** — hit-area стрелок месяца, поиск юзера по ID подписки, переход к профилю из лога подписок, выбор тарифа награды в заданиях. Парный кабинет: **reiwa v0.9.6.37**.

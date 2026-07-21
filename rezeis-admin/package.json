@@ -1,6 +1,6 @@
 {
   "name": "rezeis-admin",
-  "version": "0.9.6.55",
+  "version": "0.9.6.56",
   "description": "Rezeis Admin NestJS microservice baseline",
   "private": true,
   "license": "UNLICENSED",
@@ -55,7 +55,7 @@
     "@remnawave/backend-contract": "~2.7.3",
     "@simplewebauthn/server": "^13.3.0",
     "@types/web-push": "^3.6.4",
-    "axios": "^1.16.1",
+    "axios": "^1.18.1",
     "better-sqlite3": "11.9.1",
     "bullmq": "^5.76.10",
     "class-transformer": "0.5.1",
@@ -69,6 +69,7 @@
     "passport": "0.7.0",
     "passport-jwt": "4.0.1",
     "pg": "^8.20.0",
+    "prisma": "^7.8.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
     "socket.io": "^4.8.3",
@@ -96,7 +97,6 @@
     "husky": "^9.1.0",
     "lint-staged": "^15.5.0",
     "prettier": "3.8.1",
-    "prisma": "^7.8.0",
     "supertest": "7.1.4",
     "ts-loader": "9.5.7",
     "ts-node": "10.9.2",
@@ -123,6 +123,7 @@
     "multer": "2.2.0",
     "ws": "8.21.0",
     "js-yaml": "4.3.0",
-    "form-data": "4.0.6"
+    "form-data": "4.0.6",
+    "body-parser": "2.3.0"
   }
 }

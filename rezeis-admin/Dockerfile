@@ -64,6 +64,12 @@ ENV APP_VERSION=${APP_VERSION} \
 # privileges to the unprivileged `rezeis` user before running the app.
 RUN apk add --no-cache postgresql17-client su-exec
 
+# The official Node image includes npm for build-time use. The runtime only
+# executes Node and the app-local Prisma CLI, so remove npm and npx (plus their
+# bundled dependency tree) to keep unrelated npm CVEs out of this final image.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+ && rm -f /usr/local/bin/npm /usr/local/bin/npx
+
 COPY package.json ./
 COPY prisma.config.ts ./
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

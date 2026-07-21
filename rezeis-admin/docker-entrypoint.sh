@@ -20,6 +20,7 @@ PROCESS_ROLE="${RUID_PROCESS_ROLE:-api}"
 SKIP_MIGRATIONS="${RUID_SKIP_MIGRATIONS:-false}"
 APP_USER="rezeis"
 APP_UID="1001"
+PRISMA="./node_modules/.bin/prisma"
 
 echo "[entrypoint] role=${PROCESS_ROLE} skip-migrations=${SKIP_MIGRATIONS}"
 
@@ -55,7 +56,7 @@ if [ "${PROCESS_ROLE}" != "worker" ] && [ "${SKIP_MIGRATIONS}" != "true" ]; then
   max_attempts=30
   resolved_migration=""
   while true; do
-    if deploy_output="$(npx prisma migrate deploy 2>&1)"; then
+    if deploy_output="$("${PRISMA}" migrate deploy 2>&1)"; then
       status=0
     else
       status=$?
@@ -69,7 +70,7 @@ if [ "${PROCESS_ROLE}" != "worker" ] && [ "${SKIP_MIGRATIONS}" != "true" ]; then
       failed_migration="$(echo "${deploy_output}" | grep -oE '[0-9]{14}_[A-Za-z0-9_]+' | head -n 1)"
       if [ -n "${failed_migration}" ] && [ "${failed_migration}" != "${resolved_migration}" ]; then
         echo "[entrypoint] failed migration detected (P3009): ${failed_migration} — marking rolled-back so it can be re-applied"
-        npx prisma migrate resolve --rolled-back "${failed_migration}" 2>&1 || true
+        "${PRISMA}" migrate resolve --rolled-back "${failed_migration}" 2>&1 || true
         resolved_migration="${failed_migration}"
         continue
       fi
