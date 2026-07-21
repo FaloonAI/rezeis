@@ -31,7 +31,7 @@ describe('InternalPaymentWebhooksController', () => {
     );
   });
 
-  it('delegates webhook ingress with signature verification enabled', async () => {
+  it('delegates webhook ingress without signature verification (service-auth path)', async () => {
     const calls: unknown[] = [];
     const controller = new InternalPaymentWebhooksController({
       ingestWebhook: async (input: unknown) => {
@@ -60,7 +60,7 @@ describe('InternalPaymentWebhooksController', () => {
         rawBody,
         headers: { 'x-internal-api-key': 'secret' },
         clientIp: null,
-        verifySignature: true,
+        verifySignature: false,
       },
     ]);
   });

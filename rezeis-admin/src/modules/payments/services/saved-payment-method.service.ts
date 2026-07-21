@@ -389,11 +389,17 @@ export class SavedPaymentMethodService {
       });
 
       if (existing !== null) {
-        // Re-bind if the user previously unbound the same provider method, or refresh metadata.
+        // Never reassign a provider method that already belongs to another user.
+        // Same-user rebind is allowed (reactivate after unbind / refresh metadata).
+        if (existing.userId !== input.userId) {
+          this.logger.warn(
+            `Refusing to rebind YOOKASSA method ${providerMethodId}: owned by ${existing.userId}, payment by ${input.userId}`,
+          );
+          return;
+        }
         await this.prismaService.savedPaymentMethod.update({
           where: { id: existing.id },
           data: {
-            userId: input.userId,
             methodType,
             title,
             cardLast4,

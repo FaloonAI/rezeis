@@ -91,6 +91,45 @@ describe('PaymentProviderExecutionService checkout execution', () => {
     });
   });
 
+  it('accepts secretKey as YooKassa credential alias for apiKey', async () => {
+    const calls: unknown[] = [];
+    const service = createService({
+      post: (url: string, body: unknown, options: unknown) => {
+        calls.push({ url, body, options });
+        return of({
+          data: {
+            id: 'provider-payment-secret',
+            status: 'pending',
+            confirmation: { confirmation_url: 'https://checkout.example/yookassa-secret' },
+          },
+        });
+      },
+    });
+
+    await service.createCheckout({
+      gateway: createGateway({
+        type: PaymentGatewayType.YOOKASSA,
+        settings: { shopId: 'shop-1', secretKey: 'secret-from-docs' },
+      }),
+      transaction: createTransaction({
+        paymentId: 'payment-secret-alias',
+        gatewayType: PaymentGatewayType.YOOKASSA,
+        amount: '12.50',
+        currency: Currency.RUB,
+      }),
+      description: 'Plan purchase via secretKey alias',
+    });
+
+    assert.equal(calls.length, 1);
+    const call = calls[0] as {
+      options: { auth: { username: string; password: string }; headers: Record<string, string> };
+    };
+    assert.equal(call.options.auth.username, 'shop-1');
+    assert.equal(call.options.auth.password, 'secret-from-docs');
+    assert.equal(call.options.headers['Idempotence-Key'], 'payment-secret-alias');
+  });
+
+
   it('creates Heleket checkout requests with signed payload and callback-safe result', async () => {
     const calls: unknown[] = [];
     const service = createService({

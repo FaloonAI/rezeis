@@ -30,19 +30,25 @@ export class YookassaAdapter implements IPaymentGateway {
   private readonly logger = new Logger(YookassaAdapter.name);
 
   private authHeader(settings: Record<string, unknown>): string {
-    const shopId = settings['shopId'] as string;
-    const secretKey = settings['secretKey'] as string;
+    const shopId = String(settings['shopId'] ?? '').trim();
+    // Accept both panel (`apiKey`) and docs (`secretKey`) field names.
+    const secretKey = String(settings['secretKey'] ?? settings['apiKey'] ?? '').trim();
     return 'Basic ' + Buffer.from(`${shopId}:${secretKey}`).toString('base64');
   }
 
-  private async apiPost<T>(path: string, body: object, settings: Record<string, unknown>): Promise<T> {
-    const idempotenceKey = crypto.randomUUID();
+  private async apiPost<T>(
+    path: string,
+    body: object,
+    settings: Record<string, unknown>,
+    idempotenceKey?: string,
+  ): Promise<T> {
     const res = await fetch(`${BASE_URL}/${path}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': this.authHeader(settings),
-        'Idempotence-Key': idempotenceKey,
+        // Stable key per local payment so retries do not create a second charge.
+        'Idempotence-Key': idempotenceKey ?? crypto.randomUUID(),
       },
       body: JSON.stringify(body),
     });
@@ -67,7 +73,12 @@ export class YookassaAdapter implements IPaymentGateway {
       amount: { value: input.amount.toFixed(2), currency: 'RUB' },
       capture: true,
       description: input.description.slice(0, 128),
-      metadata: { payment_id: input.paymentId, ...input.metadata },
+      // Keep both keys: normalizer reads `paymentId`; legacy payloads used `payment_id`.
+      metadata: {
+        paymentId: input.paymentId,
+        payment_id: input.paymentId,
+        ...input.metadata,
+      },
       receipt: input.customerEmail ? {
         customer: { email: input.customerEmail },
         items: [{
@@ -94,7 +105,7 @@ export class YookassaAdapter implements IPaymentGateway {
       id: string;
       status: string;
       confirmation?: { confirmation_url?: string };
-    }>('payments', body, settings);
+    }>('payments', body, settings, input.paymentId);
 
     const paymentUrl = response.confirmation?.confirmation_url ?? '';
     if (paymentMethodId === null && !paymentUrl) {
@@ -120,7 +131,7 @@ export class YookassaAdapter implements IPaymentGateway {
     const obj = payload['object'] as Record<string, unknown> | undefined;
     const meta = (obj?.['metadata'] as Record<string, unknown>) ?? {};
 
-    const paymentId = String(meta['payment_id'] ?? obj?.['id'] ?? '');
+    const paymentId = String(meta['paymentId'] ?? meta['payment_id'] ?? obj?.['id'] ?? '');
     const externalPaymentId = String(obj?.['id'] ?? '');
     const status = this.mapStatus(String(obj?.['status'] ?? ''));
     const amountObj = obj?.['amount'] as Record<string, unknown> | undefined;

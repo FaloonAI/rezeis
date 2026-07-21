@@ -195,6 +195,53 @@ export class PaymentsCheckoutService {
         gatewayData: providerCheckout.gatewayData as Prisma.InputJsonValue,
       },
     });
+
+    // Off-session YooKassa may return status=succeeded in the create response.
+    // Fulfill immediately (same claim pattern as zero-total checkout); webhook
+    // remains the path for PENDING / redirect / 3DS.
+    if (isProviderSucceeded(providerCheckout.providerStatus)) {
+      const claim = await this.prismaService.transaction.updateMany({
+        where: {
+          id: transaction.id,
+          status: TransactionStatus.PENDING,
+          fulfilledAt: null,
+        },
+        data: {
+          status: TransactionStatus.COMPLETED,
+        },
+      });
+      if (claim.count === 1) {
+        const completedTransaction = await this.prismaService.transaction.findUniqueOrThrow({
+          where: { id: transaction.id },
+        });
+        try {
+          const { syncJobs } =
+            await this.paymentSubscriptionMutationService.applyCompletedTransaction(
+              completedTransaction,
+            );
+          for (const syncJob of syncJobs) {
+            await this.profileSyncQueueService.enqueue(syncJob.id);
+          }
+        } catch (provisionError: unknown) {
+          await this.prismaService.transaction
+            .updateMany({
+              where: { id: transaction.id, status: TransactionStatus.COMPLETED },
+              data: { status: TransactionStatus.PENDING, fulfilledAt: null },
+            })
+            .catch(() => undefined);
+          throw provisionError;
+        }
+        const finalTransaction =
+          (await this.prismaService.transaction.findUnique({ where: { id: transaction.id } })) ??
+          completedTransaction;
+        return mapCheckoutResponse({
+          transaction: finalTransaction,
+          checkoutUrl: null,
+          providerMode: providerCheckout.providerMode,
+        });
+      }
+    }
+
     return mapCheckoutResponse({
       transaction: updatedTransaction,
       checkoutUrl: providerCheckout.checkoutUrl,
@@ -257,6 +304,11 @@ function buildCheckoutDescription(input: {
         ? ' unlimited'
         : ` ${selectedDurationDays}d`;
   return `${input.purchaseType} ${planName}${durationLabel}`.trim();
+}
+
+
+function isProviderSucceeded(providerStatus: string | null | undefined): boolean {
+  return String(providerStatus ?? '').trim().toLowerCase() === 'succeeded';
 }
 
 function mapCheckoutResponse(input: {
