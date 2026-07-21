@@ -930,8 +930,16 @@ export const en = {
       rewardType: 'Reward type',
       rewardAmount: 'Reward amount',
       daysFallback: 'How to grant days',
-      rewardPlanId: 'Trial plan ID',
+      rewardPlanId: 'Trial plan',
       rewardPlanIdPlaceholder: 'plan id',
+      rewardPlanPlaceholder: 'Select a plan',
+      rewardPlanLoading: 'Loading plans…',
+      rewardPlanEmpty: 'No plans available',
+      rewardPlanEmptyHint:
+        'Create an active plan with Trial availability (or any active plan) under Plans.',
+      rewardPlanTrialTag: 'trial',
+      rewardPlanArchivedTag: 'archived',
+      rewardPlanInactiveTag: 'off',
       channelIdPlaceholder: '-100…',
       icon: 'Icon',
       iconKind: 'Icon kind',
@@ -994,6 +1002,8 @@ export const en = {
         'What is granted on completion: points (shared balance), subscription days, a promo code, a discount, or traffic.',
       daysFallback:
         'How to grant days: extend/grant a trial directly, or generate a promo code worth the days.',
+      rewardPlanId:
+        'Plan used when granting/extending the trial. Lists active plans (Trial availability first).',
       audience: 'Who the quest is shown to. E.g. "Link email" — only users without a linked email.',
       repeat:
         'Once — completed a single time. Repeatable — can be completed again after a cooldown.',
@@ -1911,8 +1921,8 @@ export const en = {
   usersPage: {
     title: 'Users',
     subtitle: 'Search, manage profiles, and run bulk user operations.',
-    searchPlaceholder: 'Reiwa ID, Telegram ID, email, login…',
-    searchHint: 'Enter a Reiwa ID, Telegram ID, email or login to search',
+    searchPlaceholder: 'Reiwa ID, Telegram ID, email, login, subscription ID…',
+    searchHint: 'Reiwa ID, Telegram ID, email, login, or subscription ID (incl. deleted)',
     noResults: 'No user found',
     listEmpty: 'No users yet',
     listError: 'Failed to load the user list',

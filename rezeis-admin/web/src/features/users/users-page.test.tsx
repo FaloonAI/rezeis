@@ -15,7 +15,11 @@ describe('UsersPage accessibility', () => {
 
     renderWithProviders(<UsersPage />)
 
-    expect(await screen.findByRole('textbox', { name: 'Enter a Reiwa ID, Telegram ID, email or login to search' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('textbox', {
+        name: 'Reiwa ID, Telegram ID, email, login, or subscription ID (incl. deleted)',
+      }),
+    ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Users: Search/ })).toBeInTheDocument()
   })
 })

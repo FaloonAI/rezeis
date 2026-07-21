@@ -937,8 +937,16 @@
       rewardType: 'Тип награды',
       rewardAmount: 'Размер награды',
       daysFallback: 'Как выдавать дни',
-      rewardPlanId: 'ID тарифа для триала',
+      rewardPlanId: 'Тариф для триала',
       rewardPlanIdPlaceholder: 'ID тарифа',
+      rewardPlanPlaceholder: 'Выберите тариф',
+      rewardPlanLoading: 'Загрузка тарифов…',
+      rewardPlanEmpty: 'Нет доступных тарифов',
+      rewardPlanEmptyHint:
+        'Создайте активный тариф с доступностью «Триал» (или любой активный тариф) в разделе Тарифы.',
+      rewardPlanTrialTag: 'триал',
+      rewardPlanArchivedTag: 'архив',
+      rewardPlanInactiveTag: 'выкл.',
       channelIdPlaceholder: '-100…',
       icon: 'Иконка',
       iconKind: 'Тип иконки',
@@ -1001,6 +1009,8 @@
         'Что выдаётся за выполнение: баллы (общий баланс), дни подписки, промокод, скидка или трафик.',
       daysFallback:
         'Как начислять дни: продлить/выдать пробную подписку напрямую или сгенерировать промокод на дни.',
+      rewardPlanId:
+        'Тариф, по которому выдаётся/продлевается пробная подписка. Список — активные тарифы (сначала с доступностью «Триал»).',
       audience:
         'Кому показывать задание. Например, «Привязка email» — только тем, у кого email не привязан.',
       repeat:
@@ -1935,8 +1945,8 @@
   usersPage: {
     title: 'Пользователи',
     subtitle: 'Поиск, управление профилями и массовые операции над пользователями.',
-    searchPlaceholder: 'Reiwa ID, Telegram ID, email, login…',
-    searchHint: 'Введите Reiwa ID, Telegram ID, email или логин для поиска',
+    searchPlaceholder: 'Reiwa ID, Telegram ID, email, login, ID подписки…',
+    searchHint: 'Reiwa ID, Telegram ID, email, логин или ID подписки (в т.ч. удалённой)',
     noResults: 'Пользователь не найден',
     listEmpty: 'Пока нет ни одного пользователя',
     listError: 'Не удалось загрузить список пользователей',

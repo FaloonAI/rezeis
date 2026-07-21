@@ -48,6 +48,8 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
+import { usePlans } from '@/features/plans/plans-api'
+
 import {
   createQuest,
   deleteQuest,
@@ -442,6 +444,32 @@ function QuestForm({ quest, onClose }: { quest: Quest | null; onClose: () => voi
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   const icons = useQuery({ queryKey: ['admin', 'quests', 'icons'], queryFn: listQuestIcons })
+  // Catalog for the GRANT_TRIAL plan picker — all active non-archived plans,
+  // TRIAL availability sorted first (grantTrial accepts non-trial plans too).
+  const { data: allPlans = [], isLoading: plansLoading } = usePlans(
+    undefined,
+    {
+      enabled:
+        draft.rewardType === 'DAYS' && draft.daysFallback === 'GRANT_TRIAL',
+    },
+  )
+  const trialPlanOptions = useMemo(() => {
+    const active = allPlans.filter((p) => p.isActive && !p.isArchived)
+    // Prefer TRIAL first, keep every other active plan selectable (mixed catalog).
+    const base = [...active].sort((a, b) => {
+      const aTrial = a.availability === 'TRIAL' ? 0 : 1
+      const bTrial = b.availability === 'TRIAL' ? 0 : 1
+      if (aTrial !== bTrial) return aTrial - bTrial
+      return a.name.localeCompare(b.name)
+    })
+    // Keep a previously saved (possibly inactive/archived) plan visible when editing.
+    const selectedId = draft.rewardPlanId.trim()
+    if (selectedId && !base.some((p) => p.id === selectedId)) {
+      const orphan = allPlans.find((p) => p.id === selectedId)
+      if (orphan) return [orphan, ...base]
+    }
+    return base
+  }, [allPlans, draft.rewardPlanId])
 
   const validationMessages = useMemo<QuestValidationMessages>(
     () => ({
@@ -615,14 +643,43 @@ function QuestForm({ quest, onClose }: { quest: Quest | null; onClose: () => voi
       )}
       {draft.rewardType === 'DAYS' && draft.daysFallback === 'GRANT_TRIAL' && (
         <div className="space-y-1.5">
-          <Label>{t('questsAdminPage.form.rewardPlanId')}</Label>
-          <Input
-            value={draft.rewardPlanId}
-            onChange={(e) => set('rewardPlanId', e.target.value)}
-            placeholder={t('questsAdminPage.form.rewardPlanIdPlaceholder')}
-            className="font-mono text-xs"
-          />
+          <Label>
+            <LabelWithHint
+              label={t('questsAdminPage.form.rewardPlanId')}
+              hint={t('questsAdminPage.help.rewardPlanId')}
+            />
+          </Label>
+          <Select
+            value={draft.rewardPlanId || undefined}
+            onValueChange={(v) => set('rewardPlanId', v)}
+            disabled={plansLoading || trialPlanOptions.length === 0}
+          >
+            <SelectTrigger aria-label={t('questsAdminPage.form.rewardPlanId')}>
+              <SelectValue
+                placeholder={
+                  plansLoading
+                    ? t('questsAdminPage.form.rewardPlanLoading')
+                    : trialPlanOptions.length === 0
+                      ? t('questsAdminPage.form.rewardPlanEmpty')
+                      : t('questsAdminPage.form.rewardPlanPlaceholder')
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {trialPlanOptions.map((plan) => (
+                <SelectItem key={plan.id} value={plan.id}>
+                  {plan.name}
+                  {plan.availability === 'TRIAL' ? ` · ${t('questsAdminPage.form.rewardPlanTrialTag')}` : ''}
+                  {plan.isArchived ? ` · ${t('questsAdminPage.form.rewardPlanArchivedTag')}` : ''}
+                  {!plan.isActive ? ` · ${t('questsAdminPage.form.rewardPlanInactiveTag')}` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {errors.rewardPlanId && <p className="text-xs text-destructive">{errors.rewardPlanId}</p>}
+          {!plansLoading && trialPlanOptions.length === 0 && (
+            <p className="text-xs text-muted-foreground">{t('questsAdminPage.form.rewardPlanEmptyHint')}</p>
+          )}
         </div>
       )}
 

@@ -28,7 +28,7 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
 
 interface SubscriptionRow {
   readonly id: string | number
-  readonly user?: { readonly name?: string | null } | null
+  readonly user?: { readonly id?: string; readonly name?: string | null } | null
   readonly userTelegramId?: string | number | bigint | null
   readonly status: string
   readonly isTrial?: boolean
@@ -36,6 +36,15 @@ interface SubscriptionRow {
   readonly trafficLimit: number | null
   readonly deviceLimit: number | null
   readonly expireAt: string
+}
+
+/** Prefer reiwa user id (works for web-only / no Telegram); fall back to TG id. */
+function userProfilePath(sub: SubscriptionRow): string | null {
+  const userId = typeof sub.user?.id === 'string' && sub.user.id.length > 0 ? sub.user.id : null
+  if (userId) return `/users/${userId}`
+  const tg = sub.userTelegramId?.toString()
+  if (tg && tg.length > 0) return `/users/${tg}`
+  return null
 }
 
 interface SubscriptionsList {
@@ -158,13 +167,39 @@ export default function SubscriptionsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.items.map((sub) => (
-                  <TableRow key={sub.id}>
+                {data.items.map((sub) => {
+                  const profilePath = userProfilePath(sub)
+                  const openUser = () => {
+                    if (profilePath) navigate(profilePath)
+                  }
+                  return (
+                  <TableRow
+                    key={sub.id}
+                    className={profilePath ? 'cursor-pointer hover:bg-muted/40' : undefined}
+                    onClick={profilePath ? openUser : undefined}
+                    // Focusable + Enter/Space for keyboard parity with row click.
+                    // No role=link: nested ↗ button must remain the named control
+                    // for screen readers (avoid nested interactive).
+                    tabIndex={profilePath ? 0 : undefined}
+                    onKeyDown={
+                      profilePath
+                        ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              openUser()
+                            }
+                          }
+                        : undefined
+                    }
+                  >
                     <TableCell className="font-mono text-xs">{sub.id}</TableCell>
                     <TableCell>
                       <div>
                         <p className="text-sm font-medium">{sub.user?.name ?? '—'}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{sub.userTelegramId?.toString()}</p>
+                        <p className="text-xs text-muted-foreground font-mono">
+                          {sub.userTelegramId?.toString()
+                            ?? (typeof sub.user?.id === 'string' ? sub.user.id : '—')}
+                        </p>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -184,14 +219,21 @@ export default function SubscriptionsPage() {
                         size="icon"
                         variant="ghost"
                         className="h-7 w-7"
-                        aria-label={t('subscriptionsPage.openUser', { id: sub.userTelegramId?.toString() ?? sub.id.toString() })}
-                        onClick={() => navigate(`/users/${sub.userTelegramId?.toString()}`)}
+                        disabled={!profilePath}
+                        aria-label={t('subscriptionsPage.openUser', {
+                          id: sub.user?.id ?? sub.userTelegramId?.toString() ?? sub.id.toString(),
+                        })}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openUser()
+                        }}
                       >
                         <ExternalLink className="h-3.5 w-3.5" />
                       </Button>
                     </TableCell>
                   </TableRow>
-                ))}
+                  )
+                })}
               </TableBody>
             </Table>
           )}

@@ -1,3 +1,22 @@
+# Rezeis Admin v0.9.6.55
+
+🔧 **Операторский UX: календарь, поиск, подписки, задания** — hit-area стрелок месяца, поиск юзера по ID подписки, переход к профилю из лога подписок, выбор тарифа награды в заданиях. Парный кабинет: **reiwa v0.9.6.37**.
+
+### 🐛 / поведение
+- **Календарь (DatePicker):** caption не перехватывает клики; вся кнопка ‹/› листает месяц.
+- **Пользователи:** поиск по ID подписки (в т.ч. DELETED) → владелец.
+- **Подписки:** строка/↗ открывают профиль по `user.id` (web-only без TG); в колонке User — TG или reiwa id.
+- **Задания:** награда «Дни» + «Продлить/выдать триал» — Select всех активных тарифов (TRIAL сверху), без ручного CUID.
+- **Подписки (a11y):** кликабельная строка фокусируема, Enter/Space открывают профиль.
+
+### ✅ Гейты
+- web vitest: calendar, subscriptions-page, users-page, quests-form-schema — 24 pass.
+- admin-users service (tsx --test): 6 pass.
+- Codex pre-release (rezeis + reiwa): **PASS** (P2 plan-picker + row keyboard fixed before ship).
+
+**Полный список изменений:** https://github.com/dizzzable/rezeis/compare/v0.9.6.54...v0.9.6.55
+
+---
 # Rezeis Admin v0.9.6.54
 
 🤖 **AI-Support: ключ только в панели (encrypted)** — provider credentials из AI-Support settings (AES-GCM), без OPENAI_* в .env; admin chat на том же источнике. Парный кабинет: **reiwa v0.9.6.36**.

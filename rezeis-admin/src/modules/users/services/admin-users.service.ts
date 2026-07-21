@@ -41,9 +41,10 @@ export class AdminUsersService {
   }
 
   /**
-   * Resolves a free-text identifier — reiwa_id (CUID), Telegram ID, web login
-   * or email — to a single canonical reiwa user for the plan "Allowed users"
-   * picker. Throws `NotFoundException` when nothing matches so the admin UI can
+   * Resolves a free-text identifier — reiwa_id (CUID), Telegram ID, web login,
+   * email, or exact subscription CUID (owner of that sub, including DELETED) —
+   * to a single canonical reiwa user for the plan "Allowed users" picker.
+   * Throws `NotFoundException` when nothing matches so the admin UI can
    * surface a clear "user not found" toast.
    */
   public async resolveUser(
@@ -163,6 +164,15 @@ function buildUserListWhere(search: string | undefined): Prisma.UserWhereInput {
         },
       },
     },
+    // Subscription CUID (or partial) — operators paste ids from the
+    // Subscriptions log to open the owning user (including DELETED rows).
+    {
+      subscriptions: {
+        some: {
+          id: { contains: trimmed, mode: 'insensitive' },
+        },
+      },
+    },
   ];
 
   if (/^\d+$/.test(trimmed)) {
@@ -207,6 +217,12 @@ function buildResolveWhere(identifier: string): Prisma.UserWhereInput | null {
 
   if (CUID_PATTERN.test(trimmed)) {
     conditions.push({ id: trimmed });
+    // Exact subscription id → resolve the owner (works for deleted subs too).
+    conditions.push({
+      subscriptions: {
+        some: { id: trimmed },
+      },
+    });
   }
 
   const telegramId = parseTelegramId(trimmed);

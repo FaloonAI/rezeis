@@ -182,6 +182,13 @@ describe('AdminUsersService', () => {
                 },
               },
             },
+            {
+              subscriptions: {
+                some: {
+                  id: { contains: '123456', mode: 'insensitive' },
+                },
+              },
+            },
             { telegramId: 123456n },
           ],
         },
@@ -241,6 +248,7 @@ describe('AdminUsersService', () => {
         where: {
           OR: [
             { id: 'clv1abcdefghijklmnopqrstu' },
+            { subscriptions: { some: { id: 'clv1abcdefghijklmnopqrstu' } } },
             { email: { equals: 'clv1abcdefghijklmnopqrstu', mode: 'insensitive' } },
             {
               webAccount: {
