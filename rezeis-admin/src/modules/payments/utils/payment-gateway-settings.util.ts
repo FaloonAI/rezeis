@@ -16,7 +16,9 @@ const yookassaBooleanSetting = z
 const yookassaSettingsSchema = z
   .object({
     shopId: z.string().min(1).optional(),
+    // Panel form historically stores the secret as `apiKey`; YooKassa docs use `secretKey`.
     apiKey: z.string().min(1).optional(),
+    secretKey: z.string().min(1).optional(),
     customer: z.string().min(1).optional(),
     vatCode: z.string().min(1).optional(),
     // Request YooKassa `save_payment_method` on interactive checkout (default true at runtime).
@@ -257,7 +259,10 @@ export function isGatewayConfigured(
     case PaymentGatewayType.TELEGRAM_STARS:
       return typeof settings.webhookSecret === 'string' && settings.webhookSecret.trim().length > 0;
     case PaymentGatewayType.YOOKASSA:
-      return hasRequiredStrings(settings, ['shopId', 'apiKey']);
+      return (
+        hasRequiredStrings(settings, ['shopId', 'apiKey']) ||
+        hasRequiredStrings(settings, ['shopId', 'secretKey'])
+      );
     case PaymentGatewayType.HELEKET:
       return hasRequiredStrings(settings, ['merchantId', 'apiKey']);
     case PaymentGatewayType.PLATEGA:

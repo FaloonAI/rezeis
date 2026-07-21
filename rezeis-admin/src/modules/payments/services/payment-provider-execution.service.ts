@@ -16,6 +16,7 @@ import {
   readOptionalString,
   readRecord,
   requireSetting,
+  requireYookassaSecretKey,
   resolveFailUrl,
   resolveSuccessUrl,
   truncate,
@@ -111,7 +112,7 @@ export class PaymentProviderExecutionService {
   }): Promise<ProviderCheckoutResult> {
     const settings = readGatewaySettings(input.gateway.settings);
     const shopId = requireSetting(settings, 'shopId');
-    const apiKey = requireSetting(settings, 'apiKey');
+    const apiKey = requireYookassaSecretKey(settings);
     const paymentMethodId =
       typeof input.paymentMethodId === 'string' && input.paymentMethodId.trim().length > 0
         ? input.paymentMethodId.trim()

@@ -250,6 +250,32 @@ describe('PaymentsCheckoutService', () => {
 
     assert.equal(status.failureReason, 'PAYMENT_PROVIDER_TIMEOUT')
   })
+
+  it('fulfills immediately when provider returns succeeded off-session', async () => {
+    const { service, state } = createService({
+      providerCheckout: {
+        gatewayId: 'provider-succeeded-1',
+        checkoutUrl: null,
+        providerMode: 'IMMEDIATE',
+        providerStatus: 'succeeded',
+        gatewayData: { provider: 'YOOKASSA', providerStatus: 'succeeded', providerMode: 'IMMEDIATE' },
+      },
+    })
+
+    const checkout = await service.checkout({
+      userId: 'user-1',
+      purchaseType: PurchaseType.NEW,
+      planId: 'plan-1',
+      durationDays: 30,
+      gatewayType: PaymentGatewayType.YOOKASSA,
+      channel: PurchaseChannel.WEB,
+    })
+
+    assert.equal(checkout.transactionStatus, TransactionStatus.COMPLETED)
+    assert.equal(checkout.checkoutUrl, null)
+    assert.equal(state.applyCompletedCalls, 1)
+    assert.equal(state.enqueueCalls, 1)
+  })
 })
 
 function createService(input: {
@@ -260,6 +286,13 @@ function createService(input: {
   readonly draftError?: Error
   readonly accessMode?: 'PUBLIC' | 'INVITED' | 'PURCHASE_BLOCKED' | 'REG_BLOCKED' | 'RESTRICTED'
   readonly amount?: string
+  providerCheckout?: {
+    gatewayId: string
+    checkoutUrl: string | null
+    providerMode: string
+    providerStatus: string | null
+    gatewayData: Record<string, unknown>
+  }
 } = {}) {
   const transactionUpdates: Record<string, unknown>[] = []
   const state = {
@@ -306,13 +339,15 @@ function createService(input: {
       findUnique: async () => transaction,
       update: async (args: { readonly data: Record<string, unknown> }) => {
         transactionUpdates.push(args.data)
+        Object.assign(transaction, args.data)
         return {
           ...transaction,
-          gatewayId: args.data.gatewayId,
-          gatewayData: args.data.gatewayData,
         }
       },
-      updateMany: async () => ({ count: 1 }),
+      updateMany: async (args: { readonly data: Record<string, unknown> }) => {
+        Object.assign(transaction, args.data)
+        return { count: 1 }
+      },
       findUniqueOrThrow: async () => transaction,
     },
   }
@@ -336,6 +371,9 @@ function createService(input: {
   const paymentProviderExecutionService = {
     createCheckout: async () => {
       state.providerCreateCalls += 1
+      if (input.providerCheckout !== undefined) {
+        return input.providerCheckout
+      }
       return {
         gatewayId: 'provider-1',
         checkoutUrl: 'https://checkout.example.com',

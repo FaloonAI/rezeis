@@ -380,8 +380,9 @@ export class PaymentsRenewalCheckoutService {
       throw error;
     }
 
-    // Persist provider ids only; leave status PENDING. IMMEDIATE (checkoutUrl
-    // null) still waits for webhook SUCCESS — do not applyCompletedTransaction.
+    // Persist provider ids. If YooKassa already returned succeeded (off-session
+    // capture), fulfill immediately so autopay does not wait on webhook lag.
+    // Webhook path remains the source of truth for PENDING / redirect / 3DS.
     const updatedTransaction = await this.prismaService.transaction.update({
       where: { id: transaction.id },
       data: {
@@ -390,6 +391,51 @@ export class PaymentsRenewalCheckoutService {
         checkoutUrl: providerCheckout.checkoutUrl,
       },
     });
+
+    if (isProviderSucceeded(providerCheckout.providerStatus)) {
+      const claim = await this.prismaService.transaction.updateMany({
+        where: {
+          id: transaction.id,
+          status: TransactionStatus.PENDING,
+          fulfilledAt: null,
+        },
+        data: {
+          status: TransactionStatus.COMPLETED,
+        },
+      });
+      if (claim.count === 1) {
+        const completedTransaction = await this.prismaService.transaction.findUniqueOrThrow({
+          where: { id: transaction.id },
+        });
+        try {
+          const { syncJobs } =
+            await this.paymentSubscriptionMutationService.applyCompletedTransaction(
+              completedTransaction,
+            );
+          for (const syncJob of syncJobs) {
+            await this.profileSyncQueueService.enqueue(syncJob.id);
+          }
+        } catch (provisionError: unknown) {
+          // Mirror reconciler: release fulfillment claim so a webhook/retry can
+          // re-provision instead of leaving paid-but-undelivered.
+          await this.prismaService.transaction
+            .updateMany({
+              where: { id: transaction.id, status: TransactionStatus.COMPLETED },
+              data: { status: TransactionStatus.PENDING, fulfilledAt: null },
+            })
+            .catch(() => undefined);
+          throw provisionError;
+        }
+        const finalTransaction =
+          (await this.prismaService.transaction.findUnique({ where: { id: transaction.id } })) ??
+          completedTransaction;
+        return mapCheckoutResponse({
+          transaction: finalTransaction,
+          checkoutUrl: null,
+          providerMode: providerCheckout.providerMode,
+        });
+      }
+    }
 
     return mapCheckoutResponse({
       transaction: updatedTransaction,
@@ -627,6 +673,10 @@ export class PaymentsRenewalCheckoutService {
   }
 }
 
+
+function isProviderSucceeded(providerStatus: string | null | undefined): boolean {
+  return String(providerStatus ?? '').trim().toLowerCase() === 'succeeded';
+}
 function mapCheckoutResponse(input: {
   readonly transaction: Transaction;
   readonly checkoutUrl: string | null;

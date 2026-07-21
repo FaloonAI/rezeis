@@ -165,7 +165,8 @@ export class PaymentWebhookNormalizerService {
       case PaymentGatewayType.YOOKASSA:
         return readRequiredString(
           readNestedObject(readNestedObject(input.rawPayload, 'object'), 'metadata'),
-          ['paymentId'],
+          // Primary path writes `paymentId`; adapter/legacy payloads used `payment_id`.
+          ['paymentId', 'payment_id'],
           'PAYMENT_WEBHOOK_PAYMENT_ID_MISSING',
         );
       case PaymentGatewayType.HELEKET:
