@@ -9,6 +9,11 @@
  *   4. Backups      — DB backup management
  *   5. Branding     — all Customization blocks stacked on one page: Brand · Icons
  *   6. Config       — config import/export portability
+ *   7. Anti-fraud   — detector thresholds that used to be ANTIFRAUD_* env vars
+ *                     (panel value wins; the env var is the fallback)
+ *
+ * AI-Support lives only under Конфигурация → AI-Support (`/ai-support`), not
+ * as a hub tab (avoids a duplicate entry with the sidebar item).
  *
  * Replaces the separate /appearance, /settings/api-tokens, /security/2fa,
  * and /backup routes. Accessible via sidebar:
@@ -17,13 +22,37 @@
 
 import { lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Archive, Bot, FileCog, Key, Paintbrush, Palette, Settings, Shield } from 'lucide-react'
+import { Archive, FileCog, Key, Paintbrush, Palette, Settings, Shield, ShieldAlert } from 'lucide-react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
 import { FadeIn } from '@/lib/motion'
+import { useTabSync } from '@/lib/use-tab-sync'
+import { HUB_TABS } from '@/components/layout/admin-nav-config'
 import { withFeatureBundle } from '@/i18n/i18n'
 import { PermissionGate } from '@/features/rbac'
+
+/**
+ * Tab values addressable by `#hash`. Every one of them is a documented deep
+ * link: `router.tsx` redirects `/appearance`, `/branding`, `/backup`,
+ * `/security/2fa` and `/system/config-portability` here, and the Cmd+K page
+ * index offers the same targets.
+ *
+ * All five were dead. `Tabs` was uncontrolled (`defaultValue="appearance"`), so
+ * nothing read the hash and every link landed on Appearance — including
+ * `/backup`, which silently showed theme settings to an operator who asked for
+ * database backups. `#appearance` "worked" only because it happens to be the
+ * default.
+ *
+ * Three of these tabs are permission-gated below, and their value stays listed
+ * here on purpose: `useTabSync` only falls back for values it does not
+ * recognise, so removing them would send a legitimate deep link to Appearance
+ * again — the exact bug being fixed. An operator who lacks the permission and
+ * types the URL by hand gets the tab bar with no panel, which is visibly "not
+ * for you" rather than silently the wrong page.
+ */
+const ALLOWED_TABS = HUB_TABS['/settings/panel']
+type PanelSettingsTab = (typeof ALLOWED_TABS)[number]
 
 const ApiTokensTab = lazy(
   withFeatureBundle('platformSettings', () =>
@@ -45,7 +74,7 @@ const BackupTab = lazy(() => import('@/features/backup/backup-page'))
 const ConfigPortabilityTab = lazy(() => import('@/features/config-portability/config-portability-page'))
 const NotificationsTab = lazy(() => import('./panel-notifications-tab'))
 const QuestPartnersTab = lazy(() => import('./quest-partners-tab'))
-const AiSupportTab = lazy(() => import('./ai-support-page'))
+const AntiFraudTab = lazy(() => import('./anti-fraud-tab'))
 
 function TabFallback() {
   return (
@@ -58,6 +87,7 @@ function TabFallback() {
 
 export default function PanelSettingsHub() {
   const { t } = useTranslation()
+  const { activeTab, setTab } = useTabSync<PanelSettingsTab>(ALLOWED_TABS, 'appearance')
 
   return (
     <div className="space-y-6">
@@ -73,7 +103,7 @@ export default function PanelSettingsHub() {
         </div>
       </FadeIn>
 
-      <Tabs defaultValue="appearance" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setTab} className="space-y-4">
         <TabsList className="flex-wrap">
           <PermissionGate resource="api_tokens" action="view" hideWhileLoading>
             <TabsTrigger value="api-tokens" className="gap-1.5">
@@ -105,9 +135,9 @@ export default function PanelSettingsHub() {
               {t('panelSettings.tabs.config')}
             </TabsTrigger>
           </PermissionGate>
-          <TabsTrigger value="ai-support" className="gap-1.5">
-            <Bot className="h-3.5 w-3.5" />
-            AI-Support
+          <TabsTrigger value="anti-fraud" className="gap-1.5">
+            <ShieldAlert className="h-3.5 w-3.5" />
+            {t('panelSettings.tabs.antiFraud')}
           </TabsTrigger>
         </TabsList>
 
@@ -169,9 +199,11 @@ export default function PanelSettingsHub() {
           </TabsContent>
         </PermissionGate>
 
-        <TabsContent value="ai-support">
+        {/* Reads inherit the controller's `settings:view`; the tab itself
+            disables its write affordances without `settings:edit`. */}
+        <TabsContent value="anti-fraud">
           <Suspense fallback={<TabFallback />}>
-            <AiSupportTab />
+            <AntiFraudTab />
           </Suspense>
         </TabsContent>
       </Tabs>

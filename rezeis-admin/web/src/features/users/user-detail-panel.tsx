@@ -10,7 +10,7 @@
  *   • Referral attach
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
@@ -32,6 +32,7 @@ import {
   Smartphone,
   Tag,
   Trash2,
+  Undo2,
   UserCheck,
   UserX,
   Wallet,
@@ -41,7 +42,7 @@ import {
 import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { cn, truncate } from '@/lib/utils'
 import { usePlans } from '@/features/plans/plans-api'
 import { getErrorMessage } from '@/lib/http-errors'
 import { RemnawaveIcon } from '@/features/remnawave/remnawave-icon'
@@ -55,7 +56,7 @@ import type {
 import { DatePicker } from '@/components/ui/date-picker'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Collapsible,
   CollapsibleContent,
@@ -91,9 +92,10 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from '@/components/ui/dialog'
-import { PermissionGate } from '@/features/rbac'
-import { usersApi, type AccountMergePreview, type AccountMergeChoices } from './users-api'
+import { PermissionGate, useHasPermission } from '@/features/rbac'
+import { usersApi, type AccountMergePreview, type AccountMergeChoices, type UserOperation } from './users-api'
 
 interface UserDetailPanelProps {
   readonly telegramId: string
@@ -145,10 +147,9 @@ export default function UserDetailPanel({ telegramId }: UserDetailPanelProps) {
             <TabsTrigger value="referrals">{t('userDetailPanel.tabs.referrals')}</TabsTrigger>
           )}
           <TabsTrigger value="invites">{t('userDetailPanel.tabs.invites')}</TabsTrigger>
-          <TabsTrigger value="transactions">
-            {t('userDetailPanel.tabs.transactions')} ({user.transactions?.length ?? 0})
-          </TabsTrigger>
+          <TabsTrigger value="operations">{t('userDetailPanel.tabs.operations')}</TabsTrigger>
           <TabsTrigger value="web">{t('userDetailPanel.tabs.web')}</TabsTrigger>
+          <TabsTrigger value="analytics">{t('userDetailPanel.tabs.analytics')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile">
@@ -170,17 +171,179 @@ export default function UserDetailPanel({ telegramId }: UserDetailPanelProps) {
         <TabsContent value="invites">
           <InviteSettingsTab user={user} telegramId={telegramId} queryKey={queryKey} />
         </TabsContent>
-        <TabsContent value="transactions">
-          <TransactionsTab user={user} />
+        <TabsContent value="operations">
+          <OperationsTab telegramId={telegramId} />
         </TabsContent>
         <TabsContent value="web">
           <WebCabinetTab user={user} telegramId={telegramId} queryKey={queryKey} />
+        </TabsContent>
+        <TabsContent value="analytics">
+          <AnalyticsTab user={user} />
         </TabsContent>
       </Tabs>
     </div>
   )
 }
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Analytics Tab — registration snapshot + ad acquisition (read-only)
+// ══════════════════════════════════════════════════════════════════════════════
+
+function AnalyticsTab({ user }: { user: UserDetail }) {
+  const { t, i18n } = useTranslation()
+  const locale = i18n.language?.startsWith('ru') ? 'ru-RU' : 'en-US'
+  const canPii = user.canViewRegistration === true
+  const utm = user.registrationUtm ?? null
+  const placement = user.acquisitionPlacement ?? null
+
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">{t('userDetailPanel.analytics.networkTitle')}</CardTitle>
+          <CardDescription>{t('userDetailPanel.analytics.networkHint')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <AnalyticsRow
+            label={t('userDetailPanel.analytics.registeredAt')}
+            value={user.createdAt ? new Date(user.createdAt).toLocaleString(locale) : '—'}
+          />
+          <AnalyticsRow
+            label={t('userDetailPanel.analytics.channel')}
+            value={user.registrationChannel ?? '—'}
+          />
+          {canPii ? (
+            <>
+              <AnalyticsRow
+                label={t('userDetailPanel.analytics.ip')}
+                value={user.registrationIp ?? '—'}
+                mono
+                copyable={Boolean(user.registrationIp)}
+              />
+              <AnalyticsRow
+                label={t('userDetailPanel.analytics.referer')}
+                value={user.registrationReferer ?? '—'}
+                mono
+              />
+              <AnalyticsRow
+                label={t('userDetailPanel.analytics.userAgent')}
+                value={user.registrationUserAgent ?? '—'}
+                mono
+              />
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">{t('userDetailPanel.analytics.piiDenied')}</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">{t('userDetailPanel.analytics.utmTitle')}</CardTitle>
+          <CardDescription>{t('userDetailPanel.analytics.utmHint')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          {canPii && utm && Object.keys(utm).length > 0 ? (
+            Object.entries(utm).map(([k, v]) => (
+              <AnalyticsRow key={k} label={k} value={String(v)} mono />
+            ))
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {canPii
+                ? t('userDetailPanel.analytics.utmEmpty')
+                : t('userDetailPanel.analytics.piiDenied')}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">{t('userDetailPanel.analytics.adTitle')}</CardTitle>
+          <CardDescription>{t('userDetailPanel.analytics.adHint')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          {placement ? (
+            <>
+              <AnalyticsRow label={t('userDetailPanel.analytics.campaign')} value={placement.campaignName} />
+              <AnalyticsRow label={t('userDetailPanel.analytics.platform')} value={placement.platform} />
+              <AnalyticsRow label={t('userDetailPanel.analytics.channelLabel')} value={placement.channel ?? '—'} />
+              <AnalyticsRow
+                label={t('userDetailPanel.analytics.trackingCode')}
+                value={placement.trackingCode}
+                mono
+                copyable
+              />
+              <AnalyticsRow
+                label={t('userDetailPanel.analytics.acquisitionAt')}
+                value={
+                  user.acquisitionAt ? new Date(user.acquisitionAt).toLocaleString(locale) : '—'
+                }
+              />
+              <AnalyticsRow label={t('userDetailPanel.analytics.ownerType')} value={placement.ownerType} />
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">{t('userDetailPanel.analytics.adEmpty')}</p>
+          )}
+          {user.acquiredByPartner && (
+            <AnalyticsRow
+              label={t('userDetailPanel.analytics.partnerSource')}
+              value={
+                user.acquiredByPartner.username ||
+                user.acquiredByPartner.name ||
+                user.acquiredByPartner.partnerId
+              }
+            />
+          )}
+          {user.referral?.referrer && (
+            <AnalyticsRow
+              label={t('userDetailPanel.analytics.referralSource')}
+              value={
+                user.referral.referrer.username ||
+                user.referral.referrer.name ||
+                '—'
+              }
+            />
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function AnalyticsRow({
+  label,
+  value,
+  mono,
+  copyable,
+}: {
+  label: string
+  value: string
+  mono?: boolean
+  copyable?: boolean
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className={`min-w-0 text-right ${mono ? 'break-all font-mono text-xs' : ''}`}>{value}</span>
+      {copyable && value !== '—' && (
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-6 w-6 shrink-0"
+          onClick={() => {
+            void navigator.clipboard.writeText(value)
+            toast.success(t('userDetailPanel.analytics.copied'))
+          }}
+        >
+          <Copy className="h-3 w-3" />
+        </Button>
+      )}
+    </div>
+  )
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Profile Tab — two-column layout: info (left) + actions (right)
@@ -523,11 +686,46 @@ function InfoRow({ label, value, mono, icon }: { label: string; value: string | 
   )
 }
 
+// ── Panel identity: two shapes, one per panel era ────────────────────────────
+//
+// Remnawave 2.7.x/2.8.x key a user by UUID. Remnawave 3.x dropped that column
+// entirely and names a user by its numeric `id` (e.g. `4471`). `remnawaveId`
+// carries whichever form the panel gave, so nothing here may assume 36 hex
+// characters — not the preview, and not the link dialog's gate.
+
+/**
+ * How much of a panel identity the collapsed row shows before it cuts.
+ * The full value is always on the `title` attribute and on the Copy button.
+ */
+const REMNAWAVE_ID_PREVIEW_LENGTH = 8
+
+/** Mirrors `REMNAWAVE_UUID_PATTERN` in `admin-user-subscriptions.controller.ts`. */
+const REMNAWAVE_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+/** A decimal integer, no sign, no separators — a 3.x panel id. */
+const REMNAWAVE_NUMERIC_ID_PATTERN = /^\d+$/
+/** A UUID's 36 characters; the widest either form ever needs. */
+const REMNAWAVE_ID_MAX_LENGTH = 36
+
+/**
+ * The same accept-rule the backend applies in `linkRemnawaveProfile`, restated
+ * here rather than shared — nothing crosses the SPA/Nest boundary but JSON.
+ *
+ * The server stays the authority and re-checks; this exists only so a typo
+ * comes back as a sentence next to the field instead of a bare 400 toast that
+ * does not say what the field wanted. Keep the two in step: if the backend
+ * widens, this must widen too, or the dialog will refuse an identifier the
+ * panel would have accepted.
+ */
+function isLinkableRemnawaveId(value: string): boolean {
+  if (value.length === 0 || value.length > REMNAWAVE_ID_MAX_LENGTH) return false
+  return REMNAWAVE_UUID_PATTERN.test(value) || REMNAWAVE_NUMERIC_ID_PATTERN.test(value)
+}
+
 /**
  * One-row Remnawave profile reveal for the subscription card. Shows:
  *   • the live `username` from Remnawave (e.g. `rz_user_sub`),
- *   • a Copy button that yanks the panel UUID to the clipboard,
- *   • a tiny tooltip-like underline with the truncated UUID below.
+ *   • a Copy button that yanks the panel identity to the clipboard,
+ *   • a tiny tooltip-like underline with the (possibly cut) identity below.
  *
  * If we don't yet know the profile (no remnawaveId or upstream errored),
  * we render an "—" placeholder rather than hiding the row, because the
@@ -536,10 +734,26 @@ function InfoRow({ label, value, mono, icon }: { label: string; value: string | 
  * Painted in pink to read as a Remnawave-link affordance distinct from
  * the rest of the plain InfoRow stack.
  */
-function RemnawaveProfileRow({ sub }: { sub: UserSubscription }) {
+function RemnawaveProfileRow({
+  sub,
+  onLinkProfile,
+  isLinkingProfile,
+}: {
+  sub: UserSubscription
+  onLinkProfile: (remnawaveId: string) => void
+  isLinkingProfile: boolean
+}) {
   const { t } = useTranslation()
   const profileName = sub.remnawaveProfileName?.trim()
   const remnawaveId = sub.remnawaveId
+  const syncState = sub.remnawaveSyncState ?? (remnawaveId ? 'SYNCED' : 'UNLINKED')
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false)
+  const [candidateId, setCandidateId] = useState('')
+  const candidate = candidateId.trim()
+  const candidateIsLinkable = isLinkableRemnawaveId(candidate)
+  // Only complain about something the operator has actually typed: an empty
+  // field is "not started", not "wrong".
+  const showCandidateError = candidate.length > 0 && !candidateIsLinkable
 
   function handleCopy(): void {
     if (!remnawaveId) return
@@ -566,11 +780,14 @@ function RemnawaveProfileRow({ sub }: { sub: UserSubscription }) {
             className="truncate font-mono text-[11px] text-pink-500/70 dark:text-pink-400/70"
             title={remnawaveId}
           >
-            {remnawaveId.slice(0, 8)}…
+            {truncate(remnawaveId, REMNAWAVE_ID_PREVIEW_LENGTH)}
           </span>
         ) : (
           <span className="text-muted-foreground/70">—</span>
         )}
+        <span className="text-[10px] text-muted-foreground" title={sub.remnawaveSyncJob?.lastError ?? undefined}>
+          {t(`userDetailPanel.subscriptions.remnawaveProfile.syncState.${syncState}`)}
+        </span>
         {remnawaveId ? (
           <button
             type="button"
@@ -580,7 +797,68 @@ function RemnawaveProfileRow({ sub }: { sub: UserSubscription }) {
           >
             <Copy className="h-3 w-3" />
           </button>
-        ) : null}
+        ) : (
+          <PermissionGate resource="subscriptions" action="edit">
+            <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]">
+                  <Link2 className="mr-1 h-3 w-3" />
+                  {t('userDetailPanel.subscriptions.remnawaveProfile.link')}
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>{t('userDetailPanel.subscriptions.remnawaveProfile.linkTitle')}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <p id={`remnawave-profile-hint-${sub.id}`} className="text-sm text-muted-foreground">
+                    {t('userDetailPanel.subscriptions.remnawaveProfile.linkHint')}
+                  </p>
+                  <Label htmlFor={`remnawave-profile-${sub.id}`} className="sr-only">
+                    {t('userDetailPanel.subscriptions.remnawaveProfile.linkLabel')}
+                  </Label>
+                  <Input
+                    id={`remnawave-profile-${sub.id}`}
+                    value={candidateId}
+                    onChange={(event) => setCandidateId(event.target.value)}
+                    placeholder={t('userDetailPanel.subscriptions.remnawaveProfile.linkPlaceholder')}
+                    aria-describedby={
+                      showCandidateError
+                        ? `remnawave-profile-hint-${sub.id} remnawave-profile-error-${sub.id}`
+                        : `remnawave-profile-hint-${sub.id}`
+                    }
+                    aria-invalid={showCandidateError}
+                    autoComplete="off"
+                  />
+                  {showCandidateError ? (
+                    <p
+                      id={`remnawave-profile-error-${sub.id}`}
+                      className="text-sm text-destructive"
+                      role="alert"
+                    >
+                      {t('userDetailPanel.subscriptions.remnawaveProfile.linkInvalid')}
+                    </p>
+                  ) : null}
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setLinkDialogOpen(false)}>
+                      {t('userDetailPanel.subscriptions.cancel')}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        onLinkProfile(candidate)
+                        setLinkDialogOpen(false)
+                      }}
+                      disabled={!candidateIsLinkable || isLinkingProfile}
+                    >
+                      {isLinkingProfile ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                      {t('userDetailPanel.subscriptions.remnawaveProfile.linkAction')}
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </PermissionGate>
+        )}
       </span>
     </div>
   )
@@ -598,6 +876,29 @@ type IdentityKind =
   | 'WEB_ONLY'
   | 'LOCAL_ONLY'
 
+function useCurrentTime() {
+  const [currentTime, setCurrentTime] = useState<number | null>(null)
+
+  useEffect(() => {
+    const refresh = () => setCurrentTime(Date.now())
+    const initialTimer = window.setTimeout(refresh, 0)
+    const interval = window.setInterval(refresh, 60_000)
+
+    return () => {
+      window.clearTimeout(initialTimer)
+      window.clearInterval(interval)
+    }
+  }, [])
+
+  return currentTime
+}
+
+function isFutureTimestamp(value: string | null | undefined, currentTime: number | null) {
+  if (!value || currentTime === null) return false
+  const timestamp = new Date(value).getTime()
+  return Number.isFinite(timestamp) && timestamp > currentTime
+}
+
 function UserHeader({
   user,
   telegramId,
@@ -608,6 +909,7 @@ function UserHeader({
   queryKey: string[]
 }) {
   const { t, i18n } = useTranslation()
+  const currentTime = useCurrentTime()
 
   const identityKey = (user.identityKind ?? 'LOCAL_ONLY') as IdentityKind
   const identityLabel = t(`userDetailPanel.header.identityKind.${identityKey}`)
@@ -618,7 +920,7 @@ function UserHeader({
   // back-end has long since rejected the temp password.
   const tempPasswordActive: boolean =
     tempPasswordExpiresAt !== null &&
-    new Date(tempPasswordExpiresAt).getTime() > Date.now()
+    isFutureTimestamp(tempPasswordExpiresAt, currentTime)
 
   return (
     <div className="space-y-3">
@@ -743,13 +1045,33 @@ function SubscriptionsTab({ user, telegramId, queryKey }: { user: UserDetail; te
   const updateSubMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
       api.patch(`/admin/users/subscriptions/${id}`, data),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey }); toast.success(t('userDetailPanel.toasts.subUpdated')) },
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey })
+      if ((response.data as { remnawaveLinkRequired?: boolean }).remnawaveLinkRequired === true) {
+        toast.warning(t('userDetailPanel.toasts.remnawaveLinkRequired'))
+        return
+      }
+      toast.success(t('userDetailPanel.toasts.subUpdated'))
+    },
     onError: (err) => toast.error(getErrorMessage(err, t('userDetailPage.subscriptionUpdateFailed'))),
+  })
+
+  const linkRemnawaveProfileMutation = useMutation({
+    mutationFn: ({ id, remnawaveId }: { id: string; remnawaveId: string }) =>
+      api.patch(`/admin/users/subscriptions/${id}/remnawave-link`, { remnawaveId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey })
+      toast.success(t('userDetailPanel.toasts.remnawaveLinked'))
+    },
+    onError: (err) => toast.error(getErrorMessage(err, t('userDetailPanel.toasts.syncFailed'))),
   })
 
   const syncMutation = useMutation({
     mutationFn: (id: string) => api.post(`/admin/users/subscriptions/${id}/sync`),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey }); toast.success(t('userDetailPanel.toasts.synced')) },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey })
+      toast.success(t('userDetailPanel.toasts.synced'))
+    },
     onError: () => toast.error(t('userDetailPanel.toasts.syncFailed')),
   })
 
@@ -937,6 +1259,11 @@ function SubscriptionsTab({ user, telegramId, queryKey }: { user: UserDetail; te
               onResetTraffic={() => resetTrafficMutation.mutate(sub.id)}
               onDelete={() => deleteSubMutation.mutate(sub.id)}
               onAssignPlan={(planId) => assignPlanMutation.mutate({ id: sub.id, planId })}
+              onLinkRemnawaveProfile={(remnawaveId) => linkRemnawaveProfileMutation.mutate({ id: sub.id, remnawaveId })}
+              isLinkingRemnawaveProfile={
+                linkRemnawaveProfileMutation.isPending
+                && linkRemnawaveProfileMutation.variables?.id === sub.id
+              }
             />
           ))}
         </div>
@@ -1122,6 +1449,8 @@ function SubscriptionCard({
   onResetTraffic,
   onDelete,
   onAssignPlan,
+  onLinkRemnawaveProfile,
+  isLinkingRemnawaveProfile,
 }: {
   sub: UserSubscription
   isOpen: boolean
@@ -1133,6 +1462,8 @@ function SubscriptionCard({
   onResetTraffic: () => void
   onDelete: () => void
   onAssignPlan: (planId: string) => void
+  onLinkRemnawaveProfile: (remnawaveId: string) => void
+  isLinkingRemnawaveProfile: boolean
 }) {
   const { t, i18n } = useTranslation()
   const locale = i18n.language === 'ru' ? 'ru-RU' : 'en-US'
@@ -1176,10 +1507,29 @@ function SubscriptionCard({
         data.expiresAt = expiresAt.toISOString()
       }
     }
-    if (Object.keys(data).length > 0) {
-      onUpdate(data)
+    // The same silent no-op as `brandingPage.noChanges`, spelled as a `> 0`
+    // wrapper instead of an early return, and worse in one specific way: with
+    // `setDirty(false)` trapped inside the guard, a save that produced nothing
+    // left the button ENABLED and the card still reading "unsaved". The
+    // operator got no request, no toast and no state change, and the one
+    // visible signal still said their edit was pending.
+    //
+    // Unlike the branding page this is genuinely reachable, and cheaply:
+    // `setDirty(true)` fires on every keystroke in the traffic/device inputs,
+    // and `parseInt('', 10)` is NaN, so simply CLEARING a limit field fails
+    // `Number.isFinite` and contributes nothing to `data`. Type a digit and
+    // erase it — Save lights up, does nothing, and stays lit.
+    //
+    // `setDirty(false)` now runs on both paths: once the operator has been told
+    // the edits amount to no change, the control must stop advertising work
+    // that will never be sent.
+    if (Object.keys(data).length === 0) {
+      toast.info(t('userDetailPanel.subscriptions.noChanges'))
       setDirty(false)
+      return
     }
+    onUpdate(data)
+    setDirty(false)
   }
 
   return (
@@ -1188,7 +1538,7 @@ function SubscriptionCard({
       <div className="flex items-center justify-between gap-2 px-3 pt-2.5 pb-1.5">
         <div className="flex min-w-0 items-center gap-1.5">
           <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${statusDot}`} />
-          <span className="truncate text-xs font-medium">{sub.plan?.name ?? `#${sub.id.slice(0, 8)}`}</span>
+          <span className="truncate text-xs font-medium">{sub.plan?.name ?? `#${truncate(sub.id, 8)}`}</span>
           <span className={`text-[10px] font-medium ${statusColor}`}>{statusLabel}</span>
           {sub.isTrial && <span className="rounded border border-pink-500/50 px-1 py-px text-[9px] uppercase text-pink-400">Trial</span>}
           {isSyncing ? (
@@ -1226,7 +1576,11 @@ function SubscriptionCard({
         <InfoRow icon={<Wifi className="h-3 w-3" />} label={t('userDetailPanel.subscriptions.traffic')} value={sub.trafficLimit ? `${sub.trafficLimit} GB` : '∞'} />
         <InfoRow icon={<Monitor className="h-3 w-3" />} label={t('userDetailPanel.subscriptions.devices')} value={String(sub.deviceLimit || '∞')} />
         <InfoRow icon={<Calendar className="h-3 w-3" />} label={t('userDetailPanel.subscriptions.expires')} value={sub.expireAt ? new Date(sub.expireAt).toLocaleDateString(locale) : '—'} />
-        <RemnawaveProfileRow sub={sub} />
+        <RemnawaveProfileRow
+          sub={sub}
+          onLinkProfile={onLinkRemnawaveProfile}
+          isLinkingProfile={isLinkingRemnawaveProfile}
+        />
       </div>
 
       {/* Quick actions — accordion (only one open at a time) */}
@@ -1610,7 +1964,7 @@ function PartnerTab({ user, telegramId, queryKey }: { user: UserDetail; telegram
                   <div key={ref.id} className="flex items-center justify-between gap-2 rounded-md border px-2 py-1">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <UserCheck className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-                      <span className="truncate text-[11px]">{ref.referral?.name || ref.referral?.username || ref.referralUserId?.slice(0, 8)}</span>
+                      <span className="truncate text-[11px]">{ref.referral?.name || ref.referral?.username || truncate(ref.referralUserId, 8)}</span>
                     </div>
                     <span className="shrink-0 text-[10px] text-muted-foreground">L{ref.level}</span>
                   </div>
@@ -1842,23 +2196,104 @@ function ReferralsTab({ user, telegramId, queryKey }: { user: UserDetail; telegr
     onError: (err) => toast.error(getErrorMessage(err, t('referralsActions.attach.failed'))),
   })
 
+  const stealthnetSyncMutation = useMutation({
+    mutationFn: async () => (
+      await api.post<{ status: string }>(`/admin/users/${telegramId}/referral/sync-stealthnet`)
+    ).data,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey })
+      if (result.status === 'CREATED') {
+        toast.success(t('userDetailPage.referrals.stealthnetSync.success'))
+      } else if (result.status === 'ALREADY_EXISTS') {
+        toast.info(t('userDetailPage.referrals.stealthnetSync.alreadySynced'))
+      } else if (result.status === 'SOURCE_NOT_FOUND') {
+        toast.error(t('userDetailPage.referrals.stealthnetSync.notFound'))
+      } else {
+        toast.error(t('userDetailPage.referrals.stealthnetSync.conflict'))
+      }
+    },
+    onError: (err) => toast.error(getErrorMessage(err, t('userDetailPage.referrals.stealthnetSync.failed'))),
+  })
+
+  const qualifyMutation = useMutation({
+    mutationFn: async () => (
+      await api.post<{ qualified: boolean; rewardsCreated: number }>(`/admin/users/${telegramId}/referral/qualify`)
+    ).data,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey })
+      toast.success(
+        result.qualified
+          ? t('userDetailPage.referrals.qualification.success', { count: result.rewardsCreated })
+          : t('userDetailPage.referrals.qualification.alreadyQualified'),
+      )
+    },
+    onError: (err) => toast.error(getErrorMessage(err, t('userDetailPage.referrals.qualification.failed'))),
+  })
+
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader><CardTitle className="text-base">{t('userDetailPage.referrals.referredByTitle')}</CardTitle></CardHeader>
         <CardContent>
           {user.referral ? (
+            <>
             <p className="text-sm">
               <span className="text-muted-foreground">{t('userDetailPage.referrals.referrerLabel')} </span>
               <span className="font-medium">{user.referral.referrer?.name ?? user.referral.referrer?.username ?? '—'}</span>
               <span className="ml-2 text-muted-foreground">{t('userDetailPage.referrals.levelLabel')} {user.referral.level}</span>
             </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {user.referral.qualifiedAt
+                ? t('userDetailPage.referrals.qualification.qualified')
+                : t('userDetailPage.referrals.qualification.pending')}
+            </p>
+            {!user.referral.qualifiedAt && (
+              <PermissionGate resource="referrals" action="edit">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button size="sm" variant="outline" className="mt-3" disabled={qualifyMutation.isPending}>
+                      {qualifyMutation.isPending
+                        ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                        : <UserCheck className="mr-2 h-3.5 w-3.5" />}
+                      {t('userDetailPage.referrals.qualification.action')}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>{t('userDetailPage.referrals.qualification.confirmTitle')}</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {t('userDetailPage.referrals.qualification.confirmDescription')}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>{t('userDetailPanel.actions.cancel')}</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => qualifyMutation.mutate()}>
+                        {t('userDetailPage.referrals.qualification.action')}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </PermissionGate>
+            )}
+            </>
           ) : user.isPartner ? (
             <p className="text-sm text-muted-foreground">{t('userDetailPanel.referrals.partnerHint')}</p>
           ) : (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">{t('userDetailPage.referrals.noReferrer')}</p>
-              <PermissionGate resource="users" action="edit">
+              <PermissionGate resource="referrals" action="edit">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => stealthnetSyncMutation.mutate()}
+                disabled={stealthnetSyncMutation.isPending}
+              >
+                {stealthnetSyncMutation.isPending
+                  ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                  : <RefreshCw className="mr-2 h-3.5 w-3.5" />}
+                {t('userDetailPage.referrals.stealthnetSync.action')}
+              </Button>
+              <p className="text-xs text-muted-foreground">{t('userDetailPage.referrals.stealthnetSync.hint')}</p>
               <div className="flex gap-2">
                 <Input placeholder={t('userDetailPanel.referrals.referrerIdPlaceholder')} value={referrerId} onChange={(e) => setReferrerId(e.target.value)} className="h-9 max-w-48" />
                 <Button size="sm" onClick={() => attachMutation.mutate()} disabled={!referrerId || attachMutation.isPending}>
@@ -2202,6 +2637,8 @@ function InviteSettingsTab({
 // Transactions Tab
 // ══════════════════════════════════════════════════════════════════════════════
 
+// Kept as a payment-only fallback while OperationsTab owns the active surface.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function TransactionsTab({ user }: { user: UserDetail }) {
   const { t } = useTranslation()
   const txs = user.transactions ?? []
@@ -2224,7 +2661,9 @@ function TransactionsTab({ user }: { user: UserDetail }) {
             <tbody>
               {txs.map((tx) => (
                 <tr key={tx.id} className="border-b last:border-0">
-                  <td className="px-3 py-2 font-mono text-xs">{tx.paymentId?.slice(0, 10)}…</td>
+                  <td className="px-3 py-2 font-mono text-xs">
+                    {truncate(tx.paymentId, 10)}
+                  </td>
                   <td className="px-3 py-2"><Badge variant={tx.status === 'COMPLETED' ? 'success' : 'secondary'} className="text-[10px]">{tx.status}</Badge></td>
                   <td className="px-3 py-2 font-mono">{tx.amount} {tx.currency}</td>
                   <td className="px-3 py-2 text-xs uppercase">{tx.gatewayType}</td>
@@ -2242,6 +2681,281 @@ function TransactionsTab({ user }: { user: UserDetail }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // Merge accounts — operator consolidation of two accounts into one
 // ══════════════════════════════════════════════════════════════════════════════
+
+function OperationsTab({ telegramId }: { telegramId: string }) {
+  const { t, i18n } = useTranslation()
+  const [page, setPage] = useState(1)
+  const locale = i18n.language?.startsWith('ru') ? 'ru-RU' : 'en-US'
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['admin', 'users', telegramId, 'operations', page],
+    queryFn: () => usersApi.listUserOperations({ userId: telegramId, page, limit: 25 }),
+  })
+
+  if (isLoading) return <Skeleton className="h-48 w-full" />
+
+  if (isError || !data) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
+          <p className="text-sm text-muted-foreground">{t('userDetailPanel.operations.loadError')}</p>
+          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            {t('userDetailPanel.operations.retry')}
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const totalPages = Math.max(1, Math.ceil(data.total / data.limit))
+  return (
+    <div className="space-y-3">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">{t('userDetailPanel.operations.title')}</CardTitle>
+          <CardDescription>{t('userDetailPanel.operations.hint')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {data.items.length === 0 ? (
+            <p className="py-5 text-center text-sm text-muted-foreground">{t('userDetailPanel.operations.empty')}</p>
+          ) : (
+            data.items.map((operation) => (
+              <OperationCard key={`${operation.kind}:${operation.id}`} operation={operation} locale={locale} />
+            ))
+          )}
+        </CardContent>
+      </Card>
+      {data.total > data.limit && (
+        <div className="flex items-center justify-between gap-3">
+          <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage((value) => value - 1)}>
+            {t('userDetailPanel.operations.previous')}
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {t('userDetailPanel.operations.page', { page, total: totalPages, count: data.total })}
+          </span>
+          <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((value) => value + 1)}>
+            {t('userDetailPanel.operations.next')}
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OperationCard({ operation, locale }: { operation: UserOperation; locale: string }) {
+  const { t } = useTranslation()
+  const occurredAt = new Date(operation.occurredAt).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
+
+  if (operation.kind === 'PAYMENT') {
+    return (
+      <div className="space-y-2 rounded-lg border p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2"><Badge variant="success">{t('userDetailPanel.operations.payment')}</Badge><span className="text-xs text-muted-foreground">{occurredAt}</span></div>
+          <span className="font-mono text-sm">{operation.payload.amount} {operation.payload.currency}</span>
+        </div>
+        <p className="font-mono text-xs text-muted-foreground">{operation.payload.paymentId ?? t('userDetailPanel.operations.noPaymentId')}</p>
+        <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
+          <div className="flex flex-wrap gap-1.5">
+            <Badge variant="secondary">{operation.payload.status}</Badge>
+            {operation.payload.gatewayType && <Badge variant="outline">{operation.payload.gatewayType}</Badge>}
+            {operation.payload.purchaseType && <Badge variant="outline">{operation.payload.purchaseType}</Badge>}
+          </div>
+          <RefundPaymentAction
+            transactionId={operation.id}
+            amount={operation.payload.amount}
+            currency={operation.payload.currency}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  if (operation.kind === 'PROMOCODE_ACTIVATION') {
+    const target = operation.payload.targetSubscription?.label ?? operation.payload.targetSubscription?.id
+    return (
+      <div className="space-y-2 rounded-lg border p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2"><Badge variant="secondary">{t('userDetailPanel.operations.promocode')}</Badge><span className="text-xs text-muted-foreground">{occurredAt}</span></div>
+          <span className="font-mono text-sm">{operation.payload.codeMasked}</span>
+        </div>
+        <p className="text-sm">
+          {t('userDetailPanel.operations.promoReward', {
+            type: t(`userDetailPanel.operations.promoRewardTypes.${operation.payload.rewardType.toLowerCase()}`, {
+              defaultValue: operation.payload.rewardType,
+            }),
+            value: operation.payload.rewardValue,
+          })}
+        </p>
+        {target && <p className="text-xs text-muted-foreground">{t('userDetailPanel.operations.subscription', { subscription: target })}</p>}
+      </div>
+    )
+  }
+
+  const target = operation.payload.targetSubscription?.label ?? operation.payload.targetSubscription?.id
+  const exchangeTypeKey = operation.payload.type.toLowerCase()
+  const syncError = operation.payload.sync?.lastError
+  return (
+    <div className="space-y-2 rounded-lg border p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2"><Badge>{t('userDetailPanel.operations.pointsExchange')}</Badge><span className="text-xs text-muted-foreground">{occurredAt}</span></div>
+        <span className="font-mono text-sm">−{operation.payload.pointsSpent} {t('userDetailPanel.operations.points')}</span>
+      </div>
+      <p className="text-sm">{t(`userDetailPanel.operations.exchangeTypes.${exchangeTypeKey}`, { value: operation.payload.rewardValue })}</p>
+      {target && <p className="text-xs text-muted-foreground">{t('userDetailPanel.operations.subscription', { subscription: target })}</p>}
+      {operation.payload.sync && (
+        <p className={cn('text-xs', syncError ? 'text-destructive' : 'text-muted-foreground')}>
+          {syncError
+            ? t('userDetailPanel.operations.syncFailed', { error: syncError })
+            : t('userDetailPanel.operations.syncStatus', {
+              status: t(`userDetailPanel.operations.syncStatuses.${operation.payload.sync.status.toLowerCase()}`, {
+                defaultValue: operation.payload.sync.status,
+              }),
+            })}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Operator-issued refund for a single payment.
+ *
+ * Eligibility is resolved by the backend (gateway support, fulfilment state,
+ * remaining refundable balance) and only fetched once the operator actually
+ * holds `payments:refund` — so the common case costs no extra request. The
+ * money-side reversal is NOT done here: the provider's `refund.succeeded`
+ * webhook drives it, which is why the dialog says the refund was *requested*.
+ */
+function RefundPaymentAction({
+  transactionId,
+  amount,
+  currency,
+}: {
+  transactionId: string
+  amount: string
+  currency: string
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const canRefund = useHasPermission('payments', 'refund')
+  const [open, setOpen] = useState(false)
+  const [customAmount, setCustomAmount] = useState('')
+
+  const eligibility = useQuery({
+    queryKey: ['admin', 'payments', 'transactions', transactionId, 'refund-eligibility'],
+    queryFn: async () => {
+      const { data } = await api.get(`/admin/payments/transactions/${transactionId}/refund-eligibility`)
+      return data as {
+        refundable: boolean
+        reason: string | null
+        refundableAmount: string
+        currency: string
+        refundedAmount: string
+      }
+    },
+    enabled: canRefund && open,
+    staleTime: 0,
+  })
+
+  const refundMutation = useMutation({
+    mutationFn: async (payload: { amount?: string }) =>
+      api.post(`/admin/payments/transactions/${transactionId}/refund`, payload),
+    onSuccess: () => {
+      setOpen(false)
+      setCustomAmount('')
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'payments'] })
+      toast.success(t('userDetailPanel.refund.requested'))
+    },
+    onError: (err) => toast.error(getErrorMessage(err, t('userDetailPanel.refund.failed'))),
+  })
+
+  if (!canRefund) return null
+
+  const blockedReason = eligibility.data && !eligibility.data.refundable ? eligibility.data.reason : null
+  // No `?? amount` fallback: if eligibility could not be read we must not
+  // present the full payment as refundable — a role holding `payments:refund`
+  // without `payments:view` gets a 403 here, and showing an armed form on a
+  // guessed amount is exactly how an unintended refund happens.
+  const maxAmount = eligibility.data?.refundableAmount ?? null
+  const blocked = blockedReason !== null || eligibility.isError || maxAmount === null
+
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        // Reset on every close: a leftover partial amount from a cancelled
+        // attempt must not be submitted on the next open, where the labels
+        // describe a full refund.
+        if (!next) setCustomAmount('')
+      }}
+    >
+      <AlertDialogTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive">
+          <Undo2 className="mr-1 h-3.5 w-3.5" />
+          {t('userDetailPanel.refund.action')}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('userDetailPanel.refund.title')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('userDetailPanel.refund.description', { amount, currency })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        {eligibility.isLoading ? (
+          <p className="text-sm text-muted-foreground">{t('userDetailPanel.refund.checking')}</p>
+        ) : eligibility.isError ? (
+          <p className="text-sm text-destructive">
+            {getErrorMessage(eligibility.error, t('userDetailPanel.refund.checkFailed'))}
+          </p>
+        ) : blockedReason ? (
+          <p className="text-sm text-destructive">
+            {t(`userDetailPanel.refund.reasons.${blockedReason}`, {
+              defaultValue: t('userDetailPanel.refund.reasons.default'),
+            })}
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <label className="text-xs text-muted-foreground" htmlFor={`refund-amount-${transactionId}`}>
+              {t('userDetailPanel.refund.amountLabel', { max: maxAmount ?? amount, currency })}
+            </label>
+            <Input
+              id={`refund-amount-${transactionId}`}
+              inputMode="decimal"
+              placeholder={maxAmount ?? amount}
+              value={customAmount}
+              onChange={(e) => setCustomAmount(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">{t('userDetailPanel.refund.partialHint')}</p>
+          </div>
+        )}
+
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t('common.cancel', { defaultValue: 'Отмена' })}</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={refundMutation.isPending || eligibility.isLoading || eligibility.isFetching || blocked}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={(e) => {
+              // Keep the dialog open until the request settles, so a provider
+              // error is shown in place instead of vanishing with the dialog.
+              e.preventDefault()
+              refundMutation.mutate(
+                customAmount.trim().length > 0 ? { amount: customAmount.trim() } : {},
+              )
+            }}
+          >
+            {refundMutation.isPending
+              ? t('userDetailPanel.refund.submitting')
+              : t('userDetailPanel.refund.confirm')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
 
 function MergeAccountsCard({
   currentUserId,
@@ -2441,6 +3155,7 @@ function WebCabinetTab({
   queryKey: string[]
 }) {
   const { t, i18n } = useTranslation()
+  const currentTime = useCurrentTime()
   const queryClient = useQueryClient()
   const [tempCredentials, setTempCredentials] = useState<{
     login: string | null
@@ -2517,6 +3232,12 @@ function WebCabinetTab({
   })
 
   const webAccount = user.webAccount
+  const activeTemporaryPasswordExpiresAt = isFutureTimestamp(
+    webAccount?.temporaryPasswordExpiresAt,
+    currentTime,
+  )
+    ? webAccount?.temporaryPasswordExpiresAt ?? null
+    : null
   const currentTelegramId =
     user.telegramId !== undefined && user.telegramId !== null ? String(user.telegramId) : null
 
@@ -2585,11 +3306,10 @@ function WebCabinetTab({
                   {t('userDetailPanel.web.requiresChangeNotice')}
                 </div>
               )}
-              {webAccount.temporaryPasswordExpiresAt &&
-                new Date(webAccount.temporaryPasswordExpiresAt).getTime() > Date.now() && (
+              {activeTemporaryPasswordExpiresAt && (
                   <InfoRow
                     label={t('userDetailPanel.web.tempUntil')}
-                    value={new Date(webAccount.temporaryPasswordExpiresAt).toLocaleString(
+                    value={new Date(activeTemporaryPasswordExpiresAt).toLocaleString(
                       i18n.language === 'ru' ? 'ru-RU' : 'en-US',
                     )}
                   />
@@ -2810,7 +3530,7 @@ function DeleteButton({ telegramId }: { telegramId: string }) {
   const mutation = useMutation({
     mutationFn: () => api.delete(`/admin/users/${telegramId}`),
     onSuccess: () => toast.success(t('userDetailPanel.toasts.userDeleted')),
-    onError: () => toast.error(t('userDetailPanel.toasts.deleteFailed')),
+    onError: (error) => toast.error(getErrorMessage(error, t('userDetailPanel.toasts.deleteFailed'))),
   })
 
   // Gate the irreversible delete (also wipes the Remnawave panel profile)

@@ -9,7 +9,7 @@ export const en = {
   appearancePage: {
     title: 'Appearance',
     subtitle:
-      'Pick a preset, customize individual colors, paste a theme from shadcnthemer or tweakcn, and adjust corner radius. Changes apply instantly and persist in this browser.',
+      'Pick a preset, customize individual colors, paste a theme from shadcnthemer or tweakcn, and adjust corner radius. Changes apply instantly and follow this admin across browsers and devices.',
     reset: 'Reset',
     resetSuccess: 'Theme reset to defaults',
     tabs: {
@@ -63,8 +63,12 @@ export const en = {
     presets: {
       title: 'Preset themes',
       description:
-        'Curated shadcn-compatible blocks. Selecting a preset clears any custom overrides.',
+        'The 104 approved concepts plus legacy shadcn themes. Selecting a preset clears color overrides.',
       applied: 'Preset "{{id}}" applied',
+      searchPlaceholder: 'Search by code, name, or style…',
+      searchLabel: 'Search preset themes',
+      count: '{{visible}} of {{total}} themes',
+      empty: 'No themes match this search.',
     },
     radius: {
       title: 'Corner radius',
@@ -77,7 +81,7 @@ export const en = {
     customize: {
       title: 'Custom colors',
       description:
-        'Pick a color for any token. Overrides are layered on top of the active preset and persist in this browser.',
+        'Pick a color for any token. Overrides are layered on top of the active preset and follow this admin across browsers and devices.',
       modeLight: 'Light',
       modeDark: 'Dark',
       modeBadge: '{{mode}} mode',
@@ -95,7 +99,7 @@ export const en = {
       clipboardEmpty: 'Clipboard is empty',
       clipboardError: 'Could not read the clipboard',
       footer:
-        'Themes persist locally in your browser only. Clearing site data resets the override.',
+        'Theme settings are kept locally for instant rendering and synchronised to this admin when connected. Clearing site data restores the saved look after sign-in.',
     },
     layout: {
       density: {
@@ -310,12 +314,27 @@ export const en = {
       rippleGrid: 'Ripple Grid',
       lightning: 'Lightning',
       radar: 'Radar',
+      colorBends: 'Color Bends',
+      pixelBlast: 'Pixel Blast',
+      plasmaWave: 'Plasma Wave',
+      evilEye: 'Evil Eye',
+      lightPillar: 'Light Pillar',
+      prismaticBurst: 'Prismatic Burst',
+      faultyTerminal: 'Faulty Terminal',
+      letterGlitch: 'Letter Glitch',
+      shapeGrid: 'Shape Grid',
+      magicRings: 'Magic Rings',
+      laserFlow: 'Laser Flow',
+      antigravity: 'Antigravity',
     },
     controls: {
       speed: 'Speed',
       scale: 'Scale',
       color: 'Color',
       colors: 'Colors',
+      // Aurora's own prop name. It had no key at all, so a Russian operator
+      // read the registry's English fallback with nothing reporting a gap.
+      colorStops: 'Colors',
       noiseIntensity: 'Noise Intensity',
       rotation: 'Rotation',
       amplitude: 'Amplitude',
@@ -374,6 +393,65 @@ export const en = {
       ringCount: 'Rings',
       spokeCount: 'Spokes',
       sweepSpeed: 'Sweep Speed',
+      // Added with the twelve backgrounds below. A control's label is resolved
+      // from its PROP NAME with no per-background scoping, so each key here is
+      // shared by every background that offers that prop.
+      frequency: 'Frequency',
+      bandWidth: 'Band Width',
+      patternScale: 'Pattern Scale',
+      patternDensity: 'Pattern Density',
+      edgeFade: 'Edge Fade',
+      pixelSizeJitter: 'Jitter',
+      speed1: 'Speed 1',
+      speed2: 'Speed 2',
+      bend1: 'Bend 1',
+      bend2: 'Bend 2',
+      focalLength: 'Focal Length',
+      rotationDeg: 'Rotation',
+      eyeColor: 'Eye Color',
+      flameSpeed: 'Flame Speed',
+      irisWidth: 'Iris Width',
+      topColor: 'Top Color',
+      bottomColor: 'Bottom Color',
+      rotationSpeed: 'Rotation Speed',
+      glowAmount: 'Glow',
+      pillarWidth: 'Pillar Width',
+      pillarHeight: 'Pillar Height',
+      distort: 'Distort',
+      rayCount: 'Rays',
+      tint: 'Tint',
+      timeScale: 'Speed',
+      digitSize: 'Digit Size',
+      scanlineIntensity: 'Scanlines',
+      glitchAmount: 'Glitch',
+      flickerAmount: 'Flicker',
+      mouseReact: 'Cursor Reaction',
+      glitchColors: 'Colors',
+      glitchSpeed: 'Glitch Interval',
+      smooth: 'Smooth Fade',
+      outerVignette: 'Outer Vignette',
+      centerVignette: 'Center Vignette',
+      borderColor: 'Border Color',
+      squareSize: 'Cell Size',
+      vignetteColor: 'Vignette Color',
+      vignetteStrength: 'Vignette',
+      colorTwo: 'Second Color',
+      lineThickness: 'Line Thickness',
+      opacity: 'Opacity',
+      noiseAmount: 'Noise',
+      flowSpeed: 'Flow Speed',
+      verticalSizing: 'Vertical Size',
+      horizontalSizing: 'Horizontal Size',
+      decay: 'Beam Decay',
+      falloffStart: 'Falloff Start',
+      fogIntensity: 'Fog',
+      wispIntensity: 'Wisps',
+      count: 'Count',
+      particleSize: 'Particle Size',
+      lerpSpeed: 'Follow Speed',
+      ringRadius: 'Ring Radius',
+      magnetRadius: 'Magnet Radius',
+      autoAnimate: 'Auto Motion',
     },
   },
   effectsSettings: {
@@ -402,6 +480,9 @@ export const en = {
         fuzzy: 'Fuzzy Text',
         rotating: 'Rotating Text',
         trueFocus: 'True Focus',
+        shuffle: 'Shuffle Text',
+        typewriter: 'Typewriter',
+        proximity: 'Variable Proximity',
       },
       cursorEffect: {
         none: 'None',
@@ -410,18 +491,17 @@ export const en = {
         ghost: 'Ghost Cursor',
         crosshair: 'Crosshair',
         pixelTrail: 'Pixel Trail',
+        target: 'Target Cursor',
+        textTrail: 'Text Trail',
       },
       clickEffect: {
         none: 'None',
         spark: 'Click Spark',
-        starBorder: 'Star Border',
       },
       hoverEffect: {
         none: 'None',
         spotlight: 'Spotlight',
         glare: 'Glare Hover',
-        electricBorder: 'Electric Border',
-        magnet: 'Magnet',
       },
       contentAnimation: {
         none: 'None',
@@ -442,6 +522,10 @@ export const en = {
       select: 'Cursor effect',
       previewHint: 'Move cursor here to preview',
       previewAction: 'Preview cursor effect',
+      // Drawn onto the canvas, one glyph per trail point, for the Text Trail
+      // preview only. Keep it short and uppercase — the marks are 14px and a
+      // long word simply repeats less often, it does not read better.
+      previewGlyphs: 'TEXT',
     },
     clickEffect: {
       title: 'Click Effect',

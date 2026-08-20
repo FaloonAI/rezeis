@@ -5,6 +5,7 @@ import { Plus, Pencil, Trash2, Puzzle, Loader2, BarChart3, List, Activity } from
 import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
+import { expectArray } from '@/lib/api-utils'
 import { getErrorMessage } from '@/lib/http-errors'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -33,6 +34,7 @@ import { FadeIn } from '@/lib/motion'
 import { usePlans } from '@/features/plans/plans-api'
 import { IconPicker } from '@/features/settings/icon-picker'
 import { EmojiTextInput } from '@/features/broadcast/emoji-text-input'
+import { PageTitle } from '@/components/layout/page-title'
 import { AddOnsStatsTab } from './add-ons-stats-tab'
 import { AddOnEntitlementsTab } from './add-on-entitlements-tab'
 
@@ -82,7 +84,7 @@ export default function AddOnsPage() {
 
   const { data: addOns, isLoading } = useQuery({
     queryKey: ['admin', 'add-ons'],
-    queryFn: async () => (await api.get<AddOn[]>('/admin/add-ons')).data,
+    queryFn: async () => expectArray<AddOn>((await api.get('/admin/add-ons')).data),
   })
 
   const deleteMutation = useMutation({
@@ -122,9 +124,7 @@ export default function AddOnsPage() {
       <FadeIn>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-              <Puzzle className="h-6 w-6" /> {t('addOnsPage.title')}
-            </h1>
+            <PageTitle icon={Puzzle} title={t('addOnsPage.title')} />
             <p className="text-muted-foreground">{t('addOnsPage.subtitle')}</p>
           </div>
           <Button

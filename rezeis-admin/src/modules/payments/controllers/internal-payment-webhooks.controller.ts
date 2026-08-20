@@ -31,6 +31,10 @@ export class InternalPaymentWebhooksController {
       gatewayType,
       rawBody: rawBody ?? Buffer.from('{}', 'utf8'),
       headers: request.headers,
+      // Internal path is already behind InternalAdminAuthGuard (service auth).
+      // YooKassa public ingress still verifies trusted source IPs; here the
+      // caller is our own stack (proxy/worker), so IP checks would always fail
+      // and signature verification is skipped for the same reason.
       clientIp: null,
       verifySignature: false,
     });

@@ -14,7 +14,7 @@ describe('SubscriptionsPage accessibility', () => {
             items: [
               {
                 id: 'subscription-1',
-                user: { name: 'Alice' },
+                user: { id: 'cluseralice0000000000001', name: 'Alice' },
                 userTelegramId: '12345',
                 status: 'ACTIVE',
                 isTrial: false,
@@ -54,7 +54,10 @@ describe('SubscriptionsPage accessibility', () => {
     renderWithProviders(<SubscriptionsPage />)
 
     expect(await screen.findByRole('button', { name: 'Refresh subscriptions' })).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: 'Open user 12345' })).toBeInTheDocument()
+    // Open-user aria prefers reiwa user id (works for web-only / no Telegram).
+    expect(
+      await screen.findByRole('button', { name: 'Open user cluseralice0000000000001' }),
+    ).toBeInTheDocument()
   })
 
   it('names the status filter select', async () => {
@@ -63,11 +66,16 @@ describe('SubscriptionsPage accessibility', () => {
     expect(await screen.findByRole('combobox', { name: 'Status' })).toBeInTheDocument()
   })
 
-  it('keeps row navigation on the named action instead of the table row', async () => {
+  it('makes the whole row open the user profile (incl. web-only via user.id)', async () => {
     renderWithProviders(<SubscriptionsPage />)
 
     const userCell = await screen.findByText('Alice')
-    expect(userCell.closest('tr')).not.toHaveClass('cursor-pointer')
-    expect(screen.getByRole('button', { name: 'Open user 12345' })).toBeInTheDocument()
+    const row = userCell.closest('tr')
+    expect(row).toHaveClass('cursor-pointer')
+    // Keyboard parity without nested interactive roles: focusable row + named ↗ button.
+    expect(row).toHaveAttribute('tabindex', '0')
+    expect(
+      screen.getByRole('button', { name: 'Open user cluseralice0000000000001' }),
+    ).toBeInTheDocument()
   })
 })

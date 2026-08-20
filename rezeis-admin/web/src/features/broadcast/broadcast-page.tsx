@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Plus, Megaphone, Send, XCircle, Trash2, Loader2, RefreshCw, Upload, FileImage, FileVideo, X, Pencil, Clock, FlaskConical } from 'lucide-react'
@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
+import { expectArray } from '@/lib/api-utils'
 import { adminQueryKeys } from '@/lib/admin-query-keys'
 import { getErrorMessage } from '@/lib/http-errors'
 import { Card, CardContent } from '@/components/ui/card'
@@ -40,8 +41,9 @@ import {
   type BroadcastFormValidationMessages,
 } from './broadcast-form-schema'
 import { EmojiPicker } from './emoji-picker'
+import { EmojiFieldOverlay } from '@/features/custom-emoji/emoji-field-overlay'
 import { RenderedCopyPreview } from '@/features/custom-emoji/rendered-copy-preview'
-import { cn } from '@/lib/utils'
+import { cn, truncate } from '@/lib/utils'
 
 const AUDIENCES = [
   { value: 'ALL', labelKey: 'broadcastPage.audiences.ALL' },
@@ -105,6 +107,36 @@ function looksLikeHttpUrl(value: string): boolean {
 }
 
 /**
+ * Keeps a revocable browser object URL in an external-store subscription.
+ * The URL lifecycle belongs to the browser, so React only re-renders after the
+ * subscription publishes its new resource instead of mirroring `file` through
+ * a synchronous state update in an Effect.
+ */
+function useObjectUrl(file: File | null | undefined): string | null {
+  const resourceRef = useRef<{ file: File; url: string } | null>(null)
+
+  const subscribe = useCallback((onStoreChange: () => void) => {
+    if (!file) return () => undefined
+
+    const url = URL.createObjectURL(file)
+    resourceRef.current = { file, url }
+    onStoreChange()
+
+    return () => {
+      URL.revokeObjectURL(url)
+      if (resourceRef.current?.url === url) resourceRef.current = null
+    }
+  }, [file])
+
+  const getSnapshot = useCallback(() => {
+    const resource = resourceRef.current
+    return resource !== null && resource.file === file ? resource.url : null
+  }, [file])
+
+  return useSyncExternalStore(subscribe, getSnapshot, () => null)
+}
+
+/**
  * Inline visual preview for attached broadcast media. Accepts either a locally
  * selected `File` (rendered via a revocable object URL) or a remote `url`, and
  * shows an `<img>` for photos or a `<video controls>` for videos so the
@@ -121,18 +153,7 @@ function MediaPreview({
   mediaType: 'photo' | 'video'
   label: string
 }) {
-  const [objectUrl, setObjectUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!file) {
-      setObjectUrl(null)
-      return
-    }
-    const created = URL.createObjectURL(file)
-    setObjectUrl(created)
-    return () => URL.revokeObjectURL(created)
-  }, [file])
-
+  const objectUrl = useObjectUrl(file)
   const src = objectUrl ?? (url && url.trim().length > 0 ? url.trim() : null)
   if (!src) return null
 
@@ -158,6 +179,23 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
   DELETED: 'outline',
 }
 
+/**
+ * Recipients this broadcast has neither delivered to nor given up on.
+ *
+ * Clamped at zero rather than trusted: the three counters are written by
+ * different code paths at different times (`checkAndFinalize` sets success and
+ * failure; the total is stamped at staging), so a transient read can show more
+ * settled than staged. A negative "still delivering" would be worse than not
+ * showing it.
+ */
+function pendingOf(row: {
+  readonly totalCount: number
+  readonly successCount: number
+  readonly failedCount: number
+}): number {
+  return Math.max(0, row.totalCount - row.successCount - row.failedCount)
+}
+
 interface BroadcastRow {
   readonly id: string
   readonly audience: string
@@ -177,7 +215,7 @@ export default function BroadcastPage() {
   const { data, isLoading, refetch } = useQuery<ReadonlyArray<BroadcastRow>>({
     queryKey: adminQueryKeys.broadcast.all,
     queryFn: async ({ signal }) =>
-      (await api.get<ReadonlyArray<BroadcastRow>>('/admin/broadcast/drafts', { signal })).data,
+      expectArray<BroadcastRow>((await api.get('/admin/broadcast/drafts', { signal })).data),
     refetchInterval: 10_000,
     refetchIntervalInBackground: false,
   })
@@ -289,6 +327,20 @@ export default function BroadcastPage() {
                       <span className="text-emerald-600">{b.successCount}</span>
                       <span className="text-muted-foreground">/{b.totalCount}</span>
                       {b.failedCount > 0 && <span className="text-destructive ml-1">({t('broadcastPage.failedCount', { count: b.failedCount })})</span>}
+                      {/*
+                        The third number. `SENT` now means a delivery the relay
+                        proved, so between the two counters there is a real
+                        population: recipients whose relay attempt timed out and
+                        whose batch will be retried. Rendering only success and
+                        failure silently folds those into "not delivered", which
+                        is the same class of claim the status change removed —
+                        an unknown shown as one of the extremes.
+                      */}
+                      {pendingOf(b) > 0 && (
+                        <span className="text-muted-foreground ml-1">
+                          ({t('broadcastPage.pendingCount', { count: pendingOf(b) })})
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {new Date(b.createdAt).toLocaleString('ru-RU')}
@@ -729,7 +781,21 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
 
       <div className="space-y-2">
         <Label htmlFor="broadcast-title">{t('broadcastPage.form.titleLabel')}</Label>
-        <div className="relative">
+        {/* The picker moves into `adornment` so it stays inside the field's own
+            box: the overlay is absolutely positioned against that box, and a
+            trigger left outside it would drift the moment the layer appears. */}
+        <EmojiFieldOverlay
+          value={title}
+          overlayClassName="pr-10"
+          // `RenderedCopyPreview` right below already carries the rendered line
+          // while this field is focused, so a second strip would say it twice.
+          liveStrip={false}
+          adornment={
+            <div className="absolute right-1 top-1/2 -translate-y-1/2">
+              <EmojiPicker onSelect={insertTitleAtCaret} ariaLabel={t('broadcastPage.emoji.trigger')} />
+            </div>
+          }
+        >
           <Input
             id="broadcast-title"
             ref={titleRef}
@@ -740,10 +806,7 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
             className="pr-10"
             aria-invalid={!!formErrors.title}
           />
-          <div className="absolute right-1 top-1/2 -translate-y-1/2">
-            <EmojiPicker onSelect={insertTitleAtCaret} ariaLabel={t('broadcastPage.emoji.trigger')} />
-          </div>
-        </div>
+        </EmojiFieldOverlay>
         <p className="text-xs text-muted-foreground">{t('broadcastPage.form.titleHint')}</p>
         {title.trim().length > 0 && (
           <div className="space-y-1">
@@ -756,7 +819,17 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
 
       <div className="space-y-2">
         <Label htmlFor="broadcast-message-text">{t('broadcastPage.form.text')}</Label>
-        <div className="relative">
+        <EmojiFieldOverlay
+          value={text}
+          multiline
+          liveStrip={false}
+          overlayClassName="pr-10"
+          adornment={
+            <div className="absolute right-1.5 top-1.5">
+              <EmojiPicker onSelect={insertAtCaret} ariaLabel={t('broadcastPage.emoji.trigger')} />
+            </div>
+          }
+        >
           <Textarea
             id="broadcast-message-text"
             ref={textRef}
@@ -767,10 +840,7 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
             className="resize-none pr-10"
             aria-invalid={!!formErrors.text}
           />
-          <div className="absolute right-1.5 top-1.5">
-            <EmojiPicker onSelect={insertAtCaret} ariaLabel={t('broadcastPage.emoji.trigger')} />
-          </div>
-        </div>
+        </EmojiFieldOverlay>
         <p className="text-xs text-muted-foreground">
           {t('broadcastPage.form.charCount', { count: text.length })}
         </p>
@@ -850,7 +920,7 @@ function CreateBroadcastForm({ onClose }: { onClose: () => void }) {
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{uploaded.fileName}</p>
                       <p className="text-xs text-muted-foreground">
-                        {formatBytes(uploaded.sizeBytes)} · file_id: <span className="font-mono">{uploaded.fileId.slice(0, 16)}…</span>
+                        {formatBytes(uploaded.sizeBytes)} · file_id: <span className="font-mono">{truncate(uploaded.fileId, 16)}</span>
                       </p>
                     </div>
                     <Button
@@ -1140,7 +1210,17 @@ function EditBroadcastForm({ broadcastId, onClose }: { broadcastId: string; onCl
         {isLoading ? (
           <Skeleton className="h-28 w-full" />
         ) : (
-          <div className="relative">
+          <EmojiFieldOverlay
+            value={text}
+            multiline
+            liveStrip={false}
+            overlayClassName="pr-10"
+            adornment={
+              <div className="absolute right-1.5 top-1.5">
+                <EmojiPicker onSelect={insertAtCaret} ariaLabel={t('broadcastPage.emoji.trigger')} />
+              </div>
+            }
+          >
             <Textarea
               id="broadcast-edit-text"
               ref={textRef}
@@ -1150,10 +1230,7 @@ function EditBroadcastForm({ broadcastId, onClose }: { broadcastId: string; onCl
               className="resize-none pr-10"
               placeholder={t('broadcastPage.form.textPlaceholder')}
             />
-            <div className="absolute right-1.5 top-1.5">
-              <EmojiPicker onSelect={insertAtCaret} ariaLabel={t('broadcastPage.emoji.trigger')} />
-            </div>
-          </div>
+          </EmojiFieldOverlay>
         )}
         <p className="text-xs text-muted-foreground">{t('broadcastPage.edit.hint')}</p>
         {text.trim().length > 0 && (

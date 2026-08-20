@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { createElement, useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -47,6 +47,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+
+import { usePlans } from '@/features/plans/plans-api'
 
 import {
   createQuest,
@@ -147,16 +149,7 @@ function SvgIconThumb({ iconId, className }: { iconId: string; className?: strin
     staleTime: Infinity,
     enabled: iconId.trim().length > 0,
   })
-  const [url, setUrl] = useState<string | null>(null)
-  useEffect(() => {
-    if (!blob) {
-      setUrl(null)
-      return
-    }
-    const objectUrl = URL.createObjectURL(blob)
-    setUrl(objectUrl)
-    return () => URL.revokeObjectURL(objectUrl)
-  }, [blob])
+  const url = useBlobObjectUrl(blob)
   if (!url) return <span className={cn('inline-block h-5 w-5', className)} />
   return <img src={url} alt="" className={cn('h-5 w-5 object-contain', className)} />
 }
@@ -172,7 +165,31 @@ function QuestIconThumb({
 }) {
   if (iconKind === 'SVG') return <SvgIconThumb iconId={iconRef} className={className} />
   const Icon = PRESET_ICON_MAP.get(iconRef) ?? Trophy
-  return <Icon className={cn('h-5 w-5', className)} />
+  return createElement(Icon, { className: cn('h-5 w-5', className) })
+}
+
+function useBlobObjectUrl(blob: Blob | undefined): string | null {
+  const resourceRef = useRef<{ blob: Blob; url: string } | null>(null)
+
+  const subscribe = useCallback((onStoreChange: () => void) => {
+    if (!blob) return () => undefined
+
+    const url = URL.createObjectURL(blob)
+    resourceRef.current = { blob, url }
+    onStoreChange()
+
+    return () => {
+      URL.revokeObjectURL(url)
+      if (resourceRef.current?.url === url) resourceRef.current = null
+    }
+  }, [blob])
+
+  const getSnapshot = useCallback(() => {
+    const resource = resourceRef.current
+    return resource !== null && resource.blob === blob ? resource.url : null
+  }, [blob])
+
+  return useSyncExternalStore(subscribe, getSnapshot, () => null)
 }
 
 function FilterChipGroup({
@@ -442,13 +459,42 @@ function QuestForm({ quest, onClose }: { quest: Quest | null; onClose: () => voi
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   const icons = useQuery({ queryKey: ['admin', 'quests', 'icons'], queryFn: listQuestIcons })
+  // Catalog for the GRANT_TRIAL plan picker — all active non-archived plans,
+  // TRIAL availability sorted first (grantTrial accepts non-trial plans too).
+  const { data: allPlans = [], isLoading: plansLoading } = usePlans(
+    undefined,
+    {
+      enabled:
+        draft.rewardType === 'DAYS' && draft.daysFallback === 'GRANT_TRIAL',
+    },
+  )
+  const trialPlanOptions = useMemo(() => {
+    const active = allPlans.filter((p) => p.isActive && !p.isArchived)
+    // Prefer TRIAL first, keep every other active plan selectable (mixed catalog).
+    const base = [...active].sort((a, b) => {
+      const aTrial = a.availability === 'TRIAL' ? 0 : 1
+      const bTrial = b.availability === 'TRIAL' ? 0 : 1
+      if (aTrial !== bTrial) return aTrial - bTrial
+      return a.name.localeCompare(b.name)
+    })
+    // Keep a previously saved (possibly inactive/archived) plan visible when editing.
+    const selectedId = draft.rewardPlanId.trim()
+    if (selectedId && !base.some((p) => p.id === selectedId)) {
+      const orphan = allPlans.find((p) => p.id === selectedId)
+      if (orphan) return [orphan, ...base]
+    }
+    return base
+  }, [allPlans, draft.rewardPlanId])
 
   const validationMessages = useMemo<QuestValidationMessages>(
     () => ({
       titleRequired: t('questsAdminPage.validation.titleRequired'),
       rewardAmountRequired: t('questsAdminPage.validation.rewardAmountRequired'),
       planRequired: t('questsAdminPage.validation.planRequired'),
-      channelRequired: t('questsAdminPage.validation.channelRequired'),
+      channelLinkRequired: t('questsAdminPage.validation.channelLinkRequired'),
+      channelLinkInvalid: t('questsAdminPage.validation.channelLinkInvalid'),
+      channelIdInvalid: t('questsAdminPage.validation.channelIdInvalid'),
+      channelIdRequiredForInvite: t('questsAdminPage.validation.channelIdRequiredForInvite'),
       windowInvalid: t('questsAdminPage.validation.windowInvalid'),
       partnerRequired: t('questsAdminPage.validation.partnerRequired'),
     }),
@@ -615,14 +661,43 @@ function QuestForm({ quest, onClose }: { quest: Quest | null; onClose: () => voi
       )}
       {draft.rewardType === 'DAYS' && draft.daysFallback === 'GRANT_TRIAL' && (
         <div className="space-y-1.5">
-          <Label>{t('questsAdminPage.form.rewardPlanId')}</Label>
-          <Input
-            value={draft.rewardPlanId}
-            onChange={(e) => set('rewardPlanId', e.target.value)}
-            placeholder={t('questsAdminPage.form.rewardPlanIdPlaceholder')}
-            className="font-mono text-xs"
-          />
+          <Label>
+            <LabelWithHint
+              label={t('questsAdminPage.form.rewardPlanId')}
+              hint={t('questsAdminPage.help.rewardPlanId')}
+            />
+          </Label>
+          <Select
+            value={draft.rewardPlanId || undefined}
+            onValueChange={(v) => set('rewardPlanId', v)}
+            disabled={plansLoading || trialPlanOptions.length === 0}
+          >
+            <SelectTrigger aria-label={t('questsAdminPage.form.rewardPlanId')}>
+              <SelectValue
+                placeholder={
+                  plansLoading
+                    ? t('questsAdminPage.form.rewardPlanLoading')
+                    : trialPlanOptions.length === 0
+                      ? t('questsAdminPage.form.rewardPlanEmpty')
+                      : t('questsAdminPage.form.rewardPlanPlaceholder')
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {trialPlanOptions.map((plan) => (
+                <SelectItem key={plan.id} value={plan.id}>
+                  {plan.name}
+                  {plan.availability === 'TRIAL' ? ` · ${t('questsAdminPage.form.rewardPlanTrialTag')}` : ''}
+                  {plan.isArchived ? ` · ${t('questsAdminPage.form.rewardPlanArchivedTag')}` : ''}
+                  {!plan.isActive ? ` · ${t('questsAdminPage.form.rewardPlanInactiveTag')}` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {errors.rewardPlanId && <p className="text-xs text-destructive">{errors.rewardPlanId}</p>}
+          {!plansLoading && trialPlanOptions.length === 0 && (
+            <p className="text-xs text-muted-foreground">{t('questsAdminPage.form.rewardPlanEmptyHint')}</p>
+          )}
         </div>
       )}
 
@@ -645,19 +720,35 @@ function QuestForm({ quest, onClose }: { quest: Quest | null; onClose: () => voi
         </div>
       )}
       {draft.type === 'SUBSCRIBE_CHANNEL' && (
-        <div className="space-y-1.5">
-          <Label>
-            <LabelWithHint
-              label={t('questsAdminPage.form.channelId')}
-              hint={t('questsAdminPage.help.channelId')}
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>
+              <LabelWithHint
+                label={t('questsAdminPage.form.channelLink')}
+                hint={t('questsAdminPage.help.channelLink')}
+              />
+            </Label>
+            <Input
+              value={draft.channelLink}
+              onChange={(e) => set('channelLink', e.target.value)}
+              placeholder={t('questsAdminPage.form.channelLinkPlaceholder')}
             />
-          </Label>
-          <Input
-            value={draft.channelId}
-            onChange={(e) => set('channelId', e.target.value)}
-            placeholder="-1001234567890 · @channel · https://t.me/+invite"
-          />
-          {errors.channelId && <p className="text-xs text-destructive">{errors.channelId}</p>}
+            {errors.channelLink && <p className="text-xs text-destructive">{errors.channelLink}</p>}
+          </div>
+          <div className="space-y-1.5">
+            <Label>
+              <LabelWithHint
+                label={t('questsAdminPage.form.channelId')}
+                hint={t('questsAdminPage.help.channelId')}
+              />
+            </Label>
+            <Input
+              value={draft.channelId}
+              onChange={(e) => set('channelId', e.target.value)}
+              placeholder={t('questsAdminPage.form.channelIdPlaceholder')}
+            />
+            {errors.channelId && <p className="text-xs text-destructive">{errors.channelId}</p>}
+          </div>
         </div>
       )}
       {draft.type === 'PARTNER_TASK' && (

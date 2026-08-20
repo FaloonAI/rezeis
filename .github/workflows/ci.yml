@@ -17,9 +17,9 @@ jobs:
       run:
         working-directory: rezeis-admin
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -28,6 +28,16 @@ jobs:
       - run: npm ci
       - run: npm run prisma:generate
       - run: npm run typecheck
+
+      # `typecheck` above compiles `tsconfig.json`, which EXCLUDES `**/*.spec.ts`
+      # — so it returns exit 0 with the whole suite hard-broken. The specs are
+      # type-checked at RUN time by `ts-node/register` in the tests job, which
+      # means the first sign of a type error is a spec that refuses to start,
+      # and files under `test/` that no spec imports are never checked at all.
+      # This step is the compiler saying in seconds what that job says in
+      # minutes, and it is the only thing that covers those unimported files.
+      - run: npm run typecheck:test
+
       - run: npm run lint
 
   web-quality:
@@ -37,19 +47,46 @@ jobs:
       run:
         working-directory: rezeis-admin/web
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
           cache-dependency-path: rezeis-admin/web/package-lock.json
 
       - run: npm ci
-      - run: npx tsc -p tsconfig.app.json --noEmit --incremental false
+      # `typecheck` compiles `tsconfig.app.json`, the PRODUCTION project. It
+      # excludes tests on purpose: the Docker frontend stage is `COPY web/ .`
+      # and nothing else, so anything this project compiles must live under
+      # `web/`. A test that reaches into the backend is legitimate and is
+      # covered by `typecheck:test` below, which runs where the whole
+      # repository exists. Keeping them separate is what stops a green local
+      # run from shipping an image that cannot build.
+      - run: npm run typecheck
+      - run: npm run typecheck:test
       - run: npm test
       - run: npm run lint
       - run: npm run build
+      # Assert facts about the EMITTED graph in `dist/`, which only exists
+      # after the step above — hence a separate step and not part of
+      # `npm test`.
+      #
+      # `src/vite-manual-chunks.test.ts` (which DOES run under `npm test`
+      # above) pins the `manualChunks` decision function and cannot catch
+      # what this catches. The 449 KB charts bundle that shipped as a
+      # `modulepreload` on /sign-in got there while that function returned
+      # the correct group for React: rolldown copied React's CJS entry into
+      # `vendor-charts` anyway and the entry chunk bound to it. A right
+      # answer and a wrong bundle. Only the build output shows that.
+      #
+      # Reads dist/index.html, walks the entry's static-import closure plus
+      # the locale chunk main.tsx awaits before first paint, and fails if a
+      # chunk on it contains three.js or recharts/d3 (matched by
+      # library-internal content and sourcemap attribution, never by chunk
+      # name) or if the render-blocking payload exceeds its byte/chunk
+      # ceiling.
+      - run: npm run check:build-graph
 
   backend-tests:
     name: Backend tests
@@ -58,9 +95,9 @@ jobs:
       run:
         working-directory: rezeis-admin
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -70,3 +107,39 @@ jobs:
       - run: npm run prisma:generate
       - name: Run backend test suite
         run: npm test
+
+  postgres-concurrency:
+    name: PostgreSQL concurrency
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: rezeis_test
+          POSTGRES_PASSWORD: rezeis_test
+          POSTGRES_DB: rezeis_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rezeis_test -d rezeis_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://rezeis_test:rezeis_test@127.0.0.1:5432/rezeis_test
+      TEST_DATABASE_URL: postgresql://rezeis_test:rezeis_test@127.0.0.1:5432/rezeis_test
+    defaults:
+      run:
+        working-directory: rezeis-admin
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: rezeis-admin/package-lock.json
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npx prisma migrate deploy
+      - run: >-
+          node --require ts-node/register --test
+          test/add-on-entitlement-postgres-concurrency.spec.ts
+          test/subscription-index-migration.spec.ts

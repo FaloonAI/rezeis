@@ -248,27 +248,18 @@ export class BroadcastService {
       },
     });
 
-    // Rewrite the cabinet-feed events created by the fanout for this broadcast.
-    const events = await this.prismaService.userNotificationEvent.findMany({
-      where: {
-        type: 'broadcast',
-        payload: { path: ['broadcastId'], equals: input.broadcastId },
-      },
-      select: { id: true, payload: true },
-    });
-    for (const event of events) {
-      const base =
-        event.payload !== null &&
-        typeof event.payload === 'object' &&
-        !Array.isArray(event.payload)
-          ? { ...(event.payload as Record<string, unknown>) }
-          : {};
-      base.text = input.text;
-      await this.prismaService.userNotificationEvent.update({
-        where: { id: event.id },
-        data: { payload: base as Prisma.InputJsonObject },
-      });
-    }
+    // Rewrite the cabinet-feed events created by the fanout for this broadcast
+    // in ONE atomic bulk statement. A large broadcast fans out to 100k+ feed
+    // rows; the previous read-all-then-update-each loop pulled every row into
+    // memory and issued one UPDATE per row inside the request handler — O(N)
+    // round-trips that block the event loop and time out big edits. `jsonb_set`
+    // rewrites only the `text` key server-side in a single pass.
+    await this.prismaService.$executeRaw`
+      UPDATE "user_notification_events"
+      SET "payload" = jsonb_set("payload", '{text}', to_jsonb(${input.text}::text), true)
+      WHERE "type" = 'broadcast'
+        AND "payload" ->> 'broadcastId' = ${input.broadcastId}
+    `;
   }
 
   public async previewAudience(
@@ -340,9 +331,20 @@ function payloadDtoToJson(
   };
 }
 
+/**
+ * Patch accepted by {@link mergePayload}. Wider than {@link BroadcastPayloadDto}
+ * in exactly one place: the post-send edit flow sends `parseMode: null` to strip
+ * the formatting of an already-delivered broadcast, and only `undefined` (an
+ * absent key) may leave the stored value untouched — so "clear it" needs a value
+ * of its own, the same `null` the stored payload and `readParseMode` already use.
+ */
+type BroadcastPayloadPatch = Omit<BroadcastPayloadDto, 'parseMode'> & {
+  readonly parseMode?: 'HTML' | 'MarkdownV2' | null;
+};
+
 function mergePayload(
   existing: Prisma.JsonValue,
-  patch: BroadcastPayloadDto,
+  patch: BroadcastPayloadPatch,
 ): Prisma.InputJsonObject {
   const base: Record<string, unknown> =
     existing !== null && typeof existing === 'object' && !Array.isArray(existing)

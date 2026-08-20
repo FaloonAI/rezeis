@@ -15,10 +15,15 @@ export const en = {
     unreachable: 'Unreachable',
     versionWarning: {
       title: 'Untested panel version',
-      description: 'Detected panel version {{version}}. This integration is tested against 2.7–2.8. Some features may misbehave — update rezeis or the panel.',
+      // The list here must match `TESTED_VERSIONS` in
+      // `src/modules/remnawave/services/remnawave-version.service.ts` — it is
+      // the only place an operator is told which panels are covered. Written
+      // out rather than as a range: 2.9 through 3.1 are not tested, so
+      // "2.7–3.2" would be a lie.
+      description: 'Detected panel version {{version}}. This integration is tested against 2.7, 2.8 and 3.2. Some features may misbehave — update rezeis or the panel.',
     },
     live: {
-      subtitle: 'Active sessions and source IPs per node (panel ip-control).',
+      subtitle: 'Active sessions and source IPs per node, read live from the panel.',
       pickNode: 'Pick a node',
       pickNodeHint: 'Choose a node to query its online users and their IPs.',
       pickNodePlaceholder: 'Select a node…',
@@ -42,13 +47,6 @@ export const en = {
       profiles: 'Profiles',
       geo: 'Geo',
       hwid: 'HWID',
-    },
-    placeholder: {
-      live: 'Live connections, geo heatmap and drop-session controls. Lands in the next iteration once your panel surfaces /api/ip-control/*.',
-      catalog: 'Config profiles, subscription templates, public landing pages and reusable snippets. Lands in the next iteration.',
-      users: 'Search users by Telegram id, username, email or short subscription uuid. HWID dashboard, top abusers and per-user request log. Lands in the next iteration.',
-      costs: 'Infrastructure providers, billing nodes and monthly cost overview. Lands in the next iteration.',
-      settings: 'Read-only Remnawave settings mirror, node plugins inventory, public key. Lands in the next iteration.',
     },
     dashboard: {
       title: 'Dashboard',
@@ -165,6 +163,8 @@ export const en = {
       externalDescription: '{{count}} external squads',
       noInternal: 'No internal squads',
       noExternal: 'No external squads',
+      internalUnavailable: 'The internal squad list could not be loaded from the panel — this is not the same as having none.',
+      externalUnavailable: 'The external squad list could not be loaded from the panel — this is not the same as having none.',
       columns: {
         name: 'Name',
         members: 'Members',
@@ -195,6 +195,7 @@ export const en = {
     },
     catalog: {
       subtitle: 'Subscription delivery surface — profiles, templates, public landing pages and shared snippets.',
+      sectionUnavailable: 'This section could not be loaded from the panel. The list below is not empty — it is unknown.',
       settings: {
         title: 'Subscription delivery',
         untitled: 'Subscription configuration',
@@ -233,11 +234,14 @@ export const en = {
         title: 'Snippet library',
         description: '{{count}} reusable snippets',
         empty: 'Snippet library is empty',
-        type: 'Type',
+        entries: 'Entries',
       },
       columns: {
         name: 'Name',
-        id: 'ID',
+        position: '#',
+        config: 'Config',
+        configured: 'Set',
+        configEmpty: 'Empty',
       },
     },
     users: {
@@ -263,7 +267,9 @@ export const en = {
         expiresAt: 'Expires at',
         hwidLimit: 'HWID limit',
         tag: 'Tag',
-        uuid: 'UUID',
+        // The panel identity, which is a UUID only on 2.x — 3.x names the user
+        // by its numeric id and has no uuid to show here.
+        uuid: 'Profile identifier',
       },
       hwid: {
         platforms: 'Platforms',
@@ -291,19 +297,25 @@ export const en = {
       },
     },
     costs: {
-      subtitle: 'Infrastructure providers and recurring costs from Remnawave billing.',
+      subtitle: 'Infrastructure providers and their billing totals from Remnawave.',
       providers: {
         title: 'Providers',
         description: '{{count}} providers registered',
         empty: 'No infrastructure providers configured.',
+        unavailable: 'The provider list could not be loaded from the panel — this is not the same as having none configured.',
         name: 'Provider',
-        type: 'Type',
-        nodes: 'Nodes',
-        monthly: 'Monthly cost',
+        nodes: 'Billed nodes',
+        bills: 'Bills',
+        billedTotal: 'Billed to date',
+        // Deliberately not a version list: it used to name 2.7.4 and 2.8.0,
+        // which read as "and nothing else" on a third supported panel. No
+        // panel rezeis reads sends a currency here, and the SPA does not model
+        // one, so the plain statement is both shorter and harder to outdate.
+        amountNote: 'Lifetime totals as reported by the panel. Remnawave sends no currency with these amounts, so they are shown unlabelled.',
       },
       detail: {
         title: 'Per-node billing',
-        description: 'Detailed billing-nodes and bill-records breakdowns require a newer Remnawave version. Wired to fall in automatically once your panel exposes them.',
+        description: 'Per-node billing lines and individual bill records are not wired into this screen yet. The figures above are the panel’s own per-provider lifetime totals.',
       },
     },
     settings: {
@@ -337,9 +349,10 @@ export const en = {
         description: '{{count}} plugins registered',
         empty: 'No plugins registered against Remnawave nodes.',
         name: 'Plugin',
-        version: 'Version',
-        node: 'Node',
-        enabled: 'Enabled',
+        position: '#',
+        config: 'Config',
+        configured: 'Set',
+        configEmpty: 'Empty',
       },
     },
   },

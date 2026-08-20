@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
 import { InternalUserModule } from '../internal-user/internal-user.module';
+import { ImportsModule } from '../imports/imports.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { PartnersModule } from '../partners/partners.module';
 import { ProfileSyncModule } from '../profile-sync/profile-sync.module';
@@ -15,7 +16,9 @@ import { AdminUserSubscriptionsController } from './controllers/admin-user-subsc
 import { AdminUserWebController } from './controllers/admin-user-web.controller';
 import { AdminUsersController } from './controllers/admin-users.controller';
 import { AdminUsersService } from './services/admin-users.service';
+import { RegistrationExportService } from './services/registration-export.service';
 import { BulkUserOperationsService } from './services/bulk-user-operations.service';
+import { UserDeletionService } from './services/user-deletion.service';
 
 /**
  * Admin users module — full user management surface.
@@ -28,6 +31,7 @@ import { BulkUserOperationsService } from './services/bulk-user-operations.servi
   imports: [
     AuthModule,
     InternalUserModule,
+    ImportsModule,
     NotificationsModule,
     PartnersModule,
     ProfileSyncModule,
@@ -37,6 +41,6 @@ import { BulkUserOperationsService } from './services/bulk-user-operations.servi
     SubscriptionsModule,
   ],
   controllers: [AdminUsersController, AdminUserManagementController, AdminUserSubscriptionsController, AdminUserWebController, AdminBulkUsersController],
-  providers: [AdminUsersService, BulkUserOperationsService],
+  providers: [AdminUsersService, BulkUserOperationsService, RegistrationExportService, UserDeletionService],
 })
 export class UsersModule {}

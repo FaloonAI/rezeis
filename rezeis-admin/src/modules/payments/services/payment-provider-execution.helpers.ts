@@ -55,6 +55,21 @@ export function requireSetting(
 }
 
 /**
+ * YooKassa shops may store the secret under either `apiKey` (panel form) or
+ * `secretKey` (YooKassa docs / older configs). Accept both so a misnamed
+ * setting does not take the whole gateway offline.
+ */
+export function requireYookassaSecretKey(settings: Record<string, unknown>): string {
+  const value = readOptionalString(settings, ['apiKey', 'secretKey']);
+  if (value === null) {
+    throw new ServiceUnavailableException(
+      'Payment gateway setting apiKey/secretKey is missing',
+    );
+  }
+  return value;
+}
+
+/**
  * Reads a boolean-ish gateway setting. Accepts real booleans and the string
  * forms admin forms sometimes post (`"true"` / `"false"`). Missing values
  * fall back to `defaultValue`.
@@ -89,6 +104,11 @@ export function truncate(value: string, maxLength: number): string {
 
 export function md5(value: string): string {
   return createHash('md5').update(value).digest('hex');
+}
+
+/** MulenPay signs requests with SHA-1 over a concatenation of four values. */
+export function sha1(value: string): string {
+  return createHash('sha1').update(value).digest('hex');
 }
 
 // ── URL builders ───────────────────────────────────────────────────────

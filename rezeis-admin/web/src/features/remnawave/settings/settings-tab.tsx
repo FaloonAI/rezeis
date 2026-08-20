@@ -12,7 +12,7 @@
  * The delivery + plugins cards are read-only mirrors of Remnawave; only the
  * cleanup policy writes (and it writes to OUR Settings, never to Remnawave).
  */
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, Plug, Trash2 } from 'lucide-react'
@@ -39,9 +39,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 
-import { remnawaveApi } from '../remnawave-api'
+import { remnawaveApi, type RemnawaveCleanupSettings } from '../remnawave-api'
 import { KEYS } from '../remnawave-query-keys'
 import { TabHeader } from '../shared/tab-header'
+import { getCleanupSettingsFormKey } from './cleanup-settings-form-key'
+import { truncate } from '@/lib/utils'
 
 export function SettingsTab() {
   const { t } = useTranslation()
@@ -106,26 +108,36 @@ export function SettingsTab() {
           ) : !plugins || plugins.length === 0 ? (
             <p className="px-6 pb-4 text-sm text-muted-foreground">{t('remnaWavePage.settings.plugins.empty')}</p>
           ) : (
+            /* Plugin rows are `{ uuid, viewPosition, name, pluginConfig }` on
+               both 2.7.4 and 2.8.0. The Version and Node columns read fields
+               neither sends, and the Enabled badge read `enabled` — also not
+               sent — so `Boolean(undefined)` rendered EVERY plugin as
+               disabled. There is no enablement flag upstream to replace it
+               with; what the panel does report is the plugin's position and
+               whether it carries a config blob. */
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10 text-right">{t('remnaWavePage.settings.plugins.position')}</TableHead>
                   <TableHead>{t('remnaWavePage.settings.plugins.name')}</TableHead>
-                  <TableHead>{t('remnaWavePage.settings.plugins.version')}</TableHead>
-                  <TableHead>{t('remnaWavePage.settings.plugins.node')}</TableHead>
-                  <TableHead className="text-right">{t('remnaWavePage.settings.plugins.enabled')}</TableHead>
+                  <TableHead className="text-right">{t('remnaWavePage.settings.plugins.config')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {plugins.map((p) => (
                   <TableRow key={p.uuid}>
-                    <TableCell className="font-medium">{p.name}</TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">{p.version ?? '—'}</TableCell>
-                    <TableCell className="font-mono text-[10px] text-muted-foreground/70">
-                      {p.nodeUuid ? `${p.nodeUuid.slice(0, 8)}…` : '—'}
+                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
+                      {p.viewPosition}
+                    </TableCell>
+                    <TableCell>
+                      <p className="font-medium">{p.name}</p>
+                      <p className="font-mono text-[10px] text-muted-foreground/70">{truncate(p.uuid, 8)}</p>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Badge variant={p.enabled ? 'success' : 'outline'} className="px-2 text-[10px]">
-                        {p.enabled ? t('remnaWavePage.settings.delivery.on') : t('remnaWavePage.settings.delivery.off')}
+                      <Badge variant={p.hasConfig ? 'success' : 'outline'} className="px-2 text-[10px]">
+                        {p.hasConfig
+                          ? t('remnaWavePage.settings.plugins.configured')
+                          : t('remnaWavePage.settings.plugins.configEmpty')}
                       </Badge>
                     </TableCell>
                   </TableRow>
@@ -146,22 +158,31 @@ export function SettingsTab() {
  * panels where deleting a profile could wipe another project's user.
  */
 function CleanupCard() {
-  const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const { data, isLoading } = useQuery({
     queryKey: KEYS.cleanupSettings,
     queryFn: remnawaveApi.getCleanupSettings,
   })
 
-  const [deleteEnabled, setDeleteEnabled] = useState(true)
-  const [graceDays, setGraceDays] = useState('3')
+  return (
+    <CleanupCardForm
+      key={getCleanupSettingsFormKey(data)}
+      initialSettings={data}
+      isLoading={isLoading}
+    />
+  )
+}
 
-  // Hydrate the form once the server value lands (and on refetch).
-  useEffect(() => {
-    if (!data) return
-    setDeleteEnabled(data.deleteEnabled)
-    setGraceDays(String(data.graceDays))
-  }, [data])
+function CleanupCardForm({
+  initialSettings,
+  isLoading,
+}: {
+  initialSettings: RemnawaveCleanupSettings | undefined
+  isLoading: boolean
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [deleteEnabled, setDeleteEnabled] = useState(initialSettings?.deleteEnabled ?? true)
+  const [graceDays, setGraceDays] = useState(() => String(initialSettings?.graceDays ?? 3))
 
   const mutation = useMutation({
     mutationFn: () =>

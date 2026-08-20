@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { DeviceReductionPlanState, Prisma, SubscriptionStatus } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { storedIdentityOf } from '../../remnawave/services/panel-user-address';
 import { RemnawaveApiService } from '../../remnawave/services/remnawave-api.service';
 import {
   DeviceReductionSourceError,
@@ -33,6 +34,51 @@ export type DeviceReductionPlanOutcome =
  *
  * It NEVER deletes here. Execution is a separate, flag-gated
  * (`deviceCleanupAuto`) processor so operator-reviewed plans come first.
+ *
+ * WHY A PLAN DOWNGRADE DOES NOT COME THROUGH HERE.
+ * ────────────────────────────────────────────────
+ * A customer moving from a 5-device plan to a 2-device plan leaves the same
+ * shape of overage this service was built for, so reusing it from the
+ * profile-sync limit-change path is the obvious idea. It was considered and
+ * rejected, for three reasons, in order of weight:
+ *
+ *  1. It would not run. Every entry point here reads
+ *     `SubscriptionEffectiveProjection`, and that table is EMPTY on every
+ *     deployment: `EffectiveProjectionService.recomputeInTransaction` throws
+ *     unless the subscription has exactly one ACTIVE `SubscriptionTerm`, and
+ *     terms are only created by the `directPurchase`-gated ledger path or by
+ *     the manual `scripts/add-on-entitlement-cutover.ts`. Wiring a downgrade in
+ *     would produce `NOT_APPLICABLE / NO_PROJECTION` for every subscription
+ *     that exists — a branch with tests and no production reach.
+ *  2. It would need a different key. The plan's identity is
+ *     `(subscriptionId, projectionRevision)` and its guards re-read that
+ *     revision before every delete. A downgrade has no revision, so it would
+ *     need a second source of desired truth (`Subscription.deviceLimit`) and a
+ *     surrogate revision — a redesign of the primary key and the guards, not a
+ *     reuse.
+ *  3. It should not delete anything anyway. An add-on entitlement EXPIRES —
+ *     something the customer bought ran out, and reclaiming the slots is what
+ *     they agreed to. A downgrade is the opposite: a deliberate choice, made
+ *     now, by a customer who is still a customer, and the cabinet already lets
+ *     them pick which devices to drop (`InternalUserDevicesController`) — a
+ *     better choice than our newest-first rule, whose newest device after a
+ *     downgrade is most likely the one they use every day.
+ *
+ *     An earlier version of this note added that Remnawave refuses a
+ *     registration at or over the limit (`USER_HWID_DEVICE_LIMIT_REACHED`), so
+ *     the overage "buys them nothing and needs no enforcement from us". DELETED,
+ *     because it is false: there are tools and services that bypass the panel's
+ *     HWID limit, which is precisely why `SharingDetectors.detectHwidOverage`
+ *     exists at all. The three reasons above stand without it; the enforcement
+ *     argument never did.
+ *
+ * So a downgrade leaves the devices alone. What it changes is that
+ * `SharingDetectors.detectHwidOverage` stops accusing the customer of sharing
+ * for the devices they already held under the old limit — and only for those.
+ * Anything beyond that number is still named, at a lower confidence, inside the
+ * window as well as outside it; see `HWID_DOWNGRADE_GRACE_DAYS`. An operator who
+ * wants slots reclaimed on expiry still turns on `ADDON_DEVICE_CLEANUP_AUTO`
+ * and gets exactly the behaviour documented above, unchanged.
  */
 @Injectable()
 export class DeviceReductionPlanService {
@@ -58,16 +104,28 @@ export class DeviceReductionPlanService {
 
     const subscription = await this.prismaService.subscription.findUnique({
       where: { id: subscriptionId },
-      select: { remnawaveId: true, status: true },
+      // The two supplementary identity columns travel with `remnawaveId`
+      // because the row is about to name a profile to the panel. Without them a
+      // profile created on 2.x is unaddressable once the operator upgrades to
+      // 3.x, and `strictListUserDevices` would answer `unavailable` for a
+      // subscription whose devices are sitting right there.
+      select: {
+        remnawaveId: true,
+        remnawavePanelId: true,
+        remnawavePanelUsername: true,
+        configUrl: true,
+        status: true,
+      },
     });
-    if (subscription === null || subscription.remnawaveId === null) {
+    const identity = storedIdentityOf(subscription);
+    if (subscription === null || identity === null) {
       return { status: 'NOT_APPLICABLE', reason: 'NO_PANEL_PROFILE' };
     }
     if (subscription.status === SubscriptionStatus.DELETED) {
       return { status: 'NOT_APPLICABLE', reason: 'SUBSCRIPTION_DELETED' };
     }
 
-    const listing = await this.remnawaveApiService.strictListUserDevices(subscription.remnawaveId);
+    const listing = await this.remnawaveApiService.strictListUserDevices(identity);
     switch (listing.kind) {
       case 'unavailable':
         return { status: 'DEFERRED', reason: 'PANEL_UNAVAILABLE' };

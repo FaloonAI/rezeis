@@ -26,14 +26,19 @@ function Calendar({
       }}
       classNames={{
         months: 'flex flex-col sm:flex-row gap-2',
-        month: 'flex flex-col gap-4',
-        month_caption: 'flex justify-center pt-1 relative items-center w-full',
+        month: 'relative flex min-h-[18rem] flex-col gap-4',
+        // Caption is a full-width layer stacked with the absolute nav row.
+        // Without pointer-events-none it steals clicks around the chevrons so
+        // only a tiny stroke-area of the icon appears "clickable".
+        month_caption:
+          'pointer-events-none flex h-8 w-full items-center justify-center',
         caption_label: 'text-sm font-medium',
-        nav: 'flex items-center gap-1',
+        nav: 'absolute inset-x-0 top-0 z-10 flex h-8 items-center justify-between px-1',
+        // Entire button box must receive events (not just the SVG stroke).
         button_previous:
-          'absolute left-1 top-0 inline-flex items-center justify-center rounded-md text-foreground ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground h-8 w-8 border border-input bg-transparent p-0 disabled:pointer-events-none disabled:opacity-30',
+          'pointer-events-auto relative z-10 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-input bg-transparent p-0 text-foreground ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-30 [&_svg]:pointer-events-none [&_svg]:size-4',
         button_next:
-          'absolute right-1 top-0 inline-flex items-center justify-center rounded-md text-foreground ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground h-8 w-8 border border-input bg-transparent p-0 disabled:pointer-events-none disabled:opacity-30',
+          'pointer-events-auto relative z-10 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-input bg-transparent p-0 text-foreground ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-30 [&_svg]:pointer-events-none [&_svg]:size-4',
         month_grid: 'w-full border-collapse space-x-1',
         weekdays: 'flex',
         weekday:

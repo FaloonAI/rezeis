@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { parseTelegramId } from '../../../common/utils/postgres-bigint.util';
 import {
   EVENT_TYPES,
   SystemEventsService,
 } from '../../../common/services/system-events.service';
+import { UserDeletionService } from './user-deletion.service';
 
 export type BulkUserAction = 'block' | 'unblock' | 'delete' | 'set_language' | 'set_max_subscriptions';
 
@@ -59,6 +61,7 @@ export class BulkUserOperationsService {
   public constructor(
     private readonly prismaService: PrismaService,
     private readonly events: SystemEventsService,
+    private readonly userDeletionService: UserDeletionService,
   ) {}
 
   public async execute(input: BulkUserOperationInputInterface): Promise<BulkUserOperationResultInterface> {
@@ -94,7 +97,7 @@ export class BulkUserOperationsService {
     }
 
     this.events.info(
-      'system.bulk_users_executed',
+      EVENT_TYPES.SYSTEM_BULK_USERS_EXECUTED,
       'SYSTEM',
       `Bulk user operation "${input.action}" executed (${succeeded}/${ids.length})`,
       {
@@ -140,14 +143,22 @@ export class BulkUserOperationsService {
     const trimmed = token.trim();
     if (trimmed.length === 0) return null;
 
-    const numeric = /^\d{1,19}$/.test(trimmed);
+    // The old gate was `^\d{1,19}$`, which reads like a range check and is not
+    // one: `9999999999999999999` is nineteen digits and still larger than
+    // Postgres `int8`. It was bound anyway and Postgres answered `22003 numeric
+    // field value out of range`, failing the WHOLE bulk run on one bad row in a
+    // pasted list — the opposite of the per-row `skipped` this method promises.
+    // Dropping the branch is not a narrowing: no row's `telegramId` can equal a
+    // value the column cannot store, and the id / email / login branches below
+    // still run.
+    const telegramId = parseTelegramId(trimmed);
     const handle = trimmed.replace(/^@+/, '');
 
     return this.prismaService.user.findFirst({
       where: {
         OR: [
           { id: trimmed },
-          ...(numeric ? [{ telegramId: BigInt(trimmed) }] : []),
+          ...(telegramId !== null ? [{ telegramId }] : []),
           { email: { equals: trimmed, mode: 'insensitive' as const } },
           ...(handle.length > 0
             ? [{ webAccount: { login: { equals: handle, mode: 'insensitive' as const } } }]
@@ -202,8 +213,8 @@ export class BulkUserOperationsService {
         return { userId, status: 'ok' };
 
       case 'delete':
-        await this.prismaService.user.delete({ where: { id: user.id } });
-        this.events.warn(EVENT_TYPES.USER_DELETED, 'USER', `User bulk-deleted: ${user.id}`, {
+        await this.userDeletionService.deleteUser(user.id);
+        this.events.warn(EVENT_TYPES.USER_DELETED, 'USER', 'User account deleted', {
           userId: user.id,
           telegramId: user.telegramId?.toString() ?? null,
           adminId: input.adminId,

@@ -13,7 +13,6 @@ import {
   RemnawaveSnippetInterface,
   RemnawaveSubpageConfigInterface,
   RemnawaveSubscriptionRequestEntryInterface,
-  RemnawaveSubscriptionRequestStatsInterface,
   RemnawaveSubscriptionSettingsInterface,
   RemnawaveSubscriptionTemplateInterface,
   RemnawaveUserSummaryInterface,
@@ -45,6 +44,13 @@ import {
 } from '../services/remnawave-webhook.service';
 import { Public } from '../../../common/decorators/public.decorator';
 
+/**
+ * Rows in the "top abusers" card. Five is what the panel's own `default(5)` used
+ * to hand this endpoint by accident; it is kept as the card's deliberate size so
+ * the widget looks the same, and is now stated instead of inherited.
+ */
+const HWID_TOP_USERS_CARD_ROWS = 5;
+
 @Controller('admin/remnawave')
 @UseGuards(AdminJwtAuthGuard, RbacGuard)
 @RequirePermission('remnawave', 'view')
@@ -58,6 +64,26 @@ export class AdminRemnawaveController {
 
   // ── Version & capabilities ──────────────────────────────────────────────────
 
+  /**
+   * Detected panel version + capability facts.
+   *
+   * The service's cache-bypassing `force` flag is deliberately NOT exposed as a
+   * query parameter here. This route inherits the class-level
+   * `remnawave:view` — the plain read permission that gates merely *looking* at
+   * the tab — and carries no throttle beyond the global 600 req/min/IP, so a
+   * forced re-detect would let any read-only viewer drive an unbounded number
+   * of upstream panel calls (two per detect on a failing panel, which tries
+   * both `/api/system/stats/recap` and `/api/system/metadata`). Worse, a forced
+   * detect WRITES the shared in-process cache: a viewer forcing during a panel
+   * restart would replace good capabilities with the all-false result, flipping
+   * `liveIpControl` off and making `sharing-detectors.ts` skip the
+   * concurrent-IP detector for any run landing in that window. A read-scoped
+   * permission must not mutate shared server state.
+   *
+   * Nothing is lost by leaving it off: the 15s negative TTL
+   * (`CAPABILITIES_NEGATIVE_CACHE_TTL_MS`) already bounds how long a bad cached
+   * state survives, and no caller polls faster than the 5-minute positive TTL.
+   */
   @Get('version')
   public async getCapabilities(): Promise<RemnawaveCapabilities> {
     return this.versionService.getCapabilities();
@@ -189,9 +215,16 @@ export class AdminRemnawaveController {
     return this.remnawaveApiService.getHwidStats();
   }
 
+  /**
+   * The "top abusers" card on the users tab, which renders every row it is given
+   * inside a half-width card. The size is stated here rather than left to the
+   * panel's own `default(5)`: the adapter now walks the whole list for the fraud
+   * detector, and a card that silently inherited that walk would render a
+   * thousand rows.
+   */
   @Get('hwid/top-users')
   public async getHwidTopUsers(): Promise<readonly RemnawaveHwidTopUserInterface[]> {
-    return this.remnawaveApiService.getHwidTopUsers();
+    return this.remnawaveApiService.getHwidTopUsers(HWID_TOP_USERS_CARD_ROWS);
   }
 
   // ── Health ─────────────────────────────────────────────────────────────────
@@ -203,10 +236,10 @@ export class AdminRemnawaveController {
 
   // ── Subscription request history ───────────────────────────────────────────
 
-  @Get('subscription-request-history/stats')
-  public async getSubscriptionRequestHistoryStats(): Promise<RemnawaveSubscriptionRequestStatsInterface | null> {
-    return this.remnawaveApiService.getSubscriptionRequestHistoryStats();
-  }
+  // `GET subscription-request-history/stats` used to sit here. It returned a
+  // declared shape the panel does not send, no SPA screen ever called it, and
+  // the service method behind it is gone — see the note in
+  // `remnawave-api.service.ts`.
 
   @Get('subscription-request-history')
   public async getSubscriptionRequestHistory(
@@ -214,8 +247,11 @@ export class AdminRemnawaveController {
     @Query('limit') limit?: string,
   ): Promise<readonly RemnawaveSubscriptionRequestEntryInterface[]> {
     const parsedLimit = typeof limit === 'string' ? Math.min(parseInt(limit, 10) || 100, 500) : undefined;
+    // The query parameter keeps its historical name so the SPA contract does not
+    // move, but the value is whatever identity the panel row carried — a uuid on
+    // 2.x, a numeric id on 3.x. The adapter addresses it per version.
     return this.remnawaveApiService.getSubscriptionRequestHistory({
-      userUuid,
+      user: typeof userUuid === 'string' && userUuid.length > 0 ? userUuid : undefined,
       limit: parsedLimit,
     });
   }
@@ -284,15 +320,23 @@ export class AdminRemnawaveController {
 
   // ── Live (ip-control: active sessions / source IPs) ─────────────────────────
   //
-  // Matured on Remnawave 2.8+ (see RemnawaveVersionService.liveIpControl). The
-  // SPA only surfaces the Live tab when the capability is on, but the routes
-  // stay reachable so an operator can probe a single node/user on demand.
+  // Matured on Remnawave 2.8.x (see RemnawaveVersionService.liveIpControl —
+  // 3.x renamed the whole family to `connections/*`, which is not wired yet).
+  // The SPA only surfaces the Live tab when the capability is on, but the
+  // routes stay reachable so an operator can probe a single node/user on
+  // demand.
 
   @Get('live/node/:uuid')
   public async getNodeLiveSessions(
     @Param('uuid') uuid: string,
   ): Promise<readonly RemnawaveNodeUserIps[]> {
-    return this.remnawaveApiService.fetchUsersIpsForNode(uuid);
+    // `null` means the node could not be read. The operator is looking at ONE
+    // node on demand here, so an empty list is the honest rendering — the
+    // adapter has already logged why. The distinction matters to the detector,
+    // which is a different caller. (`?? []` is not decoration: `strictNullChecks`
+    // is off in this project, so nothing would have flagged the null leaking
+    // into a declared array return.)
+    return (await this.remnawaveApiService.fetchUsersIpsForNode(uuid)) ?? [];
   }
 
   @Get('live/user/:uuid')

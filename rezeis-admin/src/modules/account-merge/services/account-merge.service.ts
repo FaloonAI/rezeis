@@ -13,6 +13,7 @@ import {
 } from '../../../common/services/system-events.service';
 import { ProfileSyncQueueService } from '../../profile-sync/profile-sync-queue.service';
 import { AccountMergeInput, AccountMergeResult } from '../interfaces/account-merge.interface';
+import { lockTrialClaimUser } from '../../subscriptions/services/trial-claim-ledger.util';
 
 type Tx = Prisma.TransactionClient;
 
@@ -59,6 +60,11 @@ export class AccountMergeService {
           maxSubscriptions: true,
           acquisitionPlacementId: true,
           acquisitionAt: true,
+          registrationIp: true,
+          registrationUserAgent: true,
+          registrationReferer: true,
+          registrationUtm: true,
+          registrationChannel: true,
           partner: { select: { id: true, balance: true, totalEarned: true, totalWithdrawn: true } },
           webAccount: { select: { id: true } },
           trialGrant: { select: { id: true } },
@@ -76,6 +82,11 @@ export class AccountMergeService {
           maxSubscriptions: true,
           acquisitionPlacementId: true,
           acquisitionAt: true,
+          registrationIp: true,
+          registrationUserAgent: true,
+          registrationReferer: true,
+          registrationUtm: true,
+          registrationChannel: true,
           partner: { select: { id: true } },
           webAccount: { select: { id: true } },
           trialGrant: { select: { id: true } },
@@ -83,6 +94,12 @@ export class AccountMergeService {
       });
       if (source === null) throw new NotFoundException('Source account not found');
       if (target === null) throw new NotFoundException('Target account not found');
+
+      // Serialize quota admission/claim writers on both identities. Stable id
+      // order prevents two opposite merge attempts from deadlocking.
+      for (const userId of [source.id, target.id].sort()) {
+        await lockTrialClaimUser(tx, userId);
+      }
 
       const srcBalance = source.partner?.balance ?? 0;
 
@@ -106,13 +123,30 @@ export class AccountMergeService {
         tx.supportTicket.updateMany({ where: { userId: source.id }, data: { userId: target.id } }),
         tx.adClick.updateMany({ where: { userId: source.id }, data: { userId: target.id } }),
         tx.broadcastMessage.updateMany({ where: { userId: source.id }, data: { userId: target.id } }),
+        // OAuth links + saved payment instruments: all keyed on a GLOBALLY
+        // unique provider id (UserOAuthLink `(provider, providerUserId)`,
+        // SavedPaymentMethod `(gatewayType, providerMethodId)`,
+        // PaymentMethodSetup `providerMethodId`), so re-pointing userId can
+        // never collide on the target. Previously these were silently
+        // cascade-DELETED with the source user — losing a person's social
+        // logins and bound cards on merge (HIGH #14).
+        tx.userOAuthLink.updateMany({ where: { userId: source.id }, data: { userId: target.id } }),
+        tx.savedPaymentMethod.updateMany({ where: { userId: source.id }, data: { userId: target.id } }),
+        tx.paymentMethodSetup.updateMany({ where: { userId: source.id }, data: { userId: target.id } }),
+        // Trial quota is global per surviving identity. Preserve every
+        // CONSUMED/RESERVED/RELEASED audit row; transaction/subscription ids
+        // remain stable and globally unique, so this re-point cannot collide.
+        tx.trialClaim.updateMany({ where: { userId: source.id }, data: { userId: target.id } }),
       ]);
 
       // 3. Dedupe-then-repoint the userId-unique collections.
+      await this.moveReferralPointsExchanges(tx, source.id, target.id);
       await this.movePromocodeActivations(tx, source.id, target.id);
+      await this.moveLegalConsents(tx, source.id, target.id);
       const partnerTransactions = await this.movePartnerTransactionsAsReferral(tx, source.id, target.id);
       await this.movePartnerReferralsAsReferral(tx, source.id, target.id);
       await this.moveAdConversion(tx, source.id, target.id);
+      await this.moveQuestCompletions(tx, source.id, target.id);
 
       // 4. Referral edges: drop any direct source↔target edge (would become a
       //    self-referral), then move referredBy (1:1 unique) + referralsGiven.
@@ -203,6 +237,17 @@ export class AccountMergeService {
           acquisitionPlacementId:
             target.acquisitionPlacementId ?? source.acquisitionPlacementId ?? undefined,
           acquisitionAt: target.acquisitionAt ?? source.acquisitionAt ?? undefined,
+          // Registration snapshot: target-first write-once (same as acquisition).
+          registrationIp: target.registrationIp ?? source.registrationIp ?? undefined,
+          registrationUserAgent:
+            target.registrationUserAgent ?? source.registrationUserAgent ?? undefined,
+          registrationReferer: target.registrationReferer ?? source.registrationReferer ?? undefined,
+          registrationUtm:
+            (target.registrationUtm as Prisma.InputJsonValue | null) ??
+            (source.registrationUtm as Prisma.InputJsonValue | null) ??
+            undefined,
+          registrationChannel:
+            target.registrationChannel ?? source.registrationChannel ?? undefined,
           currentSubscriptionId: currentSubscriptionId ?? undefined,
         },
       });
@@ -272,6 +317,76 @@ export class AccountMergeService {
     };
   }
 
+  /**
+   * `(userId, idempotencyKey)` unique — retain the complete source ledger,
+   * but clear a source key that already belongs to the target. The target
+   * exchange remains the canonical replay for that key after the accounts
+   * become one; the historical source row is still auditable.
+   */
+  private async moveReferralPointsExchanges(tx: Tx, sourceId: string, targetId: string): Promise<void> {
+    const targetRows = await tx.referralPointsExchange.findMany({
+      where: { userId: targetId, idempotencyKey: { not: null } },
+      select: { idempotencyKey: true },
+    });
+    const targetKeys = targetRows
+      .map((row) => row.idempotencyKey)
+      .filter((key): key is string => key !== null);
+    if (targetKeys.length > 0) {
+      await tx.referralPointsExchange.updateMany({
+        where: { userId: sourceId, idempotencyKey: { in: targetKeys } },
+        data: { idempotencyKey: null },
+      });
+    }
+    await tx.referralPointsExchange.updateMany({
+      where: { userId: sourceId },
+      data: { userId: targetId },
+    });
+  }
+
+  /**
+   * `(userId, documentKey)` is the primary key — drop source rows the target
+   * already holds, then move the rest.
+   *
+   * Without this the consents die with the source user on the CASCADE at the
+   * end of the merge, and the surviving account has no record of having
+   * accepted anything. Nothing stops working — consent is asked once, at
+   * sign-up, and is never re-checked — so the loss is silent and purely
+   * evidentiary, which is exactly the kind that is noticed far too late.
+   *
+   * The EARLIEST acceptance wins on a collision: the source row is dropped only
+   * when the target already has one for that document, and if the source
+   * accepted first its timestamp is the one worth keeping. So the collision is
+   * resolved by comparing dates rather than by blindly preferring the target.
+   */
+  private async moveLegalConsents(tx: Tx, sourceId: string, targetId: string): Promise<void> {
+    const [sourceRows, targetRows] = await Promise.all([
+      tx.userLegalConsent.findMany({ where: { userId: sourceId } }),
+      tx.userLegalConsent.findMany({ where: { userId: targetId } }),
+    ]);
+    if (sourceRows.length === 0) return;
+
+    const targetByKey = new Map(targetRows.map((row) => [row.documentKey, row]));
+    for (const row of sourceRows) {
+      const existing = targetByKey.get(row.documentKey);
+      if (existing === undefined) {
+        await tx.userLegalConsent.update({
+          where: { userId_documentKey: { userId: sourceId, documentKey: row.documentKey } },
+          data: { userId: targetId },
+        });
+        continue;
+      }
+      if (row.acceptedAt < existing.acceptedAt) {
+        await tx.userLegalConsent.update({
+          where: { userId_documentKey: { userId: targetId, documentKey: row.documentKey } },
+          data: { acceptedAt: row.acceptedAt },
+        });
+      }
+      await tx.userLegalConsent.delete({
+        where: { userId_documentKey: { userId: sourceId, documentKey: row.documentKey } },
+      });
+    }
+  }
+
   /** `(promocodeId, userId)` unique — drop source rows that collide on target. */
   private async movePromocodeActivations(tx: Tx, sourceId: string, targetId: string): Promise<void> {
     const targetRows = await tx.promocodeActivation.findMany({
@@ -317,17 +432,52 @@ export class AccountMergeService {
     await tx.partnerReferral.updateMany({ where: { referralUserId: sourceId }, data: { referralUserId: targetId } });
   }
 
-  /** `AdConversion.userId` unique — keep the target's, drop the source's. */
-  private async moveAdConversion(tx: Tx, sourceId: string, targetId: string): Promise<void> {
-    const targetConv = await tx.adConversion.findUnique({
+  /**
+   * `(questId, userId, periodKey)` unique — a merge can produce two rows for
+   * the same quest+period (one per account). The target's completion wins
+   * (its claim/reward-issued state is canonical for the surviving user); the
+   * source's colliding row is dropped, non-colliding source completions are
+   * re-pointed so the merged account keeps quests only the source had.
+   * Previously the whole set was cascade-deleted with the source (HIGH #14).
+   */
+  private async moveQuestCompletions(tx: Tx, sourceId: string, targetId: string): Promise<void> {
+    const targetRows = await tx.questCompletion.findMany({
       where: { userId: targetId },
+      select: { questId: true, periodKey: true },
+    });
+    const taken = new Set(targetRows.map((r) => `${r.questId}\u0000${r.periodKey}`));
+    const sourceRows = await tx.questCompletion.findMany({
+      where: { userId: sourceId },
+      select: { id: true, questId: true, periodKey: true },
+    });
+    const dupes = sourceRows
+      .filter((r) => taken.has(`${r.questId}\u0000${r.periodKey}`))
+      .map((r) => r.id);
+    if (dupes.length > 0) {
+      await tx.questCompletion.deleteMany({ where: { id: { in: dupes } } });
+    }
+    await tx.questCompletion.updateMany({
+      where: { userId: sourceId },
+      data: { userId: targetId },
+    });
+  }
+
+  /**
+   * At most one ATTRIBUTED conversion per user — keep the target's, drop the
+   * source's. The uniqueness is now a partial index (a REVERTED row must not
+   * block a later purchase), so the target is probed with `findFirst` on that
+   * status rather than by unique key. REVERTED history moves across so the
+   * placement's refund record survives the merge.
+   */
+  private async moveAdConversion(tx: Tx, sourceId: string, targetId: string): Promise<void> {
+    const targetConv = await tx.adConversion.findFirst({
+      where: { userId: targetId, status: 'ATTRIBUTED' },
       select: { id: true },
     });
     if (targetConv !== null) {
-      await tx.adConversion.deleteMany({ where: { userId: sourceId } });
-    } else {
-      await tx.adConversion.updateMany({ where: { userId: sourceId }, data: { userId: targetId } });
+      await tx.adConversion.deleteMany({ where: { userId: sourceId, status: 'ATTRIBUTED' } });
     }
+    await tx.adConversion.updateMany({ where: { userId: sourceId }, data: { userId: targetId } });
   }
 
   /** `Referral.referredId` unique (the 1:1 `referredBy`). */

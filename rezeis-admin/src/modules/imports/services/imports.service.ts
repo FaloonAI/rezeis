@@ -80,12 +80,19 @@ export class ImportsService {
         'This import has no rollback plan (it predates undo support), so it cannot be safely undone.',
       );
     }
+    if (hasMatchedWrites(record.result)) {
+      throw new BadRequestException(
+        'Rollback blocked: this import changed matched existing users, whose previous state cannot be restored safely.',
+      );
+    }
 
     // Delete in one transaction. `Transaction.user` is `onDelete: Restrict`,
     // so a created user that carries imported transactions can't be removed
-    // until those transactions are gone — delete them first (their line items
-    // cascade), then the users. Subscriptions, web accounts, profile-sync
-    // jobs, referrals and partner rows all cascade from `User`.
+    // until those transactions are gone. Trial claims also intentionally
+    // restrict user deletion, so this explicit import rollback removes its
+    // claims first, then transactions (whose line items cascade), then users.
+    // Subscriptions, web accounts, profile-sync jobs, referrals and partner
+    // rows all cascade from `User`.
     //
     // Remnawave panel profiles are intentionally left untouched: they are the
     // SOURCE of the import (the backup/panel we read from), not data this
@@ -95,6 +102,22 @@ export class ImportsService {
     let deletedUsers = 0;
     if (createdUserIds.length > 0) {
       await this.prismaService.$transaction(async (tx) => {
+        // Rollback is a migration recovery tool, not a way to erase a real
+        // customer account after it started using the new system. Historical
+        // transactions retain their donor timestamp, so anything newer than
+        // this run's commit is live activity and blocks the destructive path.
+        const laterTransactions = await tx.transaction.count({
+          where: {
+            userId: { in: createdUserIds },
+            createdAt: { gt: record.committedAt ?? record.createdAt },
+          },
+        });
+        if (laterTransactions > 0) {
+          throw new BadRequestException(
+            'Rollback blocked: imported users have newer payment activity. Resolve them manually instead.',
+          );
+        }
+        await tx.trialClaim.deleteMany({ where: { userId: { in: createdUserIds } } });
         await tx.transaction.deleteMany({ where: { userId: { in: createdUserIds } } });
         const deleted = await tx.user.deleteMany({ where: { id: { in: createdUserIds } } });
         deletedUsers = deleted.count;
@@ -124,6 +147,19 @@ function extractCreatedUserIds(result: unknown): string[] | null {
   const ids = (rollback as Record<string, unknown>).createdUserIds;
   if (!Array.isArray(ids)) return null;
   return ids.filter((id): id is string => typeof id === 'string');
+}
+
+/** A conservative fail-closed marker written by importers that touched an
+ * existing account. New-user-only imports retain the normal recovery path. */
+function hasMatchedWrites(result: unknown): boolean {
+  if (result === null || typeof result !== 'object' || Array.isArray(result)) return false;
+  const rollback = (result as Record<string, unknown>).rollback;
+  return (
+    rollback !== null &&
+    typeof rollback === 'object' &&
+    !Array.isArray(rollback) &&
+    (rollback as Record<string, unknown>).hasMatchedWrites === true
+  );
 }
 
 /** Annotate the stored result with the rollback outcome for the audit trail. */

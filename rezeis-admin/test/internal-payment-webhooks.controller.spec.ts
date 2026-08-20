@@ -31,7 +31,7 @@ describe('InternalPaymentWebhooksController', () => {
     );
   });
 
-  it('delegates webhook ingress with signature verification disabled', async () => {
+  it('delegates webhook ingress without signature verification (service-auth path)', async () => {
     const calls: unknown[] = [];
     const controller = new InternalPaymentWebhooksController({
       ingestWebhook: async (input: unknown) => {

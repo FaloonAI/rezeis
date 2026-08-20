@@ -291,10 +291,25 @@ export class AddOnPurchaseService {
     // subscription limit is raised right away, then return a completed result
     // with no checkout URL.
     if (Number(snapshot.price) <= 0) {
-      const completedTransaction = await this.prismaService.transaction.update({
-        where: { id: transaction.id },
+      const claim = await this.prismaService.transaction.updateMany({
+        where: { id: transaction.id, status: TransactionStatus.PENDING, fulfilledAt: null },
         data: { status: TransactionStatus.COMPLETED },
       });
+      if (claim.count !== 1) {
+        const current = await this.prismaService.transaction.findUnique({ where: { id: transaction.id } });
+        // Only a row we actually read can be replayed as completed. A vanished
+        // draft (swept / rolled back) is not a fulfilled purchase, so absence
+        // must refuse exactly like a live race instead of reporting success —
+        // same shape the plan and renewal zero-value paths use.
+        if (current !== null && current.fulfilledAt !== null) {
+          return { paymentId: current.paymentId, transactionStatus: current.status, gatewayType: current.gatewayType, purchaseType: current.purchaseType, amount: current.amount.toString(), currency: current.currency, checkoutUrl: null, providerMode: 'NONE', createdAt: current.createdAt.toISOString() };
+        }
+        throw new ConflictException('Zero-value add-on checkout is already being fulfilled');
+      }
+      const completedTransaction = await this.prismaService.transaction.findUniqueOrThrow({ where: { id: transaction.id } });
+      // No post-fulfilment hooks: a free add-on moves no money, so partner
+      // commission and МойНалог income do not apply, and a 0-value AdConversion
+      // would consume this user's unique conversion slot.
       const { syncJobs } =
         await this.paymentSubscriptionMutationService.applyCompletedTransaction(
           completedTransaction,

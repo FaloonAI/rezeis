@@ -19,6 +19,8 @@ interface ItemRow {
 
 interface SubRow {
   id: string;
+  status?: string;
+  isTrial?: boolean;
   expiresAt: Date | null;
   remnawaveId: string | null;
   trafficLimit?: number | null;
@@ -53,6 +55,42 @@ function validPlanSnapshot(id: string, durationDays: number): Record<string, unk
 }
 
 describe('PaymentSubscriptionMutationService — combined renewal', () => {
+  for (const blockedSource of [
+    { name: 'free trial', status: 'ACTIVE', isTrial: true },
+    { name: 'paid trial', status: 'EXPIRED', isTrial: true },
+    { name: 'disabled subscription', status: 'DISABLED', isTrial: false },
+  ]) {
+    it(`rejects combined fulfillment for a ${blockedSource.name}`, async () => {
+      const expiry = new Date(Date.now() + 10 * DAY_MS);
+      const env = createEnv({
+        subs: [
+          {
+            id: 'sub-blocked',
+            expiresAt: expiry,
+            remnawaveId: 'rw-blocked',
+            status: blockedSource.status,
+            isTrial: blockedSource.isTrial,
+          },
+        ],
+        items: [
+          {
+            id: 'it-blocked',
+            subscriptionId: 'sub-blocked',
+            planId: 'plan-1',
+            durationDays: 30,
+            appliedAt: null,
+          },
+        ],
+      });
+
+      await assert.rejects(() =>
+        env.service.applyCompletedTransaction(env.transaction as never),
+      );
+      assert.equal(env.committedSubs.get('sub-blocked')!.expiresAt!.getTime(), expiry.getTime());
+      assert.equal(env.committedItems.get('it-blocked')!.appliedAt, null);
+    });
+  }
+
   it('Property 4: extends each subscription from max(now, expiresAt) and never shortens', async () => {
     const future = new Date(Date.now() + 100 * DAY_MS);
     const past = new Date(Date.now() - 100 * DAY_MS);
@@ -189,6 +227,53 @@ describe('PaymentSubscriptionMutationService — combined renewal', () => {
     assert.ok(env.committedItems.get('it-unlimited')!.appliedAt !== null);
   });
 
+  it('carries the frozen plan icon from the paid draft into the renewed snapshot', async () => {
+    // Regression: the draft snapshot is preferred over the live plan row, so a
+    // field the draft parser drops is silently reset. `icon` used to be dropped,
+    // which wiped the plan glyph off the cabinet card on every renewal.
+    const env = createEnv({
+      subs: [{
+        id: 'sub-icon',
+        expiresAt: new Date(Date.now() + 10 * DAY_MS),
+        remnawaveId: 'rw',
+        planSnapshot: { id: 'plan-1', icon: 'zap' },
+      }],
+      items: [{
+        id: 'it-icon',
+        subscriptionId: 'sub-icon',
+        planId: 'plan-1',
+        durationDays: 30,
+        appliedAt: null,
+        planSnapshot: { ...validPlanSnapshot('plan-1', 30), icon: 'zap' },
+      }],
+    });
+
+    await env.service.applyCompletedTransaction(env.transaction as never);
+
+    const renewed = env.committedSubs.get('sub-icon')!;
+    assert.equal((renewed.planSnapshot as { icon?: unknown }).icon, 'zap');
+  });
+
+  it('freezes the icon as null when the paid draft predates the field', async () => {
+    const env = createEnv({
+      subs: [{ id: 'sub-no-icon', expiresAt: new Date(Date.now() + 10 * DAY_MS), remnawaveId: 'rw' }],
+      items: [{
+        id: 'it-no-icon',
+        subscriptionId: 'sub-no-icon',
+        planId: 'plan-1',
+        durationDays: 30,
+        appliedAt: null,
+        planSnapshot: validPlanSnapshot('plan-1', 30),
+      }],
+    });
+
+    await env.service.applyCompletedTransaction(env.transaction as never);
+
+    // Explicit null (not `undefined`): the reader maps a missing key to null
+    // anyway, but the written shape must stay stable across all snapshot paths.
+    assert.equal((env.committedSubs.get('sub-no-icon')!.planSnapshot as { icon?: unknown }).icon, null);
+  });
+
   it('fails closed on paid snapshot gateway, plan type, or nullable-shape drift', async () => {
     const missingDescription = validPlanSnapshot('plan-1', 30);
     delete missingDescription['description'];
@@ -305,6 +390,38 @@ describe('PaymentSubscriptionMutationService — combined renewal', () => {
     assert.ok(env.committedItems.get('it-legacy')!.appliedAt !== null);
   });
 
+  it('fulfills a v2 ALL renewal snapshot after the live plan changes to TRIAL', async () => {
+    const expiry = new Date(Date.now() + 10 * DAY_MS);
+    const env = createEnv({
+      subs: [{ id: 'sub-1', expiresAt: expiry, remnawaveId: 'rw-1' }],
+      items: [
+        {
+          id: 'it-1',
+          subscriptionId: 'sub-1',
+          planId: 'plan-1',
+          durationDays: 30,
+          appliedAt: null,
+          planSnapshot: {
+            ...validPlanSnapshot('plan-1', 30),
+            snapshotVersion: 2,
+            availability: 'ALL',
+          },
+        },
+      ],
+      livePlanAvailability: 'TRIAL',
+    });
+
+    const { syncJobs } = await env.service.applyCompletedTransaction(env.transaction as never);
+
+    assert.equal(syncJobs.length, 1);
+    assert.equal(env.lockStatements.length, 1, 'source is locked even without durable terms');
+    assert.equal(
+      env.committedSubs.get('sub-1')!.expiresAt!.getTime(),
+      expiry.getTime() + 30 * DAY_MS,
+    );
+    assert.notEqual(env.committedItems.get('it-1')!.appliedAt, null);
+  });
+
   it('rejects a mixed paid addOnLines array instead of fulfilling only the valid subset', async () => {
     const originalExpiry = new Date(Date.now() + 40 * DAY_MS);
     const env = createEnv({
@@ -345,6 +462,7 @@ function createEnv(input: {
   subs: SubRow[];
   items: ItemRow[];
   durableActiveTermEndsAt?: Date;
+  livePlanAvailability?: string;
 }) {
   type StoredItem = {
     id: string;
@@ -357,7 +475,12 @@ function createEnv(input: {
     addOnLines: unknown;
     planSnapshot: unknown;
   };
-  const committedSubs = new Map<string, SubRow>(input.subs.map((s) => [s.id, { ...s }]));
+  const committedSubs = new Map<string, SubRow>(
+    input.subs.map((subscription) => [
+      subscription.id,
+      { status: 'ACTIVE', isTrial: false, ...subscription },
+    ]),
+  );
   const committedItems = new Map<string, StoredItem>(
     input.items.map((i) => [
       i.id,
@@ -411,11 +534,12 @@ function createEnv(input: {
     input.subs.map((s) => [s.id, s.expiresAt ? s.expiresAt.getTime() : null] as const),
   );
   const subUpdateCount = new Map<string, number>();
-  const plans = new Map<string, { id: string; trafficLimit: number | null; deviceLimit: number; internalSquads: string[]; externalSquad: string | null; name: string; description: string | null; tag: string | null; type: string; trafficLimitStrategy: string }>([
-    ['plan-1', { id: 'plan-1', trafficLimit: 1024, deviceLimit: 1, internalSquads: [], externalSquad: null, name: 'P', description: null, tag: null, type: 'BOTH', trafficLimitStrategy: 'NO_RESET' }],
+  const plans = new Map<string, { id: string; availability: string; trafficLimit: number | null; deviceLimit: number; internalSquads: string[]; externalSquad: string | null; name: string; description: string | null; tag: string | null; type: string; trafficLimitStrategy: string }>([
+    ['plan-1', { id: 'plan-1', availability: input.livePlanAvailability ?? 'ALL', trafficLimit: 1024, deviceLimit: 1, internalSquads: [], externalSquad: null, name: 'P', description: null, tag: null, type: 'BOTH', trafficLimitStrategy: 'NO_RESET' }],
   ]);
   let jobSeq = 0;
   const termCreates: Array<Record<string, unknown>> = [];
+  const lockStatements: string[] = [];
 
   const prismaService = {
     transactionItem: {
@@ -430,7 +554,15 @@ function createEnv(input: {
       const stagedSubs = new Map([...committedSubs].map(([k, v]) => [k, { ...v }] as const));
       const stagedItems = new Map([...committedItems].map(([k, v]) => [k, { ...v }] as const));
       const txClient = {
-        $queryRaw: async () => [{ id: 'sub-early', status: 'ACTIVE' }],
+        $queryRaw: async (query: unknown) => {
+          const statement =
+            typeof query === 'object' && query !== null && 'sql' in query
+              ? String((query as { readonly sql: unknown }).sql)
+              : String(query);
+          assert.match(statement.replace(/\s+/g, ' '), /\bFOR\s+UPDATE\b/i);
+          lockStatements.push(statement);
+          return [{ id: 'sub-early', status: 'ACTIVE' }];
+        },
         subscriptionTerm: {
           findFirst: async (query: { where: { status?: unknown } }) => {
             if (input.durableActiveTermEndsAt === undefined) return null;
@@ -523,6 +655,7 @@ function createEnv(input: {
     originalExpiry,
     subUpdateCount,
     termCreates,
+    lockStatements,
     transaction,
   };
 }

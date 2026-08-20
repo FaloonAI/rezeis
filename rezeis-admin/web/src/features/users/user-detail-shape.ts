@@ -21,12 +21,24 @@ export interface UserSubscription {
   readonly expireAt?: string
   readonly createdAt?: string
   readonly configUrl?: string | null
-  /** Remnawave panel user UUID — present once the subscription has been provisioned. */
+  /**
+   * The panel's identity for this profile, present once the subscription has
+   * been provisioned: a UUID on 2.x, the numeric id in decimal on 3.x, which
+   * has no uuid column at all. An identity string, not a UUID.
+   */
   readonly remnawaveId?: string | null
   /** Live username from the Remnawave panel (`rz_<user>_sub_N` or operator-renamed). */
   readonly remnawaveProfileName?: string | null
   /** Raw description shown on the Remnawave profile (multi-line, includes our `reiwa_id:` marker). */
   readonly remnawaveProfileDescription?: string | null
+  readonly remnawaveSyncState?: 'UNLINKED' | 'PENDING' | 'SYNCED' | 'MISSING' | 'UNAVAILABLE' | 'FAILED'
+  readonly remnawaveSyncJob?: {
+    readonly status: string
+    readonly action: string
+    readonly attempts: number
+    readonly lastError: string | null
+    readonly updatedAt: string
+  } | null
   readonly planSnapshot?: {
     readonly planId?: string | null
     readonly name?: string | null
@@ -111,6 +123,7 @@ export interface UserWebAccount {
 
 export interface UserReferralBackref {
   readonly level: number
+  readonly qualifiedAt?: string | null
   readonly referrer?: { readonly name?: string | null; readonly username?: string | null } | null
 }
 
@@ -166,4 +179,29 @@ export interface UserDetail {
   readonly webAccount?: UserWebAccount | null
   readonly effectiveInviteSettings?: InviteEffective | null
   readonly userInviteSettingsOverride?: InviteOverride | null
+  /** Present when admin has users:view_registration (otherwise null/stripped). */
+  readonly canViewRegistration?: boolean
+  readonly registrationIp?: string | null
+  readonly registrationUserAgent?: string | null
+  readonly registrationReferer?: string | null
+  readonly registrationUtm?: Record<string, string> | null
+  readonly registrationChannel?: string | null
+  readonly acquisitionAt?: string | null
+  readonly acquisitionPlacement?: {
+    readonly id: string
+    readonly platform: string
+    readonly channel?: string | null
+    readonly trackingCode: string
+    readonly status: string
+    readonly ownerType: string
+    readonly campaignId: string
+    readonly campaignName: string
+  } | null
+  readonly acquiredByPartner?: {
+    readonly partnerId: string
+    readonly level?: number | null
+    readonly name?: string | null
+    readonly username?: string | null
+    readonly telegramId?: string | null
+  } | null
 }

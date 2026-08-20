@@ -175,32 +175,62 @@ export class PartnerEarningsService {
         continue;
       }
 
-      // Create ledger entry + update partner balance atomically
-      await this.prismaService.$transaction(async (tx) => {
-        await tx.partnerTransaction.create({
-          data: {
-            partnerId: edge.partnerId,
-            referralUserId: input.payerUserId,
-            level: edge.level,
-            paymentAmount: input.paymentAmountMinorUnits,
-            percent: calc.percent,
-            earnedAmount: calc.amount,
-            sourceTransactionId: input.sourceTransactionId,
-            description: this.formatDescription({
+      // Create ledger entry + update partner balance atomically.
+      //
+      // Race guard: the `findFirst` idempotency check above is a
+      // read-before-write (TOCTOU). Two webhooks reconciling the SAME
+      // payment concurrently both pass it and would double-credit the
+      // partner. We derive a deterministic `sourceKey` for the accrual and
+      // rely on its DB-level `@unique` constraint: the second racer's
+      // `create` throws P2002 inside the transaction, which rolls back the
+      // balance increment too — no double credit. Only runtime accruals
+      // with a source transaction get the key (importers set their own
+      // namespaced sourceKey; a null sourceTransactionId can't collide).
+      const accrualSourceKey =
+        input.sourceTransactionId !== null
+          ? `runtime:${edge.partnerId}:${input.sourceTransactionId}`
+          : null;
+      try {
+        await this.prismaService.$transaction(async (tx) => {
+          await tx.partnerTransaction.create({
+            data: {
+              partnerId: edge.partnerId,
+              referralUserId: input.payerUserId,
               level: edge.level,
-              gatewayType: input.gatewayType,
-              source: calc.source,
-            }),
-          },
+              paymentAmount: input.paymentAmountMinorUnits,
+              percent: calc.percent,
+              earnedAmount: calc.amount,
+              sourceTransactionId: input.sourceTransactionId,
+              sourceKey: accrualSourceKey,
+              description: this.formatDescription({
+                level: edge.level,
+                gatewayType: input.gatewayType,
+                source: calc.source,
+              }),
+            },
+          });
+          await tx.partner.update({
+            where: { id: edge.partnerId },
+            data: {
+              balance: { increment: calc.amount },
+              totalEarned: { increment: calc.amount },
+            },
+          });
         });
-        await tx.partner.update({
-          where: { id: edge.partnerId },
-          data: {
-            balance: { increment: calc.amount },
-            totalEarned: { increment: calc.amount },
-          },
-        });
-      });
+      } catch (error: unknown) {
+        // A concurrent reconciliation already credited this accrual — the
+        // unique `sourceKey` collided (P2002). Treat as an idempotent no-op.
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        ) {
+          this.logger.debug(
+            `Partner ${edge.partnerId} accrual for ${input.sourceTransactionId} already credited concurrently — skipping`,
+          );
+          continue;
+        }
+        throw error;
+      }
 
       this.logger.debug(
         `Partner ${edge.partnerId} earned ${calc.amount} (${calc.source}) from payer ${input.payerUserId} (L${edge.level})`,
@@ -228,6 +258,58 @@ export class PartnerEarningsService {
   }
 
   /**
+   * Reverses every partner accrual produced by a now-refunded / charged-back
+   * source transaction: debits each partner's `balance` + `totalEarned` by the
+   * exact amount that was credited, then deletes the ledger row so the accrual
+   * can't be reversed twice (and a legitimate later re-payment re-accrues via a
+   * fresh `sourceKey`).
+   *
+   * Idempotent: with the rows gone, a repeated call is a no-op. Each partner is
+   * reversed in its own transaction so one failure doesn't strand the rest.
+   * Balances may go negative (partner already withdrew the earning) — that is
+   * intentional: it records the true debt rather than silently absorbing a
+   * clawback, and withdrawals net against it.
+   */
+  public async reverseEarningsForTransaction(sourceTransactionId: string): Promise<number> {
+    const accruals = await this.prismaService.partnerTransaction.findMany({
+      where: { sourceTransactionId },
+      select: { id: true, partnerId: true, earnedAmount: true },
+    });
+    let reversed = 0;
+    for (const accrual of accruals) {
+      try {
+        await this.prismaService.$transaction(async (tx) => {
+          // Delete first, fenced on the row id: if a concurrent reversal already
+          // removed it, deleteMany matches 0 and we skip the debit — no
+          // double-debit.
+          const del = await tx.partnerTransaction.deleteMany({ where: { id: accrual.id } });
+          if (del.count === 0) return;
+          await tx.partner.update({
+            where: { id: accrual.partnerId },
+            data: {
+              balance: { decrement: accrual.earnedAmount },
+              totalEarned: { decrement: accrual.earnedAmount },
+            },
+          });
+          reversed += 1;
+        });
+      } catch (error: unknown) {
+        this.logger.error(
+          `Failed to reverse partner accrual ${accrual.id} for tx ${sourceTransactionId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+    if (reversed > 0) {
+      this.logger.log(
+        `Reversed ${reversed} partner accrual(s) for refunded transaction ${sourceTransactionId}`,
+      );
+    }
+    return reversed;
+  }
+
+  /**
    * Attaches the partner-referral chain when a new user registers through a
    * partner's referral code. Creates L1 edge for the direct partner, L2 for
    * the partner's parent, and L3 for the grandparent (if they exist and are
@@ -247,6 +329,25 @@ export class PartnerEarningsService {
       select: { id: true, isActive: true },
     });
     if (!referrerPartner || !referrerPartner.isActive) {
+      return false;
+    }
+
+    // One partner chain per user. `@@unique([partnerId, referralUserId])` only
+    // stops the *same* partner twice, so a user who already belongs to partner A
+    // could pick up a second level-1 edge from partner B — and
+    // `processPartnerEarning` pays every edge it finds, on every payment,
+    // forever. Guarded here rather than at each call site so the referral,
+    // advertising and backfill paths cannot diverge. Re-running the SAME chain
+    // stays idempotent (the upserts below are no-ops), which is why this compares
+    // the partner instead of merely checking that an edge exists.
+    const existingL1 = await this.prismaService.partnerReferral.findFirst({
+      where: { referralUserId: input.newUserId, level: 1 },
+      select: { partnerId: true },
+    });
+    if (existingL1 !== null && existingL1.partnerId !== referrerPartner.id) {
+      this.logger.warn(
+        `Refusing a second partner chain for user ${input.newUserId}: already attributed to partner ${existingL1.partnerId}, requested ${referrerPartner.id}`,
+      );
       return false;
     }
 

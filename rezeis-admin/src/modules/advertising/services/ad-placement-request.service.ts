@@ -6,19 +6,31 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
+import { AdPlatform, Prisma } from '@prisma/client';
 
-import { advertisingConfig } from '../../../common/config/advertising.config';
+import {
+  advertisingConfig,
+  AdvertisingConfiguration,
+} from '../../../common/config/advertising.config';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { CreateAdRequestDto, ModerateRequestDto } from '../dto/advertising.dto';
 import { AdCampaignView, AdPlacementRequestView } from '../interfaces/advertising.interface';
 import { mapCampaign, mapRequest } from '../utils/advertising-mappers';
 import { generateTrackingCode, isValidTrackingCode } from '../utils/tracking-code.util';
+import { UserNotificationsService } from '../../notifications/services/user-notifications.service';
+import { ReiwaAdvertisingLinkConfigService } from './reiwa-advertising-link-config.service';
+
+type TxClient = Prisma.TransactionClient;
 
 /**
  * Partner-submitted advertising request lifecycle:
- * PENDING → (operator) APPROVED | COUNTERED → (partner) ACCEPTED → ACTIVE,
+ * PENDING → (operator) ACTIVE | COUNTERED → (partner) ACTIVE,
  * plus REJECTED. On the transition to ACTIVE one PARTNER placement is created
  * per requested platform under a fresh campaign, with the agreed window.
+ *
+ * Activation claims the request status atomically (`updateMany` with expected
+ * status) inside a transaction so concurrent accept/approve cannot mint
+ * duplicate campaigns or tracking codes.
  */
 @Injectable()
 export class AdPlacementRequestService {
@@ -28,6 +40,8 @@ export class AdPlacementRequestService {
     private readonly prismaService: PrismaService,
     @Inject(advertisingConfig.KEY)
     private readonly config: ConfigType<typeof advertisingConfig>,
+    private readonly reiwaAdvertisingLinks: ReiwaAdvertisingLinkConfigService,
+    private readonly userNotificationsService: UserNotificationsService,
   ) {}
 
   public async listRequests(status?: string): Promise<AdPlacementRequestView[]> {
@@ -79,20 +93,40 @@ export class AdPlacementRequestService {
     const isCounter = approvedWindow !== request.proposedWindowDays;
 
     if (isCounter) {
-      const updated = await this.prismaService.adPlacementRequest.update({
-        where: { id },
+      const claimed = await this.prismaService.adPlacementRequest.updateMany({
+        where: { id, status: 'PENDING' },
         data: {
           status: 'COUNTERED',
           approvedWindowDays: approvedWindow,
           reviewedBy: reviewerId,
           reviewedAt: new Date(),
-          notes: input.notes?.trim() || request.notes,
+          // The operator's note goes to `reviewNotes`. Writing it into `notes`
+          // overwrote the PARTNER's own message — the very context the
+          // counter-offer was a reply to.
+          reviewNotes: input.notes?.trim() || null,
         },
+      });
+      if (claimed.count === 0) {
+        throw new BadRequestException('Request is not pending review');
+      }
+      const updated = await this.prismaService.adPlacementRequest.findUniqueOrThrow({
+        where: { id },
+      });
+      await this.notifyPartner(updated.partnerId, 'advertising.request_countered', {
+        requestId: updated.id,
+        proposedWindowDays: updated.proposedWindowDays,
+        approvedWindowDays: updated.approvedWindowDays,
+        reviewNotes: updated.reviewNotes,
       });
       return { request: mapRequest(updated), campaign: null };
     }
 
-    return this.activate(id, reviewerId, approvedWindow);
+    return this.activateAtomically({
+      id,
+      expectedStatus: 'PENDING',
+      reviewerId,
+      windowDays: approvedWindow,
+    });
   }
 
   /** Partner accepts the operator's countered terms → activate. */
@@ -107,79 +141,182 @@ export class AdPlacementRequestService {
     if (request.status !== 'COUNTERED') {
       throw new BadRequestException('Request is not awaiting partner acceptance');
     }
-    return this.activate(id, request.reviewedBy, request.approvedWindowDays ?? request.proposedWindowDays);
+    return this.activateAtomically({
+      id,
+      expectedStatus: 'COUNTERED',
+      partnerId,
+      reviewerId: request.reviewedBy,
+      windowDays: request.approvedWindowDays ?? request.proposedWindowDays,
+    });
   }
 
-  public async reject(id: string, reviewerId: string | null): Promise<AdPlacementRequestView> {
+  public async reject(
+    id: string,
+    reviewerId: string | null,
+    reviewNotes?: string | null,
+  ): Promise<AdPlacementRequestView> {
     await this.requirePending(id);
-    const updated = await this.prismaService.adPlacementRequest.update({
+    const claimed = await this.prismaService.adPlacementRequest.updateMany({
+      where: { id, status: 'PENDING' },
+      data: {
+        status: 'REJECTED',
+        reviewedBy: reviewerId,
+        reviewedAt: new Date(),
+        reviewNotes: reviewNotes?.trim() || null,
+      },
+    });
+    if (claimed.count === 0) {
+      throw new BadRequestException('Request is not pending review');
+    }
+    const updated = await this.prismaService.adPlacementRequest.findUniqueOrThrow({
       where: { id },
-      data: { status: 'REJECTED', reviewedBy: reviewerId, reviewedAt: new Date() },
+    });
+    // The partner submitted a request and then heard nothing at all: the status
+    // only changed in a screen they had no reason to reopen.
+    await this.notifyPartner(updated.partnerId, 'advertising.request_rejected', {
+      requestId: updated.id,
+      reviewNotes: updated.reviewNotes,
     });
     return mapRequest(updated);
   }
 
-  /** Creates the campaign + one PARTNER placement per requested platform. */
-  private async activate(
-    id: string,
-    reviewerId: string | null,
-    windowDays: number,
-  ): Promise<{ request: AdPlacementRequestView; campaign: AdCampaignView }> {
-    const request = await this.prismaService.adPlacementRequest.findUnique({ where: { id } });
-    if (request === null) {
-      throw new NotFoundException('Request not found');
+  /**
+   * Best-effort status notification for the requesting partner. Never throws:
+   * moderation must not fail because a notification could not be written.
+   */
+  private async notifyPartner(
+    partnerId: string,
+    type: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      const partner = await this.prismaService.partner.findUnique({
+        where: { id: partnerId },
+        select: { userId: true },
+      });
+      if (partner === null) {
+        return;
+      }
+      await this.userNotificationsService.create({
+        userId: partner.userId,
+        type,
+        payload,
+      });
+    } catch (error: unknown) {
+      this.logger.warn(
+        `advertising request notification failed (partner=${partnerId}, type=${type}): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
-    const partner = await this.prismaService.partner.findUnique({
-      where: { id: request.partnerId },
-      select: { id: true },
-    });
-    if (partner === null) {
-      throw new BadRequestException('Partner not found');
-    }
+  }
 
-    const campaign = await this.prismaService.adCampaign.create({
-      data: {
-        name: `Partner ${request.partnerId.slice(0, 8)} — ${request.channel ?? 'campaign'}`.slice(0, 100),
-        status: 'ACTIVE',
-        notes: request.notes,
-      },
-    });
+  /**
+   * Atomically claims the request row (expected status → ACTIVE) then creates
+   * campaign + placements in the same transaction. Concurrent acceptors lose
+   * the claim (`updateMany` count 0) and get a 400 without side effects.
+   */
+  private async activateAtomically(input: {
+    readonly id: string;
+    readonly expectedStatus: 'PENDING' | 'COUNTERED';
+    readonly partnerId?: string;
+    readonly reviewerId: string | null;
+    readonly windowDays: number;
+  }): Promise<{ request: AdPlacementRequestView; campaign: AdCampaignView }> {
+    const linkConfig = await this.resolveLinkConfig();
+    const result = await this.prismaService.$transaction(async (tx) => {
+      const claimWhere: Prisma.AdPlacementRequestWhereInput = {
+        id: input.id,
+        status: input.expectedStatus,
+      };
+      if (input.partnerId !== undefined) {
+        claimWhere.partnerId = input.partnerId;
+      }
 
-    for (const platform of request.platforms) {
-      const code = await this.mintUniqueCode();
-      await this.prismaService.adPlacement.create({
+      const claimed = await tx.adPlacementRequest.updateMany({
+        where: claimWhere,
         data: {
-          campaignId: campaign.id,
-          platform,
-          channel: request.channel,
-          ownerType: 'PARTNER',
-          partnerId: request.partnerId,
-          trackingCode: code,
-          attributionWindowDays: windowDays,
           status: 'ACTIVE',
+          approvedWindowDays: input.windowDays,
+          reviewedBy: input.reviewerId,
+          reviewedAt: new Date(),
         },
       });
-    }
+      if (claimed.count === 0) {
+        throw new BadRequestException('Request is not available for activation');
+      }
 
-    const updated = await this.prismaService.adPlacementRequest.update({
-      where: { id },
-      data: {
-        status: 'ACTIVE',
-        approvedWindowDays: windowDays,
-        reviewedBy: reviewerId,
-        reviewedAt: new Date(),
-        campaignId: campaign.id,
-      },
-    });
+      const request = await tx.adPlacementRequest.findUniqueOrThrow({
+        where: { id: input.id },
+      });
 
-    const full = await this.prismaService.adCampaign.findUnique({
-      where: { id: campaign.id },
-      include: { placements: { orderBy: { createdAt: 'asc' } } },
+      const partner = await tx.partner.findUnique({
+        where: { id: request.partnerId },
+        select: { id: true },
+      });
+      if (partner === null) {
+        throw new BadRequestException('Partner not found');
+      }
+
+      const campaign = await tx.adCampaign.create({
+        data: {
+          name: `Partner ${request.partnerId.slice(0, 8)} — ${request.channel ?? 'campaign'}`.slice(
+            0,
+            100,
+          ),
+          status: 'ACTIVE',
+          notes: request.notes,
+        },
+      });
+
+      for (const platform of request.platforms as AdPlatform[]) {
+        const code = await this.mintUniqueCode(tx);
+        await tx.adPlacement.create({
+          data: {
+            campaignId: campaign.id,
+            platform,
+            channel: request.channel,
+            ownerType: 'PARTNER',
+            partnerId: request.partnerId,
+            trackingCode: code,
+            attributionWindowDays: input.windowDays,
+            status: 'ACTIVE',
+          },
+        });
+      }
+
+      const updated = await tx.adPlacementRequest.update({
+        where: { id: input.id },
+        data: { campaignId: campaign.id },
+      });
+
+      const full = await tx.adCampaign.findUnique({
+        where: { id: campaign.id },
+        include: { placements: { orderBy: { createdAt: 'asc' } } },
+      });
+
+      this.logger.log(
+        `Activated advertising request ${input.id} → campaign ${campaign.id} (${request.platforms.length} placements)`,
+      );
+
+      return {
+        request: mapRequest(updated),
+        campaign: mapCampaign(full ?? campaign, linkConfig),
+      };
     });
-    return {
-      request: mapRequest(updated),
-      campaign: mapCampaign(full ?? campaign, this.config),
-    };
+    // After the transaction commits: an approved partner now learns that their
+    // links are live, instead of having to guess by reopening the cabinet.
+    await this.notifyPartner(result.request.partnerId, 'advertising.request_activated', {
+      requestId: result.request.id,
+      approvedWindowDays: result.request.approvedWindowDays,
+      campaignId: result.campaign?.id ?? null,
+      placements: result.campaign?.placements.length ?? 0,
+    });
+    return result;
+  }
+
+  private async resolveLinkConfig(): Promise<AdvertisingConfiguration> {
+    return { ...this.config, ...(await this.reiwaAdvertisingLinks.resolve()) };
   }
 
   private async requirePending(id: string) {
@@ -193,11 +330,11 @@ export class AdPlacementRequestService {
     return request;
   }
 
-  private async mintUniqueCode(): Promise<string> {
+  private async mintUniqueCode(tx: TxClient): Promise<string> {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const code = generateTrackingCode(10);
       if (!isValidTrackingCode(code)) continue;
-      const existing = await this.prismaService.adPlacement.findUnique({
+      const existing = await tx.adPlacement.findUnique({
         where: { trackingCode: code },
         select: { id: true },
       });

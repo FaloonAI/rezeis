@@ -1,4 +1,5 @@
 import { api } from '@/lib/api'
+import { expectArray, unwrapPayload } from '@/lib/api-utils'
 
 export type ConfigSection =
   | 'roles'
@@ -11,6 +12,7 @@ export type ConfigSection =
   | 'blockedIps'
   | 'adminIpAllowlist'
   | 'faqItems'
+  | 'legalDocuments'
 
 export type ImportStrategy = 'skip' | 'overwrite'
 
@@ -18,11 +20,28 @@ export interface ConfigExportPayload {
   version: number
   exportedAt: string
   source: 'rezeis-admin'
+  /**
+   * Row count the export observed per section. Absent on files written
+   * before the manifest existed — the import reports those as
+   * `unverifiable` rather than pretending it checked them.
+   */
+  manifest?: Partial<Record<ConfigSection, number>>
   sections: Partial<Record<ConfigSection, unknown[]>>
 }
 
+/**
+ * What happened to a section. `created: 0, updated: 0, errors: []` used
+ * to be the answer both for "this section imported cleanly and held no
+ * rows" and for "this section was never in the file", which is how a
+ * restore of a truncated backup read as ten green rows.
+ */
+export type SectionImportStatus = 'imported' | 'missing' | 'rejected' | 'failed'
+
+export type PayloadIntegrityStatus = 'verified' | 'unverifiable' | 'violated'
+
 export interface ConfigImportSummary {
   section: ConfigSection
+  status: SectionImportStatus
   created: number
   updated: number
   skipped: number
@@ -33,14 +52,17 @@ export interface ConfigImportResult {
   version: number
   strategy: ImportStrategy
   dryRun: boolean
+  integrity: PayloadIntegrityStatus
   summaries: readonly ConfigImportSummary[]
   startedAt: string
   finishedAt: string
 }
 
 export async function listConfigSections(): Promise<readonly ConfigSection[]> {
-  const response = await api.get<{ sections: readonly ConfigSection[] }>('/admin/config/sections')
-  return response.data.sections
+  const response = await api.get('/admin/config/sections')
+  // Nested: on a `{}` body the outer value is fine and `.sections` is
+  // `undefined`, so the check belongs on the value actually returned.
+  return expectArray<ConfigSection>(unwrapPayload(response.data).sections)
 }
 
 export async function exportConfig(

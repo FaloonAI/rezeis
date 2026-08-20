@@ -28,27 +28,39 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { Currency, Prisma, SubscriptionStatus, UserRole } from '@prisma/client';
+import { Currency, Prisma, SubscriptionStatus, SyncJobStatus, UserRole } from '@prisma/client';
 import { Request } from 'express';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { SystemEventsService, EVENT_TYPES } from '../../../common/services/system-events.service';
+import { parsePostgresBigInt, parseTelegramId } from '../../../common/utils/postgres-bigint.util';
 import { CurrentAdmin } from '../../auth/decorators/current-admin.decorator';
 import { AdminJwtAuthGuard } from '../../auth/guards/admin-jwt-auth.guard';
 import { RequirePermission } from '../../rbac/decorators/require-permission.decorator';
 import { RbacGuard } from '../../rbac/guards/rbac.guard';
+import { RbacService } from '../../rbac/services/rbac.service';
 import { CurrentAdminInterface } from '../../auth/interfaces/current-admin.interface';
 import { extractRequestMetadata } from '../../auth/utils/request-metadata.util';
 import { UserNotificationsService } from '../../notifications/services/user-notifications.service';
 import { PartnerEarningsService } from '../../partners/services/partner-earnings.service';
 import { ReferralInviteLimitsService } from '../../referrals/services/referral-invite-limits.service';
 import { ReferralManualAttachService } from '../../referrals/services/referral-manual-attach.service';
+import { ReferralQualificationService } from '../../referrals/services/referral-qualification.service';
+import {
+  storedIdentityOf,
+  type PanelIdentityColumns,
+} from '../../remnawave/services/panel-user-address';
 import { RemnawaveApiService } from '../../remnawave/services/remnawave-api.service';
+import { StealthnetReferralSyncService } from '../../imports/services/stealthnet-referral-sync.service';
+import { AdjustUserPartnerBalanceDto } from '../dto/adjust-user-partner-balance.dto';
+import { AdjustUserPointsDto } from '../dto/adjust-user-points.dto';
 import { UpdatePartnerSettingsDto } from '../dto/update-partner-settings.dto';
 import { UpdateUserInviteSettingsDto } from '../dto/update-user-invite-settings.dto';
+import { UserDeletionService } from '../services/user-deletion.service';
 import { resolveIdentityKind } from '../utils/identity-kind.util';
 
 @Controller('admin/users')
@@ -62,9 +74,13 @@ export class AdminUserManagementController {
     private readonly events: SystemEventsService,
     private readonly partnerEarningsService: PartnerEarningsService,
     private readonly referralManualAttachService: ReferralManualAttachService,
+    private readonly referralQualificationService: ReferralQualificationService,
+    private readonly stealthnetReferralSyncService: StealthnetReferralSyncService,
     private readonly referralInviteLimitsService: ReferralInviteLimitsService,
     private readonly remnawaveApiService: RemnawaveApiService,
     private readonly userNotifications: UserNotificationsService,
+    private readonly rbacService: RbacService,
+    private readonly userDeletionService: UserDeletionService,
   ) {}
 
   // ── User Profile ────────────────────────────────────────────────────────────
@@ -78,15 +94,27 @@ export class AdminUserManagementController {
     @CurrentAdmin() admin: CurrentAdminInterface,
     @Req() req: Request,
   ) {
+    // This body has no DTO, so nothing validates `telegramId` before it reaches
+    // here: `BigInt('abc')` threw a raw 500, and a digit string past `int8`
+    // parsed fine and then died in Postgres with `22003 numeric field value out
+    // of range` — also a 500, and only after the duplicate check had run. Both
+    // are operator input errors, so answer them as one. `parsePostgresBigInt`
+    // and not `parseTelegramId`: this endpoint accepts (and stores) a negative
+    // id today, and tightening that here would be a behaviour change, not a fix.
+    let newTelegramId: bigint | null = null;
     if (body.telegramId) {
+      newTelegramId = parsePostgresBigInt(body.telegramId);
+      if (newTelegramId === null) {
+        throw new BadRequestException('telegramId must be a 64-bit integer in decimal notation');
+      }
       const existing = await this.prismaService.user.findFirst({
-        where: { telegramId: BigInt(body.telegramId) },
+        where: { telegramId: newTelegramId },
       });
       if (existing) throw new BadRequestException('User with this Telegram ID already exists');
     }
     const user = await this.prismaService.user.create({
       data: {
-        telegramId: body.telegramId ? BigInt(body.telegramId) : null,
+        telegramId: newTelegramId,
         username: body.username || null,
         name: body.name || '',
         email: body.email || null,
@@ -96,11 +124,145 @@ export class AdminUserManagementController {
     return { ...user, telegramId: user.telegramId?.toString() ?? null };
   }
 
+  /**
+   * Paginated, typed user history. Payments remain payment records, while
+   * promocode activations and referral point exchanges keep their own domain
+   * semantics instead of being forged into zero-value transactions.
+   */
+  @Get(':telegramId/operations')
+  public async listUserOperations(
+    @Param('telegramId') telegramId: string,
+    @Query('page') pageInput?: string,
+    @Query('limit') limitInput?: string,
+  ) {
+    const user = await this.findUserByTelegramId(telegramId);
+    // We merge three independently ordered timelines in memory. Keep the
+    // bounded prefix finite so a crafted page value cannot load millions of
+    // records from every table.
+    const page = normalizePositiveInteger(pageInput, 1, 1, 100);
+    const limit = normalizePositiveInteger(limitInput, 25, 1, 100);
+    const take = page * limit;
+
+    const [transactions, promocodes, exchanges, transactionCount, promocodeCount, exchangeCount] = await Promise.all([
+      this.prismaService.transaction.findMany({
+        where: { userId: user.id },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take,
+        select: {
+          id: true,
+          paymentId: true,
+          status: true,
+          purchaseType: true,
+          gatewayType: true,
+          currency: true,
+          amount: true,
+          createdAt: true,
+        },
+      }),
+      this.prismaService.promocodeActivation.findMany({
+        where: { userId: user.id },
+        orderBy: [{ activatedAt: 'desc' }, { id: 'desc' }],
+        take,
+        select: {
+          id: true,
+          promocodeCode: true,
+          rewardType: true,
+          rewardValue: true,
+          activatedAt: true,
+          targetSubscription: { select: { id: true, planSnapshot: true } },
+        },
+      }),
+      this.prismaService.referralPointsExchange.findMany({
+        where: { userId: user.id },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take,
+        select: {
+          id: true,
+          type: true,
+          pointsSpent: true,
+          rewardValue: true,
+          expiresAtBefore: true,
+          expiresAtAfter: true,
+          trafficLimitBefore: true,
+          trafficLimitAfter: true,
+          personalDiscountBefore: true,
+          personalDiscountAfter: true,
+          createdAt: true,
+          targetSubscription: { select: { id: true, planSnapshot: true } },
+          profileSyncJob: { select: { status: true, lastError: true } },
+        },
+      }),
+      this.prismaService.transaction.count({ where: { userId: user.id } }),
+      this.prismaService.promocodeActivation.count({ where: { userId: user.id } }),
+      this.prismaService.referralPointsExchange.count({ where: { userId: user.id } }),
+    ]);
+
+    const items = [
+      ...transactions.map((transaction) => ({
+        id: transaction.id,
+        kind: 'PAYMENT' as const,
+        occurredAt: transaction.createdAt,
+        payload: {
+          paymentId: transaction.paymentId,
+          status: transaction.status,
+          purchaseType: transaction.purchaseType,
+          gatewayType: transaction.gatewayType,
+          currency: transaction.currency,
+          amount: transaction.amount.toString(),
+        },
+      })),
+      ...promocodes.map((activation) => ({
+        id: activation.id,
+        kind: 'PROMOCODE_ACTIVATION' as const,
+        occurredAt: activation.activatedAt,
+        payload: {
+          codeMasked: maskPromocode(activation.promocodeCode),
+          rewardType: activation.rewardType,
+          rewardValue: activation.rewardValue,
+          targetSubscription: serializeOperationSubscription(activation.targetSubscription),
+        },
+      })),
+      ...exchanges.map((exchange) => ({
+        id: exchange.id,
+        kind: 'POINTS_EXCHANGE' as const,
+        occurredAt: exchange.createdAt,
+        payload: {
+          type: exchange.type,
+          pointsSpent: exchange.pointsSpent,
+          rewardValue: exchange.rewardValue,
+          expiresAtBefore: exchange.expiresAtBefore?.toISOString() ?? null,
+          expiresAtAfter: exchange.expiresAtAfter?.toISOString() ?? null,
+          trafficLimitBefore: exchange.trafficLimitBefore,
+          trafficLimitAfter: exchange.trafficLimitAfter,
+          personalDiscountBefore: exchange.personalDiscountBefore,
+          personalDiscountAfter: exchange.personalDiscountAfter,
+          targetSubscription: serializeOperationSubscription(exchange.targetSubscription),
+          sync: exchange.profileSyncJob
+            ? { status: exchange.profileSyncJob.status, lastError: exchange.profileSyncJob.lastError }
+            : null,
+        },
+      })),
+    ]
+      .sort((left, right) => right.occurredAt.getTime() - left.occurredAt.getTime() || right.id.localeCompare(left.id))
+      .slice((page - 1) * limit, page * limit)
+      .map((item) => ({ ...item, occurredAt: item.occurredAt.toISOString() }));
+
+    return {
+      items,
+      total: transactionCount + promocodeCount + exchangeCount,
+      page,
+      limit,
+    };
+  }
+
   /** Get full user detail by telegramId (aggregated view for admin panel). */
   @Get(':telegramId')
-  public async getUser(@Param('telegramId') telegramId: string) {
+  public async getUser(
+    @Param('telegramId') telegramId: string,
+    @CurrentAdmin() admin: CurrentAdminInterface,
+  ) {
     const user = await this.findUserByTelegramId(telegramId);
-    const [subscriptions, transactions, referral, referralsGiven, partner, webAccount] =
+    const [subscriptions, transactions, referral, referralsGiven, partner, webAccount, acquisitionPlacement] =
       await Promise.all([
         this.prismaService.subscription.findMany({
           where: { userId: user.id, NOT: { status: SubscriptionStatus.DELETED } },
@@ -138,11 +300,34 @@ export class AdminUserManagementController {
           },
         }),
         this.prismaService.webAccount.findFirst({ where: { userId: user.id } }),
+        user.acquisitionPlacementId
+          ? this.prismaService.adPlacement.findUnique({
+              where: { id: user.acquisitionPlacementId },
+              select: {
+                id: true,
+                platform: true,
+                channel: true,
+                trackingCode: true,
+                status: true,
+                ownerType: true,
+                campaign: { select: { id: true, name: true } },
+              },
+            })
+          : Promise.resolve(null),
       ]);
 
     const partnerReferral = await this.prismaService.partnerReferral.findFirst({
       where: { referralUserId: user.id },
-      select: { id: true },
+      select: {
+        id: true,
+        level: true,
+        partner: {
+          select: {
+            id: true,
+            user: { select: { id: true, name: true, username: true, telegramId: true } },
+          },
+        },
+      },
     });
     const hasReferralAttribution = referral !== null;
     const hasPartnerAttribution = partnerReferral !== null;
@@ -165,8 +350,26 @@ export class AdminUserManagementController {
         : null,
     });
 
-    return {
-      ...user,
+    const canViewRegistration = await this.rbacService.hasPermission(
+      { id: admin.id, role: admin.role, rbacRoleId: admin.rbacRoleId ?? null },
+      'users',
+      'view_registration',
+    );
+
+    // Drop raw registration columns from the spread; re-attach under RBAC.
+    const {
+      registrationIp: _rip,
+      registrationUserAgent: _rua,
+      registrationReferer: _rr,
+      registrationUtm: _rutm,
+      registrationChannel: _rch,
+      acquisitionAt: _acqAt,
+      acquisitionPlacementId: _acqId,
+      ...userPublic
+    } = user;
+
+    const base = {
+      ...userPublic,
       telegramId: user.telegramId?.toString() ?? null,
       identityKind,
       subscriptions: await this.enrichSubscriptionsWithRemnawave(subscriptions).then((enriched) =>
@@ -211,6 +414,50 @@ export class AdminUserManagementController {
           }
         : null,
       currentSubscriptionId: user.currentSubscriptionId,
+      acquisitionAt: user.acquisitionAt?.toISOString() ?? null,
+      acquisitionPlacement: acquisitionPlacement
+        ? {
+            id: acquisitionPlacement.id,
+            platform: acquisitionPlacement.platform,
+            channel: acquisitionPlacement.channel,
+            trackingCode: acquisitionPlacement.trackingCode,
+            status: acquisitionPlacement.status,
+            ownerType: acquisitionPlacement.ownerType,
+            campaignId: acquisitionPlacement.campaign.id,
+            campaignName: acquisitionPlacement.campaign.name,
+          }
+        : null,
+      acquiredByPartner: partnerReferral?.partner
+        ? {
+            partnerId: partnerReferral.partner.id,
+            level: partnerReferral.level,
+            name: partnerReferral.partner.user?.name ?? null,
+            username: partnerReferral.partner.user?.username ?? null,
+            telegramId: partnerReferral.partner.user?.telegramId?.toString() ?? null,
+          }
+        : null,
+      canViewRegistration,
+    };
+
+    if (!canViewRegistration) {
+      // Strip raw registration PII for roles without users:view_registration.
+      return {
+        ...base,
+        registrationIp: null,
+        registrationUserAgent: null,
+        registrationReferer: null,
+        registrationUtm: null,
+        registrationChannel: user.registrationChannel ?? null,
+      };
+    }
+
+    return {
+      ...base,
+      registrationIp: user.registrationIp ?? null,
+      registrationUserAgent: user.registrationUserAgent ?? null,
+      registrationReferer: user.registrationReferer ?? null,
+      registrationUtm: user.registrationUtm ?? null,
+      registrationChannel: user.registrationChannel ?? null,
     };
   }
 
@@ -269,7 +516,7 @@ export class AdminUserManagementController {
   @RequirePermission('users', 'edit')
   public async adjustPoints(
     @Param('telegramId') telegramId: string,
-    @Body() body: { delta: number },
+    @Body() body: AdjustUserPointsDto,
   ) {
     const user = await this.findUserByTelegramId(telegramId);
     const newPoints = (user.points ?? 0) + body.delta;
@@ -317,44 +564,9 @@ export class AdminUserManagementController {
   @RequirePermission('users', 'delete')
   public async deleteUser(@Param('telegramId') telegramId: string, @CurrentAdmin() admin: CurrentAdminInterface, @Req() req: Request) {
     const user = await this.findUserByTelegramId(telegramId);
-    // Best-effort: remove this user's Remnawave panel profiles BEFORE the row
-    // deletion. The async `ProfileSyncJob(DELETE)` path can't be used here —
-    // the subscription rows it reads are about to be hard-deleted (Cascade) —
-    // so we call the panel inline. Failures are logged and never block the
-    // delete (the operator action must not hard-fail on a panel hiccup). See
-    // `.kiro/specs/trial-aware-profile-cleanup`.
-    const profileSubs = await this.prismaService.subscription.findMany({
-      where: { userId: user.id, remnawaveId: { not: null } },
-      select: { id: true, remnawaveId: true },
-    });
-    for (const sub of profileSubs) {
-      if (sub.remnawaveId === null) continue;
-      try {
-        await this.remnawaveApiService.deletePanelUser(sub.remnawaveId);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        this.logger.warn(
-          `deleteUser: failed to delete panel profile ${sub.remnawaveId} for subscription ${sub.id}: ${message}`,
-        );
-      }
-    }
-    // A user delete is a full removal, but three relations are `onDelete:
-    // Restrict` (financial / credit history): Transaction, PromocodeActivation
-    // and ReferralReward. Left in place they raise a FK violation (P2003) that
-    // surfaces as a 400 "Ошибка удаления". Everything else (subscriptions,
-    // web account, trial grant, referrals, partner, support tickets, …) is
-    // `Cascade`, so removing these three first lets the user delete cleanly.
-    await this.prismaService.$transaction(async (tx) => {
-      await tx.referralReward.deleteMany({ where: { userId: user.id } });
-      await tx.promocodeActivation.deleteMany({ where: { userId: user.id } });
-      // Deleting the transactions cascades their TransactionItem rows, which
-      // are `Restrict` against subscriptions — clearing them also unblocks the
-      // cascade delete of this user's subscriptions.
-      await tx.transaction.deleteMany({ where: { userId: user.id } });
-      await tx.user.delete({ where: { id: user.id } });
-    });
+    await this.userDeletionService.deleteUser(user.id);
     await this.auditLog(admin, req, 'user.deleted', { userId: user.id, telegramId });
-    this.events.warn(EVENT_TYPES.USER_DELETED, 'USER', `User deleted: ${telegramId}`, { userId: user.id, telegramId, adminId: admin.id });
+    this.events.warn(EVENT_TYPES.USER_DELETED, 'USER', 'User account deleted', { userId: user.id, telegramId, adminId: admin.id });
     return { deleted: true };
   }
 
@@ -394,7 +606,7 @@ export class AdminUserManagementController {
   @RequirePermission('users', 'edit')
   public async adjustPartnerBalance(
     @Param('telegramId') telegramId: string,
-    @Body() body: { amount: number; reason?: string },
+    @Body() body: AdjustUserPartnerBalanceDto,
     @CurrentAdmin() admin: CurrentAdminInterface,
     @Req() req: Request,
   ) {
@@ -472,6 +684,57 @@ export class AdminUserManagementController {
       userId: user.id, referrerId: referrer.id, referredUserId: user.id, telegramId,
       historicalPaymentsProcessed: result.historicalPaymentsProcessed,
       partnerChainAttached: result.partnerChainAttached,
+    });
+    return result;
+  }
+
+  /** Retry this user's source referral edge from a completed STEALTHNET import. */
+  @Post(':telegramId/referral/sync-stealthnet')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('referrals', 'edit')
+  public async syncStealthnetReferrer(
+    @Param('telegramId') telegramId: string,
+    @CurrentAdmin() admin: CurrentAdminInterface,
+    @Req() req: Request,
+  ) {
+    const user = await this.findUserByTelegramId(telegramId);
+    const result = await this.stealthnetReferralSyncService.syncForUser(user.id);
+    await this.auditLog(admin, req, 'user.referral.stealthnet_synced', {
+      userId: user.id,
+      telegramId,
+      ...result,
+    });
+    if (result.status === 'CREATED') {
+      this.events.info(EVENT_TYPES.REFERRAL_MANUAL_ATTACHED, 'REFERRAL', 'Referral restored from STEALTHNET', {
+        userId: user.id,
+        referredUserId: user.id,
+        referrerId: result.referrerUserId,
+        telegramId,
+        importRecordId: result.importRecordId,
+        source: 'stealthnet',
+      });
+    }
+    return result;
+  }
+
+  /** Manually qualifies the user's existing referral edge and stages configured rewards. */
+  @Post(':telegramId/referral/qualify')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('referrals', 'edit')
+  public async qualifyReferral(
+    @Param('telegramId') telegramId: string,
+    @CurrentAdmin() admin: CurrentAdminInterface,
+    @Req() req: Request,
+  ) {
+    const user = await this.findUserByTelegramId(telegramId);
+    const result = await this.referralQualificationService.qualifyReferralManually({
+      referredUserId: user.id,
+      actorAdminId: admin.id,
+    });
+    await this.auditLog(admin, req, 'user.referral.manually_qualified', {
+      userId: user.id,
+      telegramId,
+      ...result,
     });
     return result;
   }
@@ -584,37 +847,119 @@ export class AdminUserManagementController {
    *   never breaks the whole user-detail response.
    * - Done in parallel via `Promise.allSettled` to keep the user-detail
    *   endpoint snappy even when the panel is slow.
+   *
+   * THE FULL IDENTITY IS PASSED, not the bare `remnawaveId` string, and on a
+   * 3.x panel that is the difference between a name and a blank. A profile
+   * created on 2.x still stores its uuid here after the operator upgrades —
+   * the panel's own migration drops the column, we do not — and a uuid in a
+   * 3.x id slot earns `400 expected number, received NaN`, which this method
+   * swallows into `null`. `storedIdentityOf` hands the adapter the numeric id
+   * and the panel username as well, which is what every other caller already
+   * does; the columns it reads are already in the row (the `findMany` behind
+   * this list runs without a `select`).
    */
-  private async enrichSubscriptionsWithRemnawave<T extends { readonly remnawaveId: string | null }>(
+  private async enrichSubscriptionsWithRemnawave<T extends PanelIdentityColumns & { id: string }>(
     subscriptions: readonly T[],
   ): Promise<Array<T & {
     readonly remnawaveProfileName: string | null;
     readonly remnawaveProfileDescription: string | null;
+    readonly remnawaveSyncState: 'UNLINKED' | 'PENDING' | 'SYNCED' | 'MISSING' | 'UNAVAILABLE' | 'FAILED';
+    readonly remnawaveSyncJob: {
+      readonly status: string;
+      readonly action: string;
+      readonly attempts: number;
+      readonly lastError: string | null;
+      readonly updatedAt: string;
+    } | null;
   }>> {
+    const profileSyncJobDelegate = this.prismaService.profileSyncJob;
+    const latestJobs = profileSyncJobDelegate === undefined
+      ? []
+      : await profileSyncJobDelegate.findMany({
+          where: { subscriptionId: { in: subscriptions.map((sub) => sub.id) }, supersededAt: null },
+          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+          select: { subscriptionId: true, status: true, action: true, attempts: true, lastError: true, updatedAt: true },
+        });
+    const jobBySubscription = new Map<string, (typeof latestJobs)[number]>();
+    for (const job of latestJobs) {
+      if (!jobBySubscription.has(job.subscriptionId)) jobBySubscription.set(job.subscriptionId, job);
+    }
+
     const enriched = await Promise.allSettled(
-      subscriptions.map(async (sub): Promise<T & { remnawaveProfileName: string | null; remnawaveProfileDescription: string | null }> => {
-        if (!sub.remnawaveId) {
+      subscriptions.map(async (sub): Promise<T & {
+        remnawaveProfileName: string | null;
+        remnawaveProfileDescription: string | null;
+        remnawaveSyncState: 'UNLINKED' | 'PENDING' | 'SYNCED' | 'MISSING' | 'UNAVAILABLE' | 'FAILED';
+        remnawaveSyncJob: {
+          status: string;
+          action: string;
+          attempts: number;
+          lastError: string | null;
+          updatedAt: string;
+        } | null;
+      }> => {
+        const job = jobBySubscription.get(sub.id) ?? null;
+        const syncJob = job === null ? null : {
+          status: job.status,
+          action: job.action,
+          attempts: job.attempts,
+          lastError: job.lastError,
+          updatedAt: job.updatedAt.toISOString(),
+        };
+        const identity = storedIdentityOf(sub);
+        if (identity === null) {
           return {
             ...sub,
             remnawaveProfileName: null,
             remnawaveProfileDescription: null,
+            remnawaveSyncState: job?.status === SyncJobStatus.PENDING || job?.status === SyncJobStatus.RUNNING
+              ? 'PENDING'
+              : job?.status === SyncJobStatus.FAILED ? 'FAILED' : 'UNLINKED',
+            remnawaveSyncJob: syncJob,
           };
         }
-        const panelUser = await this.remnawaveApiService.getPanelUser(sub.remnawaveId);
+        const outcome = await this.remnawaveApiService.getPanelUserOutcome(identity);
+        const panelUser = outcome.kind === 'ok' ? outcome.user : null;
         return {
           ...sub,
           remnawaveProfileName: panelUser?.username ?? null,
           remnawaveProfileDescription: panelUser?.description ?? null,
+          remnawaveSyncState: outcome.kind === 'ok'
+            ? job?.status === SyncJobStatus.PENDING || job?.status === SyncJobStatus.RUNNING
+              ? 'PENDING'
+              : job?.status === SyncJobStatus.FAILED ? 'FAILED' : 'SYNCED'
+            : outcome.kind === 'missing' ? 'MISSING' : 'UNAVAILABLE',
+          remnawaveSyncJob: syncJob,
         };
       }),
     );
-    return enriched.map((result, index): T & { remnawaveProfileName: string | null; remnawaveProfileDescription: string | null } => {
+    return enriched.map((result, index): T & {
+      remnawaveProfileName: string | null;
+      remnawaveProfileDescription: string | null;
+      remnawaveSyncState: 'UNLINKED' | 'PENDING' | 'SYNCED' | 'MISSING' | 'UNAVAILABLE' | 'FAILED';
+      remnawaveSyncJob: {
+        status: string;
+        action: string;
+        attempts: number;
+        lastError: string | null;
+        updatedAt: string;
+      } | null;
+    } => {
       if (result.status === 'fulfilled') return result.value;
       const fallback = subscriptions[index];
+      const job = jobBySubscription.get(fallback.id) ?? null;
       return {
         ...fallback,
         remnawaveProfileName: null,
         remnawaveProfileDescription: null,
+        remnawaveSyncState: storedIdentityOf(fallback) === null ? 'UNLINKED' : 'UNAVAILABLE',
+        remnawaveSyncJob: job === null ? null : {
+          status: job.status,
+          action: job.action,
+          attempts: job.attempts,
+          lastError: job.lastError,
+          updatedAt: job.updatedAt.toISOString(),
+        },
       };
     });
   }
@@ -624,9 +969,15 @@ export class AdminUserManagementController {
     // may pass either a numeric Telegram ID or a CUID (internal user id).
     // Try numeric first; fall back to CUID lookup.
     const isNumeric = /^\d+$/.test(telegramId);
-    const user = isNumeric
+    const numericId = isNumeric ? parseTelegramId(telegramId) : null;
+    // Digits that overflow `int8` have no second branch to fall through to:
+    // no row can hold that value, and an all-digit string is not a CUID either.
+    // Binding it anyway reached Postgres and came back as `22003 numeric field
+    // value out of range` — a 500 where 404 is the truthful answer.
+    if (isNumeric && numericId === null) throw new NotFoundException('User not found');
+    const user = numericId !== null
       ? await this.prismaService.user.findFirst({
-          where: { telegramId: BigInt(telegramId) },
+          where: { telegramId: numericId },
         })
       : await this.prismaService.user.findUnique({
           where: { id: telegramId },
@@ -643,10 +994,14 @@ export class AdminUserManagementController {
     const trimmed = identifier.trim();
     if (!trimmed) return null;
 
-    // 1. Numeric → telegramId
-    if (/^\d+$/.test(trimmed)) {
+    // 1. Numeric → telegramId. A digit string `int8` cannot hold skips straight
+    // to the next branch: no row can match it, so this is exactly what the
+    // lookup would have done had it run and returned null — except it used to
+    // fail the request with `22003 numeric field value out of range` instead.
+    const numericId = parseTelegramId(trimmed);
+    if (numericId !== null) {
       const user = await this.prismaService.user.findFirst({
-        where: { telegramId: BigInt(trimmed) },
+        where: { telegramId: numericId },
       });
       if (user) return user;
     }
@@ -744,4 +1099,44 @@ function buildInviteSettingsValue(
     return Prisma.JsonNull;
   }
   return out as Prisma.InputJsonValue;
+}
+
+function normalizePositiveInteger(
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function maskPromocode(code: string): string {
+  if (code.length <= 4) return '••••';
+  return `${code.slice(0, 2)}••••${code.slice(-2)}`;
+}
+
+function serializeOperationSubscription(
+  subscription: { readonly id: string; readonly planSnapshot: unknown } | null,
+): { id: string; label: string | null } | null {
+  if (subscription === null) return null;
+  const snapshot = subscription.planSnapshot;
+  const label =
+    snapshot !== null && typeof snapshot === 'object' && !Array.isArray(snapshot)
+      ? readOperationPlanLabel(snapshot as Record<string, unknown>)
+      : null;
+  return { id: subscription.id, label };
+}
+
+function readOperationPlanLabel(snapshot: Record<string, unknown>): string | null {
+  const direct = snapshot.name;
+  if (typeof direct === 'string' && direct.trim().length > 0) return direct.trim();
+  const nested = snapshot.originalPlanSnapshot;
+  if (nested !== null && typeof nested === 'object' && !Array.isArray(nested)) {
+    const name = (nested as Record<string, unknown>).name;
+    if (typeof name === 'string' && name.trim().length > 0) return name.trim();
+  }
+  return null;
 }

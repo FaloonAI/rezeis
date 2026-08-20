@@ -40,12 +40,15 @@ import { MoyNalogQueueService } from './services/moy-nalog-queue.service';
 import { PaymentSubscriptionMutationService } from './services/payment-subscription-mutation.service';
 import { PaymentsCheckoutService } from './services/payments-checkout.service';
 import { PaymentsRenewalCheckoutService } from './services/payments-renewal-checkout.service';
+import { PaymentRefundService } from './services/payment-refund.service';
 import { PaymentsTransactionsService } from './services/payments-transactions.service';
 import { AddOnPurchaseService } from './services/addon-purchase.service';
 import { AddOnFulfillmentRecoveryService } from './services/add-on-fulfillment-recovery.service';
 import { PartnerBalancePaymentService } from './services/partner-balance-payment.service';
 import { TelegramStarsWebhookService } from './services/telegram-stars-webhook.service';
 import { SavedPaymentMethodService } from './services/saved-payment-method.service';
+import { PaymentMethodSetupService } from './services/payment-method-setup.service';
+import { YookassaPaymentVerificationService } from './services/yookassa-payment-verification.service';
 
 @Module({
   imports: [
@@ -80,6 +83,7 @@ import { SavedPaymentMethodService } from './services/saved-payment-method.servi
   providers: [
     PaymentGatewayRegistryService,
     PaymentsTransactionsService,
+    PaymentRefundService,
     PaymentsCheckoutService,
     PaymentsRenewalCheckoutService,
     AddOnPurchaseService,
@@ -93,6 +97,7 @@ import { SavedPaymentMethodService } from './services/saved-payment-method.servi
     PaymentWebhookOpsService,
     TelegramStarsWebhookService,
     PaymentSubscriptionMutationService,
+    YookassaPaymentVerificationService,
     PaymentReconciliationService,
     PaymentReconciliationProcessor,
     MoyNalogApiService,
@@ -102,7 +107,8 @@ import { SavedPaymentMethodService } from './services/saved-payment-method.servi
     PaymentPendingExpiryService,
     AddOnFulfillmentRecoveryService,
     SavedPaymentMethodService,
+    PaymentMethodSetupService,
   ],
-  exports: [SavedPaymentMethodService, PaymentsRenewalCheckoutService],
+  exports: [SavedPaymentMethodService, PaymentMethodSetupService, PaymentsRenewalCheckoutService],
 })
 export class PaymentsModule {}

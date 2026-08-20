@@ -53,8 +53,10 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { api } from '@/lib/api'
+import { expectArray } from '@/lib/api-utils'
 import { cn } from '@/lib/utils'
 import { EmojiPicker } from '@/features/broadcast/emoji-picker'
+import { EmojiFieldOverlay } from '@/features/custom-emoji/emoji-field-overlay'
 import { insertAtCaret } from '@/features/bot-map/utils/insert-at-caret'
 import { BannerField } from '@/features/bot-map/components/BannerField'
 
@@ -67,9 +69,9 @@ import {
 } from './bot-config-api'
 import {
   ActionFields,
-  buildActionPayload,
   BotButtonCreateDialog,
 } from './bot-button-dialogs'
+import { buildActionPayload } from './bot-button-payload'
 
 const REPLY_BUTTON_STYLES: BotButtonStyle[] = ['DEFAULT', 'PRIMARY', 'SUCCESS', 'DANGER']
 
@@ -110,8 +112,8 @@ export function ReplyKeyboardEditorPanel(): JSX.Element {
   const { data: botTexts } = useQuery({
     queryKey: BOT_TEXTS_QUERY_KEY,
     queryFn: async (): Promise<readonly BotTextRow[]> => {
-      const { data } = await api.get<readonly BotTextRow[]>('/admin/bot-config/texts')
-      return data
+      const { data } = await api.get('/admin/bot-config/texts')
+      return expectArray<BotTextRow>(data)
     },
   })
   const bannerRow = botTexts?.find((r) => r.key === BANNER_URL_KEY) ?? null
@@ -469,13 +471,21 @@ function SortableReplyButtonCard({
           <Label className="text-[11px]">{t('botConfigPage.buttons.fields.label')}</Label>
           <EmojiPicker onSelect={insertLabelEmoji} ariaLabel={t('emojiPicker.trigger')} />
         </div>
-        <Input
-          ref={labelRef}
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          maxLength={120}
-          className="text-xs"
-        />
+        {/* `buttonLabel`: a leading shortcode never stays in this caption —
+            reiwa lifts it into `icon_custom_emoji_id` and Telegram draws it
+            BEFORE the caption, so the layer shows it as the button's own icon
+            rather than inline. The stored label keeps the token either way.
+            The picker sits in the label row above, not over the field, so it
+            needs no `adornment` slot here. */}
+        <EmojiFieldOverlay value={label} mode="buttonLabel" overlayClassName="text-xs">
+          <Input
+            ref={labelRef}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            maxLength={120}
+            className="text-xs"
+          />
+        </EmojiFieldOverlay>
       </div>
 
       <ActionFields

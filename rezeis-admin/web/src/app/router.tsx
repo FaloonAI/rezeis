@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createBrowserRouter, Navigate, useLocation } from 'react-router-dom';
+import { createBrowserRouter, Navigate, useLocation } from 'react-router';
 import { lazy as reactLazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react';
 import ProtectedRoute from './protected-route';
 import AdminShell from '@/components/layout/admin-shell';
@@ -95,7 +95,9 @@ const ApiTokensPage = lazy(
   ),
 );
 const PanelSettingsHub = lazy(() => import('@/features/settings/panel-settings-hub'));
-const WebReiwaPage = lazy(() => import('@/features/branding/branding-page'));
+const WebReiwaPage = lazy(
+  withFeatureBundle('branding', () => import('@/features/branding/branding-page')),
+);
 const AnalyticsPage = lazy(
   withFeatureBundle('analytics', () => import('@/features/analytics/analytics-page')),
 );
@@ -115,6 +117,9 @@ const SubpageConfigPage = lazy(
 );
 const LandingBuilderPage = lazy(
   withFeatureBundle('landingBuilder', () => import('@/features/landing-builder/landing-builder-page')),
+);
+const LegalDocumentsPage = lazy(
+  withFeatureBundle('legalDocuments', () => import('@/features/legal-documents/legal-documents-page')),
 );
 const ReferralSettingsPage = lazy(() => import('@/features/settings/referral-settings-page'));
 const QuestsPage = lazy(() => import('@/features/quests/quests-page'));
@@ -200,6 +205,7 @@ export const router = createBrowserRouter([
           { path: 'web-reiwa', element: withSuspense(<WebReiwaPage />) },
           { path: 'subpage-config', element: withSuspense(<SubpageConfigPage />) },
           { path: 'landing-builder', element: withSuspense(<LandingBuilderPage />) },
+          { path: 'legal-documents', element: withSuspense(<LegalDocumentsPage />) },
           { path: 'settings/api-tokens', element: withSuspense(<ApiTokensPage />) },
           { path: 'settings/panel', element: withSuspense(<PanelSettingsHub />) },
           { path: 'bot-config', element: <Navigate to="/bot-map" replace /> },

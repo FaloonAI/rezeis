@@ -1,4 +1,6 @@
-import React, { useRef, useEffect, CSSProperties } from 'react';
+import React, { useRef, useEffect, useState, CSSProperties } from 'react';
+
+import { resolveRenderScale } from './render-scale';
 
 class Grad {
   x: number;
@@ -191,6 +193,25 @@ const Waves: React.FC<WavesProps> = ({
   });
 
   const frameIdRef = useRef<number | null>(null);
+  /**
+   * Bumped by `contextrestored` to re-run the mount effect, exactly as the GL
+   * effects in this directory bump theirs on `webglcontextrestored`.
+   *
+   * THE EVENT NAMES DIFFER BECAUSE THE CONTEXT DOES. This canvas is 2D, and
+   * `webglcontextlost` is dispatched only at a canvas holding a WebGL context —
+   * a listener for it here could never fire once, which is worse than no
+   * handler at all because it reads like one. The 2D contract is HTML's
+   * `contextlost`/`contextrestored`, and its `preventDefault()` means the
+   * OPPOSITE of WebGL's: on `webglcontextlost` it asks the user agent to
+   * restore, on 2D `contextlost` it sets "context restoration disabled" and
+   * makes the loss permanent. So this handler deliberately does NOT call it.
+   *
+   * The rebuild is needed for the same reason as over there: a lost 2D context
+   * is reset to its defaults, which drops the device-pixel transform `setSize`
+   * installed, so the lines would come back drawn at the wrong scale into a
+   * cleared bitmap.
+   */
+  const [glGeneration, setGlGeneration] = useState(0);
 
   useEffect(() => {
     configRef.current = {
@@ -212,18 +233,40 @@ const Waves: React.FC<WavesProps> = ({
     const container = containerRef.current;
     if (!canvas || !container) return;
     ctxRef.current = canvas.getContext('2d');
+    let contextLost = false;
 
     function setSize() {
       if (!container || !canvas) return;
       const rect = container.getBoundingClientRect();
+      const width = rect.width;
+      const height = rect.height;
       boundingRef.current = {
-        width: rect.width,
-        height: rect.height,
+        width,
+        height,
         left: rect.left,
         top: rect.top
       };
-      canvas.width = rect.width;
-      canvas.height = rect.height;
+      // Cap the BITMAP, never the CSS box. This effect clears and strokes on
+      // the MAIN THREAD, so a full-viewport bitmap is felt as input latency:
+      // 2560×1440 is 3.7M pixels sixty times a second on the thread that
+      // handles taps. Everything else in this component — the point lattice in
+      // `setLines`, `clearRect`, the pointer — stays in CSS pixels, and the
+      // context transform below maps them into the bitmap, so `xGap`/`yGap`
+      // keep exactly the pitch the operator set whatever ratio this resolves
+      // to. The canvas element itself is `w-full h-full`; nothing here touches
+      // its presentation size. See `render-scale.ts`.
+      const ratio = resolveRenderScale(width, height, 1);
+      // `Math.floor`, because that is what assigning a fractional value to
+      // `canvas.width` has always done here, and this must be bit-identical at
+      // ratio 1.
+      const bufferWidth = Math.max(1, Math.floor(width * ratio));
+      const bufferHeight = Math.max(1, Math.floor(height * ratio));
+      if (canvas.width !== bufferWidth || canvas.height !== bufferHeight) {
+        canvas.width = bufferWidth;
+        canvas.height = bufferHeight;
+      }
+      // After the assignment above, which resets every context property.
+      ctxRef.current?.setTransform(ratio, 0, 0, ratio, 0, 0);
     }
 
     function setLines() {
@@ -312,7 +355,7 @@ const Waves: React.FC<WavesProps> = ({
     }
 
     function tick(t: number) {
-      if (!container) return;
+      if (!container || contextLost) return;
       const mouse = mouseRef.current;
       mouse.sx += (mouse.x - mouse.sx) * 0.1;
       mouse.sy += (mouse.y - mouse.sy) * 0.1;
@@ -334,7 +377,16 @@ const Waves: React.FC<WavesProps> = ({
     }
 
     function onResize() {
+      const previous = boundingRef.current;
       setSize();
+      const next = boundingRef.current;
+      // Rebuild the lattice only when the box actually moved. `setLines`
+      // discards every point's accumulated wave and cursor state, so doing it
+      // per event would visibly reset the animation sixty times a second
+      // through an iOS address-bar collapse — and now that the box is watched
+      // by BOTH a ResizeObserver and the window listener, every real resize
+      // arrives twice.
+      if (next.width === previous.width && next.height === previous.height) return;
       setLines();
     }
     function onMouseMove(e: MouseEvent) {
@@ -347,6 +399,10 @@ const Waves: React.FC<WavesProps> = ({
     function updateMouse(x: number, y: number) {
       const mouse = mouseRef.current;
       const b = boundingRef.current;
+      // `x`/`y` are client coordinates and `b` is the container's own rect, so
+      // this is CSS pixels relative to the container — the space the point
+      // lattice lives in, and the space `tick` writes into `--x`/`--y` to
+      // position the cursor dot. One space for all three, with no ratio in it.
       mouse.x = x - b.left;
       mouse.y = y - b.top;
       if (!mouse.set) {
@@ -365,15 +421,48 @@ const Waves: React.FC<WavesProps> = ({
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('touchmove', onTouchMove, { passive: false });
 
+    // A window `resize` is not the only way this box changes, and for the CARD
+    // mount it is not even the common one: the container is a grid cell, and it
+    // moves when a sibling card appears, when a font finishes loading, when a
+    // panel opens — none of which the window hears about. Observing the box
+    // ties the bitmap to the box that owns it. The window listener stays as the
+    // fallback for environments without the constructor (jsdom); `onResize` is
+    // idempotent, so being told twice costs one measurement.
+    const boxObserver =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(onResize);
+    boxObserver?.observe(container);
+
+    // NO preventDefault here — see the note on `glGeneration`. On a 2D canvas
+    // cancelling this event is what makes the loss permanent.
+    const handleContextLost = () => {
+      contextLost = true;
+      if (frameIdRef.current !== null) {
+        cancelAnimationFrame(frameIdRef.current);
+        frameIdRef.current = null;
+      }
+    };
+    // Restarting the loop alone would draw through a context that was reset to
+    // its defaults — no device-pixel transform — so the lines would come back
+    // at the wrong scale. Re-running the effect re-measures, rebuilds the point
+    // lattice and re-installs it.
+    const handleContextRestored = () => {
+      setGlGeneration(generation => generation + 1);
+    };
+    canvas.addEventListener('contextlost', handleContextLost);
+    canvas.addEventListener('contextrestored', handleContextRestored);
+
     return () => {
+      boxObserver?.disconnect();
       window.removeEventListener('resize', onResize);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('touchmove', onTouchMove);
+      canvas.removeEventListener('contextlost', handleContextLost);
+      canvas.removeEventListener('contextrestored', handleContextRestored);
       if (frameIdRef.current !== null) {
         cancelAnimationFrame(frameIdRef.current);
       }
     };
-  }, []);
+  }, [glGeneration]);
 
   return (
     <div

@@ -133,18 +133,14 @@ export class AutoRenewService {
         if (checkout.transactionStatus === TransactionStatus.PENDING) {
           // Off-session may still settle via webhook/reconcile; do not burn
           // another attempt while a PENDING draft exists for this attempt key.
-          if (checkout.checkoutUrl !== null) {
-            // Needs user redirect (3DS) — treat as failed attempt for autopay.
-            failed += 1;
-            this.logger.warn(
-              `Autopay needs redirect for subscription ${sub.id} (payment ${checkout.paymentId}, attempt ${nextAttempt}) — counting as failed`,
-            );
-            await this.markTransactionFailedIfStillPending(checkout.paymentId);
-            continue;
-          }
+          // Even redirect-required (3DS) charges must stay PENDING so a late
+          // SUCCESS webhook can still fulfill — mark FAILED only after the
+          // provider cancels/expires the payment.
           skipped += 1;
           this.logger.log(
-            `Autopay pending for subscription ${sub.id} (payment ${checkout.paymentId}, attempt ${nextAttempt})`,
+            checkout.checkoutUrl !== null
+              ? `Autopay waiting for user confirmation (3DS/redirect) for subscription ${sub.id} (payment ${checkout.paymentId}, attempt ${nextAttempt})`
+              : `Autopay pending for subscription ${sub.id} (payment ${checkout.paymentId}, attempt ${nextAttempt})`,
           );
           continue;
         }
@@ -269,14 +265,10 @@ export class AutoRenewService {
           );
           continue;
         }
-        if (
-          checkout.transactionStatus === TransactionStatus.PENDING &&
-          checkout.checkoutUrl === null
-        ) {
+        if (checkout.transactionStatus === TransactionStatus.PENDING) {
+          // Keep PENDING (including 3DS/redirect) so webhook fulfillment can
+          // still succeed; do not force-fail and free the attempt slot.
           continue;
-        }
-        if (checkout.checkoutUrl !== null) {
-          await this.markTransactionFailedIfStillPending(checkout.paymentId);
         }
         // Re-check attempts after this failure for expire eligibility next loop.
         const after = await this.readAttemptState(sub.id, expiresAtMs);
@@ -456,38 +448,20 @@ export class AutoRenewService {
         completed = true;
       }
       if (row.status === TransactionStatus.PENDING) {
-        // Redirect-required PENDING is not a live settle path for autopay.
-        // A provider-create claim may represent a charge whose HTTP response
-        // was lost. Keep the expiry epoch blocked until it is reconciled;
-        // creating a new attempt would use a new provider idempotency key.
-        if (row.checkoutUrl === null) {
-          pending = true;
-        }
+        // Any PENDING attempt (including 3DS redirect and lost-response claims)
+        // blocks a new attempt for this expiry epoch until it settles or the
+        // provider cancels it. Creating a2 would use a new provider key and
+        // risk a double charge.
+        pending = true;
       }
     }
 
     return { usedAttempts, pending, completed };
   }
 
-  private async markTransactionFailedIfStillPending(paymentId: string): Promise<void> {
-    try {
-      await this.prismaService.transaction.updateMany({
-        where: {
-          paymentId,
-          status: TransactionStatus.PENDING,
-        },
-        data: {
-          status: TransactionStatus.FAILED,
-        },
-      });
-    } catch (error) {
-      this.logger.warn(
-        `Failed to mark redirect autopay as FAILED for ${paymentId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
-  }
+  // Intentionally no force-fail helper for redirect/3DS: a PENDING charge must
+  // stay open for webhook fulfillment. Provider cancel/expire is the only
+  // terminal path that frees the attempt slot.
 }
 
 function buildAttemptIdempotencyKey(

@@ -6,6 +6,8 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
 import { buildUserReferenceWhere } from '../../internal-user/utils/user-reference.util';
 import { CreateAdRequestDto } from '../dto/advertising.dto';
 import { AdPlacementRequestService } from '../services/ad-placement-request.service';
+import { ReiwaAdvertisingLinkConfigService } from '../services/reiwa-advertising-link-config.service';
+import { buildAdDeepLinks, buildAdPayload } from '../utils/tracking-code.util';
 
 /**
  * Partner-facing advertising endpoints consumed by reiwa. The `:telegramId`
@@ -19,6 +21,7 @@ export class InternalPartnerAdvertisingController {
   public constructor(
     private readonly prismaService: PrismaService,
     private readonly requestService: AdPlacementRequestService,
+    private readonly reiwaAdvertisingLinks: ReiwaAdvertisingLinkConfigService,
   ) {}
 
   @Get('requests')
@@ -42,7 +45,26 @@ export class InternalPartnerAdvertisingController {
     return this.requestService.createRequest(partner.id, body);
   }
 
-  /** Per-placement stats for the partner's own placements (opens/regs/conv/earned). */
+  /**
+   * Partner accepts operator counter-terms (`COUNTERED` → ACTIVE placements).
+   * Ownership is enforced by partnerId resolved from the path user.
+   */
+  @Post('requests/:requestId/accept')
+  public async acceptRequest(
+    @Param('telegramId') telegramId: string,
+    @Param('requestId') requestId: string,
+  ) {
+    const partner = await this.resolvePartner(telegramId);
+    if (partner === null) {
+      throw new ForbiddenException('Not a partner');
+    }
+    return this.requestService.accept(requestId, partner.id);
+  }
+
+  /**
+   * Per-placement stats for the partner's own placements (opens/regs/conv/earned)
+   * plus tracking code + deep links so the partner can actually run ads.
+   */
   @Get('stats')
   public async getStats(@Param('telegramId') telegramId: string) {
     const partner = await this.resolvePartner(telegramId);
@@ -54,6 +76,7 @@ export class InternalPartnerAdvertisingController {
       orderBy: { createdAt: 'desc' },
       select: { id: true, platform: true, channel: true, trackingCode: true, status: true, campaignId: true },
     });
+    const linkConfig = await this.reiwaAdvertisingLinks.resolve();
     const stats = await Promise.all(
       placements.map(async (p) => {
         const [opens, registrations, conversions, acquired] = await Promise.all([
@@ -74,11 +97,21 @@ export class InternalPartnerAdvertisingController {
                   _sum: { earnedAmount: true },
                 })
               )._sum.earnedAmount ?? 0;
+        const payload = buildAdPayload(p.trackingCode);
+        const links = buildAdDeepLinks({
+          adminReiwaBotUsername: linkConfig.adminReiwaBotUsername,
+          miniAppShortName: linkConfig.miniAppShortName,
+          miniAppWebBaseUrl: linkConfig.webBaseUrl,
+          code: p.trackingCode,
+        });
         return {
           placementId: p.id,
           platform: p.platform,
           channel: p.channel,
           status: p.status,
+          trackingCode: p.trackingCode,
+          payload,
+          links,
           opens,
           registrations,
           conversions,

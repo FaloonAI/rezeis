@@ -25,6 +25,7 @@ import {
 import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
+import { expectArray } from '@/lib/api-utils'
 import { adminQueryKeys } from '@/lib/admin-query-keys'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -54,6 +55,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { EmojiPicker } from '@/features/broadcast/emoji-picker'
+import { EmojiFieldOverlay } from '@/features/custom-emoji/emoji-field-overlay'
 import { FadeIn } from '@/lib/motion'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -113,6 +115,7 @@ const EVENT_TYPE_CATALOG: Readonly<Record<string, readonly string[]>> = {
   USER: [
     'user.registered', 'user.web_registered', 'user.blocked', 'user.unblocked',
     'user.deleted', 'user.role_changed', 'user.telegram_linked', 'user.email_linked',
+    'user.first_traffic', 'user.accounts_merged',
   ],
   AUTH: ['auth.web_login', 'auth.password_changed', 'auth.password_recovery'],
   SUBSCRIPTION: [
@@ -124,34 +127,95 @@ const EVENT_TYPE_CATALOG: Readonly<Record<string, readonly string[]>> = {
   PAYMENT: [
     'payment.checkout_created', 'payment.completed', 'payment.failed',
     'payment.expired', 'payment.webhook_received',
+    // Money that came back, came short, or is stuck. Every one of these was
+    // registered on the backend by the feature that emits it and never
+    // reached this list, so in `selected` mode none of them was deliverable.
+    'payment.refunded', 'payment.refund_partial', 'payment.amount_mismatch',
+    'payment.notified_amount_short', 'payment.fulfillment_recovered',
+    'payment.method_saved', 'payment.method_unbound', 'payment.method_autopay_updated',
+    'payment.autopay_confirmation_required',
+    // Grouped here, not under SUBSCRIPTION, because its emit site passes
+    // category PAYMENT — which is what picks the Telegram topic it lands in.
+    'trial.claim_late_success_over_cap',
   ],
   REFERRAL: ['referral.attached', 'referral.qualified', 'referral.reward_issued', 'referral.manual_attached'],
   PARTNER: [
     'partner.created', 'partner.activated', 'partner.deactivated', 'partner.earning',
     'partner.withdrawal_requested', 'partner.withdrawal_approved',
     'partner.withdrawal_rejected', 'partner.balance_adjusted',
+    // Emitted with category PARTNER by PartnerBalancePaymentService when a
+    // debit could not be refunded — the partner is short until someone acts.
+    'partner.balance_refund_failed',
   ],
-  PROMOCODE: ['promocode.activated', 'promocode.created', 'promocode.depleted'],
+  PROMOCODE: ['promocode.activated', 'promocode.created', 'promocode.depleted', 'promocode.archived'],
   SUPPORT: ['support.ticket_created', 'support.ticket_user_reply'],
-  FRAUD: ['fraud.signal_opened', 'fraud.connections_dropped'],
+  FRAUD: [
+    'fraud.signal_opened', 'fraud.connections_dropped',
+    // The suppression side of anti-fraud. `candidate_exempted` is the one that
+    // matters most here: it is the only notice an operator gets that a detector
+    // has stopped reporting somebody, and it fires once per exemption, not per run.
+    'fraud.candidate_exempted', 'fraud.exemption_granted', 'fraud.exemption_revoked',
+    // The lifecycle of a signal after it opens — including the status changes
+    // an operator makes by hand. `fraud.signal_transitioned` used to be ticked
+    // from the System group because its emit site passed category SYSTEM; both
+    // sides now say FRAUD, so the card and its tick-box live together.
+    'fraud.signal_escalated', 'fraud.signal_severity_receded', 'fraud.signals_auto_resolved',
+    'fraud.signal_transitioned',
+  ],
   NODE: [
     'node.connection_lost', 'node.connection_restored', 'node.created',
     'node.modified', 'node.enabled', 'node.disabled', 'node.traffic_notify',
+    'node.geo_concentration',
   ],
   REMNAWAVE: [
     'remnawave.user.first_connected', 'remnawave.user.expired', 'remnawave.user.limited',
     'remnawave.user.expire_soon', 'remnawave.user.enabled', 'remnawave.user.disabled',
     'remnawave.user.traffic_reset', 'remnawave.user.bandwidth_threshold', 'remnawave.panel.started',
+    'remnawave.hwid_average_high',
   ],
   SYSTEM: [
     'system.startup', 'system.backup_completed', 'system.broadcast_sent', 'system.error',
     'system.remnawave_sync', 'settings.email.updated', 'notification.template.created',
     'notification.template.updated', 'notification.template.deleted', 'notification.template.seeded',
+    'system.restore_completed', 'system.bulk_users_executed',
+    'broadcast.started', 'broadcast.batch_completed', 'broadcast.channel_post_undelivered',
+    'import.completed', 'import.failed', 'import.plan_assigned', 'import.sync_enqueued',
+    'automation.telegram_notify', 'automation.custom', 'client.error', 'reiwa.error',
+    'reiwa.relay_undelivered',
   ],
 }
 
 /** Flat list of every catalog event type. */
 const ALL_EVENT_TYPES: readonly string[] = EVENT_CATEGORIES.flatMap((c) => EVENT_TYPE_CATALOG[c] ?? [])
+
+/**
+ * Catch-all tick-box: "and everything not in the list above".
+ *
+ * Deliberately NOT part of EVENT_TYPE_CATALOG — it is not an event type, so it
+ * must not be swept up by "select all", by the default selection, or by the
+ * registry spec that holds the catalogue equal to the backend's EVENT_TYPES.
+ *
+ * Mirrors `UNREGISTERED_EVENTS_SENTINEL` in
+ * `src/common/services/telegram-delivery-target.util.ts`; the two are held
+ * equal by `test/unregistered-event-delivery.spec.ts`. Covers the producers
+ * that choose their type at runtime (the automations `system_event` action
+ * with an explicit `type`, and the reiwa `/internal/events` ingest), which can
+ * never appear as a tick-box of their own and were therefore undeliverable in
+ * `selected` mode. Absent from a saved selection = off.
+ */
+const UNREGISTERED_EVENTS_SENTINEL = '*unregistered'
+
+/**
+ * One-line plain-text preview of a template body.
+ *
+ * The ellipsis is appended only when the cut actually removed something — it
+ * used to be unconditional, and most bodies are shorter than the cut, so they
+ * read as truncated when nothing had been dropped.
+ */
+function bodyPreview(body: string, max: number): string {
+  const text = body.replace(/<[^>]+>/g, '')
+  return text.length > max ? `${text.slice(0, max)}…` : text
+}
 
 // ── Main Page ────────────────────────────────────────────────────────────────
 
@@ -255,7 +319,8 @@ function UserNotificationsTab() {
 
   const { data: templates } = useQuery({
     queryKey: adminQueryKeys.notifications.templates,
-    queryFn: async () => (await api.get<NotificationTemplate[]>('/admin/notifications/templates')).data,
+    queryFn: async () =>
+      expectArray<NotificationTemplate>((await api.get('/admin/notifications/templates')).data),
   })
 
   const notifSettings = (settings?.userNotifications ?? {}) as Record<string, boolean>
@@ -356,7 +421,7 @@ function UserNotificationsTab() {
                       <span className="text-sm font-medium truncate">{tpl.title}</span>
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-lg">
-                      {tpl.body.replace(/<[^>]+>/g, '').slice(0, 80)}…
+                      {bodyPreview(tpl.body, 80)}
                     </p>
                   </div>
                   <Button variant="ghost" size="sm" onClick={() => { setEditTemplate(tpl); setEditTitle(tpl.title); setEditBody(tpl.body) }}>
@@ -376,33 +441,50 @@ function UserNotificationsTab() {
             <DialogTitle>{t('notificationsPage.templates.editDialogTitle', { type: editTemplate?.type })}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            {/* Both fields hold `:slug:` shortcodes, and the operator has to be
+                able to read what the notification will look like. The layer
+                draws them and steps aside on focus; the value it renders is the
+                one that goes to the server, untouched. The picker moves into
+                `adornment` because it is positioned against the FIELD — left
+                outside, it would sit against the wrapper instead. */}
             <div className="space-y-1.5">
               <Label>{t('notificationsPage.templates.titleLabel')}</Label>
-              <div className="relative">
+              <EmojiFieldOverlay
+                value={editTitle}
+                overlayClassName="pr-9"
+                adornment={
+                  <div className="absolute right-1 top-1/2 -translate-y-1/2">
+                    <EmojiPicker onSelect={insertIntoTitle} ariaLabel={t('notificationsPage.templates.titleLabel')} />
+                  </div>
+                }
+              >
                 <Input
                   ref={titleRef}
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
                   className="pr-9"
                 />
-                <div className="absolute right-1 top-1/2 -translate-y-1/2">
-                  <EmojiPicker onSelect={insertIntoTitle} ariaLabel={t('notificationsPage.templates.titleLabel')} />
-                </div>
-              </div>
+              </EmojiFieldOverlay>
             </div>
             <div className="space-y-1.5">
               <Label>{t('notificationsPage.templates.bodyLabel')}</Label>
-              <div className="relative">
+              <EmojiFieldOverlay
+                value={editBody}
+                multiline
+                overlayClassName="font-mono text-xs pr-9"
+                adornment={
+                  <div className="absolute right-1.5 top-1.5">
+                    <EmojiPicker onSelect={insertIntoBody} ariaLabel={t('notificationsPage.templates.bodyLabel')} />
+                  </div>
+                }
+              >
                 <Textarea
                   ref={bodyRef}
                   value={editBody}
                   onChange={(e) => setEditBody(e.target.value)}
                   className="font-mono text-xs min-h-32 pr-9"
                 />
-                <div className="absolute right-1.5 top-1.5">
-                  <EmojiPicker onSelect={insertIntoBody} ariaLabel={t('notificationsPage.templates.bodyLabel')} />
-                </div>
-              </div>
+              </EmojiFieldOverlay>
               <p className="text-[10px] text-muted-foreground">
                 {t('notificationsPage.templates.bodyHint')}
               </p>
@@ -632,11 +714,12 @@ function TelegramDeliveryForm({ settings }: TelegramDeliveryFormProps) {
   // eslint-disable-next-line react-hooks/incompatible-library
   const enabled = form.watch('enabled')
   const chatId = form.watch('chatId')
-  // eslint-disable-next-line react-hooks/incompatible-library
   const eventsMode = form.watch('eventsMode')
-  // eslint-disable-next-line react-hooks/incompatible-library
   const selectedEvents = form.watch('events')
   const selectedSet = new Set(selectedEvents)
+  // The "n of m" counter is about the tick-boxes in the grid below, so the
+  // catch-all — which is not one of them and has no denominator — is excluded.
+  const selectedCatalogCount = ALL_EVENT_TYPES.filter((type) => selectedSet.has(type)).length
 
   const toggleEvent = (type: string, checked: boolean) => {
     const next = new Set(form.getValues('events'))
@@ -880,7 +963,7 @@ function TelegramDeliveryForm({ settings }: TelegramDeliveryFormProps) {
               {eventsMode === 'selected' && (
                 <div className="space-y-3 rounded-lg border p-3">
                   <p className="text-[11px] text-muted-foreground">
-                    {t('notificationsPage.delivery.eventsSelectHint', { count: selectedSet.size, total: ALL_EVENT_TYPES.length })}
+                    {t('notificationsPage.delivery.eventsSelectHint', { count: selectedCatalogCount, total: ALL_EVENT_TYPES.length })}
                   </p>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {EVENT_CATEGORIES.map((cat) => {
@@ -921,6 +1004,27 @@ function TelegramDeliveryForm({ settings }: TelegramDeliveryFormProps) {
                       )
                     })}
                   </div>
+
+                  {/* Catch-all. Off unless explicitly ticked: the types it
+                      covers are chosen at runtime, so there is no tick-box for
+                      any of them individually and no way to preview what it
+                      admits. */}
+                  <label className="flex cursor-pointer items-start gap-2 rounded-md border border-dashed bg-muted/20 p-2.5">
+                    <Checkbox
+                      className="mt-0.5"
+                      checked={selectedSet.has(UNREGISTERED_EVENTS_SENTINEL)}
+                      onCheckedChange={(c) => toggleEvent(UNREGISTERED_EVENTS_SENTINEL, c === true)}
+                      aria-label={t('notificationsPage.delivery.eventsCatchAllLabel')}
+                    />
+                    <span className="space-y-0.5">
+                      <span className="block text-[11px] font-medium">
+                        {t('notificationsPage.delivery.eventsCatchAllLabel')}
+                      </span>
+                      <span className="block text-[10px] text-muted-foreground">
+                        {t('notificationsPage.delivery.eventsCatchAllHint')}
+                      </span>
+                    </span>
+                  </label>
                 </div>
               )}
             </div>
@@ -1367,5 +1471,3 @@ function EmailDeliveryForm({ initial }: EmailDeliveryFormProps) {
     </Card>
   )
 }
-
-

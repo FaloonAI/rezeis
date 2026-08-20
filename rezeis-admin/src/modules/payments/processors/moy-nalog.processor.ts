@@ -7,7 +7,10 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
 import { MOY_NALOG_JOBS, MOY_NALOG_QUEUE } from '../constants/moy-nalog.constant';
 import { MoyNalogApiService, MoyNalogAuth } from '../services/moy-nalog-api.service';
 import { renderIncomeName } from '../utils/moy-nalog-income-name.util';
-import { readGatewaySettings } from '../utils/payment-gateway-settings.util';
+import {
+  encryptGatewaySettingsForStorage,
+  readGatewaySettings,
+} from '../utils/payment-gateway-settings.util';
 
 /**
  * Registers a COMPLETED YooKassa transaction as self-employed income in
@@ -27,6 +30,10 @@ export class MoyNalogProcessor extends WorkerHost {
   }
 
   public override async process(job: Job): Promise<void> {
+    if (job.name === MOY_NALOG_JOBS.CANCEL_INCOME) {
+      await this.processCancelIncome(job);
+      return;
+    }
     if (job.name !== MOY_NALOG_JOBS.REGISTER_INCOME) {
       return;
     }
@@ -95,11 +102,72 @@ export class MoyNalogProcessor extends WorkerHost {
   }
 
   /**
+   * Cancels a previously-registered «Мой Налог» income receipt for a refunded /
+   * charged-back transaction. Idempotent: skips when there is no stored receipt
+   * uuid (income was never registered) or it was already cancelled. Throws on a
+   * failed cancellation so BullMQ retries — the tax receipt MUST be voided.
+   */
+  private async processCancelIncome(job: Job): Promise<void> {
+    const transactionId = readTransactionId(job.data);
+    const transaction = await this.prismaService.transaction.findUnique({
+      where: { id: transactionId },
+    });
+    if (transaction === null || transaction.gatewayType !== PaymentGatewayType.YOOKASSA) {
+      return;
+    }
+
+    const gatewayData = readGatewayData(transaction.gatewayData);
+    const receiptUuid = gatewayData.moyNalogReceiptUuid;
+    if (typeof receiptUuid !== 'string' || receiptUuid.length === 0) {
+      // Income was never registered — nothing to cancel.
+      return;
+    }
+    if (typeof gatewayData.moyNalogCancelledAt === 'string' && gatewayData.moyNalogCancelledAt.length > 0) {
+      // Already cancelled — idempotent guard against retries / replays.
+      return;
+    }
+
+    const gateway = await this.prismaService.paymentGateway.findUnique({
+      where: { type: PaymentGatewayType.YOOKASSA },
+    });
+    if (gateway === null) {
+      return;
+    }
+    const settings = readGatewaySettings(gateway.settings);
+    const auth = buildAuth(settings, async (rotatedRefreshToken: string) => {
+      await this.persistRotatedRefreshToken(gateway.id, gateway.settings, rotatedRefreshToken);
+    });
+
+    const cancelled = await this.moyNalogApiService.cancelIncome({ auth, receiptUuid });
+    if (!cancelled) {
+      throw new Error(`МойНалог income cancellation failed for transaction ${transactionId}`);
+    }
+
+    await this.prismaService.transaction.update({
+      where: { id: transaction.id },
+      data: {
+        gatewayData: mergeGatewayData(transaction.gatewayData, {
+          moyNalogCancelledAt: new Date().toISOString(),
+        }) as Prisma.InputJsonValue,
+      },
+    });
+    this.logger.log(`Cancelled МойНалог income for refunded transaction ${transactionId}`);
+  }
+
+  /**
    * Persists a rotated «Мой Налог» refresh token back into the YooKassa
    * gateway settings so the next job authenticates with the current token.
    * Best-effort: a failure here is logged and swallowed (the income is already
    * registered; only the next refresh-auth would be affected). Merges into the
    * raw settings JSON so unrelated gateway fields are preserved.
+   *
+   * This is the one credential write that does not go through
+   * `PaymentGatewayRegistryService`, so it has to encrypt the rotated token
+   * itself — otherwise every token rotation would quietly drop a plaintext
+   * refresh token into an otherwise-encrypted row. Merging into the RAW stored
+   * settings (not the decrypted view) is deliberate: the surrounding envelopes
+   * are carried over verbatim, so a crypt-key problem cannot turn this
+   * best-effort write into a wipe of the other credentials.
    */
   private async persistRotatedRefreshToken(
     gatewayId: string,
@@ -109,7 +177,9 @@ export class MoyNalogProcessor extends WorkerHost {
     try {
       const merged = {
         ...readGatewayData(currentSettings),
-        moyNalogRefreshToken: rotatedRefreshToken,
+        ...encryptGatewaySettingsForStorage(PaymentGatewayType.YOOKASSA, {
+          moyNalogRefreshToken: rotatedRefreshToken,
+        }),
       };
       await this.prismaService.paymentGateway.update({
         where: { id: gatewayId },

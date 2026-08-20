@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { BadRequestException } from '@nestjs/common';
-import { Currency, PaymentGatewayType, Prisma } from '@prisma/client';
+import { Currency, PaymentGatewayType, PlanAvailability, Prisma } from '@prisma/client';
 import fc from 'fast-check';
 
 import { SubscriptionRenewalService } from '../src/modules/subscriptions/services/subscription-renewal.service';
@@ -64,12 +64,16 @@ describe('SubscriptionRenewalService.priceRenewalItems', () => {
       description: null,
       tag: null,
       type: 'BOTH',
+      // Frozen at draft time so fulfillment can restore it without re-reading
+      // the (mutable) plan row — a renewal must not drop the plan's glyph.
+      icon: 'icon-plan-s1',
       trafficLimit: 1024,
       deviceLimit: 1,
       trafficLimitStrategy: 'NO_RESET',
       internalSquads: [],
       externalSquad: null,
-      snapshotVersion: 1,
+      snapshotVersion: 2,
+      availability: PlanAvailability.ALL,
       amount: '10.00',
       currency: Currency.USD,
       gatewayType: GATEWAY,
@@ -444,8 +448,10 @@ function createService(
   const buildPlan = (id: string, days: readonly number[]) => ({
     id,
     name: `Plan ${id}`,
+    availability: PlanAvailability.ALL,
     tag: null,
     type: 'BOTH',
+    icon: `icon-${id}`,
     trafficLimit: 1024,
     deviceLimit: 1,
     trafficLimitStrategy: 'NO_RESET',

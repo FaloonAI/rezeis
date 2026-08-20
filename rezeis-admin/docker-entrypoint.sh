@@ -20,6 +20,43 @@ PROCESS_ROLE="${RUID_PROCESS_ROLE:-api}"
 SKIP_MIGRATIONS="${RUID_SKIP_MIGRATIONS:-false}"
 APP_USER="rezeis"
 APP_UID="1001"
+PRISMA="./node_modules/.bin/prisma"
+
+# Migrations whose every statement is guarded by IF NOT EXISTS / IF EXISTS, so a
+# half-applied one can simply be re-run. Membership is what decides between "the
+# next start retries it" and "the API refuses to boot until a human runs
+# `prisma migrate resolve`" — and Prisma migrations are NOT atomic: an
+# interrupted file leaves its earlier statements committed and the row marked
+# `finished=false`. Verified by interrupting one on purpose.
+#
+# ADDING TO THIS LIST IS NOT AUTOMATIC. A migration belongs here only if running
+# it twice is provably harmless. The two panel-identity entries were checked that
+# way — applied, then applied again on the same database, second run clean with
+# nothing but `NOTICE ... already exists, skipping`.
+is_auto_recoverable_migration() {
+  case "$1" in
+    20260708120000_perf_composite_indexes|20260724120000_reconcile_subscription_expiry_index|20260724120500_drop_conflicting_subscription_expiry_index|20260724121000_swap_subscription_expiry_index|20260810120000_remnawave_panel_identity|20260810160000_index_subscription_panel_identity)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+cleanup_retry_artifacts() {
+  case "$1" in
+    20260724120000_reconcile_subscription_expiry_index)
+      echo "[entrypoint] removing a possibly incomplete subscription expiry staging index"
+      if ! printf '%s\n' \
+        'DROP INDEX CONCURRENTLY IF EXISTS "public"."subscriptions_status_expires_at_rebuild_idx";' \
+        | "${PRISMA}" db execute --stdin 2>&1; then
+        echo "[entrypoint] FATAL: failed to remove the subscription expiry staging index"
+        return 1
+      fi
+      ;;
+  esac
+}
 
 echo "[entrypoint] role=${PROCESS_ROLE} skip-migrations=${SKIP_MIGRATIONS}"
 
@@ -44,18 +81,16 @@ if [ "${PROCESS_ROLE}" != "worker" ] && [ "${SKIP_MIGRATIONS}" != "true" ]; then
   # already gate startup, but this protects against external/managed DBs that
   # depends_on can't health-check.
   #
-  # P3009 auto-recovery: if a previous deploy left a migration in the FAILED
-  # state, Prisma refuses to apply anything (a plain retry loop can never clear
-  # it). A Prisma/PostgreSQL migration runs in a transaction, so a failed one
-  # leaves NOTHING half-applied — marking it rolled-back lets the next deploy
-  # re-apply it cleanly (our migrations are idempotent, e.g. CREATE INDEX
-  # IF NOT EXISTS). Each distinct failed migration is rolled back at MOST once,
-  # so a genuinely-broken migration still fails fast instead of looping forever.
+  # P3009 auto-recovery is deliberately allow-listed. PostgreSQL migrations are
+  # not guaranteed to be transactional, so marking an arbitrary failed
+  # migration rolled back can replay partially applied DDL. Only explicitly
+  # retry-safe index migrations may be resolved automatically; every
+  # other failed migration stops for operator review.
   attempt=0
   max_attempts=30
   resolved_migration=""
   while true; do
-    if deploy_output="$(npx prisma migrate deploy 2>&1)"; then
+    if deploy_output="$("${PRISMA}" migrate deploy 2>&1)"; then
       status=0
     else
       status=$?
@@ -67,12 +102,28 @@ if [ "${PROCESS_ROLE}" != "worker" ] && [ "${SKIP_MIGRATIONS}" != "true" ]; then
 
     if echo "${deploy_output}" | grep -q "P3009"; then
       failed_migration="$(echo "${deploy_output}" | grep -oE '[0-9]{14}_[A-Za-z0-9_]+' | head -n 1)"
-      if [ -n "${failed_migration}" ] && [ "${failed_migration}" != "${resolved_migration}" ]; then
+      if [ -z "${failed_migration}" ]; then
+        echo "[entrypoint] FATAL: P3009 did not include a parseable migration name; manual recovery required"
+        exit "${status}"
+      fi
+      if ! is_auto_recoverable_migration "${failed_migration}"; then
+        echo "[entrypoint] FATAL: migration ${failed_migration} is not safe to auto-resolve; manual recovery required"
+        exit "${status}"
+      fi
+      if [ "${failed_migration}" != "${resolved_migration}" ]; then
+        if ! cleanup_retry_artifacts "${failed_migration}"; then
+          exit "${status}"
+        fi
         echo "[entrypoint] failed migration detected (P3009): ${failed_migration} — marking rolled-back so it can be re-applied"
-        npx prisma migrate resolve --rolled-back "${failed_migration}" 2>&1 || true
+        if ! "${PRISMA}" migrate resolve --rolled-back "${failed_migration}" 2>&1; then
+          echo "[entrypoint] FATAL: failed to mark ${failed_migration} rolled back"
+          exit "${status}"
+        fi
         resolved_migration="${failed_migration}"
         continue
       fi
+      echo "[entrypoint] FATAL: ${failed_migration} failed again after one safe recovery attempt"
+      exit "${status}"
     fi
 
     attempt=$((attempt + 1))

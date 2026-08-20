@@ -3,6 +3,7 @@ import {
   AddOnLifetime,
   AddOnType,
   AddOnEntitlementActorType,
+  AddOnEntitlementState,
   DeviceType,
   Plan,
   PlanAvailability,
@@ -16,6 +17,7 @@ import {
   SyncJobStatus,
   Transaction,
   TransactionItem,
+  TransactionStatus,
 } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
@@ -31,6 +33,11 @@ import { AddOnEntitlementService } from '../../add-on-entitlements/services/add-
 import { ensureLiveResetEpoch } from '../../add-on-entitlements/services/reset-epoch.util';
 import { EffectiveProjectionService } from '../../add-on-entitlements/services/effective-projection.service';
 import { SubscriptionTermService } from '../../add-on-entitlements/services/subscription-term.service';
+import { readTrialSettings } from '../../plans/utils/trial-settings.util';
+import {
+  consumePaidTrialClaim,
+  countCommittedTrialClaimUnits,
+} from '../../subscriptions/services/trial-claim-ledger.util';
 
 @Injectable()
 export class PaymentSubscriptionMutationService {
@@ -199,18 +206,21 @@ export class PaymentSubscriptionMutationService {
         // A legacy in-flight draft (no snapshotVersion) can't be snapshot-verified;
         // fall back to the live plan row, exactly as fulfillment did before strict
         // verification shipped — so paid money is never stranded.
+        const livePlan = await transactionClient.plan.findUnique({ where: { id: item.planId } });
         const plan =
           parsePaidRenewalPlanSnapshot(item.planSnapshot, item, transaction.gatewayType) ??
-          (await transactionClient.plan.findUnique({ where: { id: item.planId } }));
+          livePlan;
         if (plan === null) {
           throw new NotFoundException(`Renewal plan not found: ${item.planId}`);
         }
-        const currentSubscription = await transactionClient.subscription.findUnique({
-          where: { id: item.subscriptionId },
-        });
-        if (currentSubscription === null) {
-          throw new NotFoundException(`Renewal subscription not found: ${item.subscriptionId}`);
-        }
+        const currentSubscription = await this.lockRenewalSubscriptionInTransaction(
+          transactionClient,
+          item.subscriptionId,
+        );
+        assertRenewalFulfillmentPolicy(
+          currentSubscription,
+          readPersistedPlanAvailability(item.planSnapshot),
+        );
 
         const addOnLines = readRenewalAddOnLines(item.addOnLines);
         const durableTermRequired =
@@ -661,11 +671,13 @@ export class PaymentSubscriptionMutationService {
     readonly purchasedPlan: Plan;
     readonly selectedDurationDays: number;
   }): Promise<{ readonly subscription: Subscription; readonly syncJob: ProfileSyncJob }> {
-    // A paid trial is a NEW purchase of a TRIAL-availability plan. Mark the
-    // resulting subscription as a trial so it counts against the user's
-    // claim limit and renders with the trial badge, and stamp the
-    // TrialGrant ledger exactly like the free grant does.
-    const isTrialPurchase = input.purchasedPlan.availability === PlanAvailability.TRIAL;
+    // A paid trial is a NEW purchase whose checkout-time plan availability was
+    // TRIAL. Prefer the persisted snapshot so a later catalog edit cannot turn
+    // a paid trial into a renewable regular subscription (or vice versa).
+    // Legacy drafts without the field retain their original live-plan behavior.
+    const checkoutAvailability = readPersistedPlanAvailability(input.transaction.planSnapshot);
+    const isTrialPurchase =
+      (checkoutAvailability ?? input.purchasedPlan.availability) === PlanAvailability.TRIAL;
     const result = await this.prismaService.$transaction(async (transactionClient) => {
       const now = new Date();
       const createdSubscription = await transactionClient.subscription.create({
@@ -697,6 +709,28 @@ export class PaymentSubscriptionMutationService {
           update: { planId: input.purchasedPlan.id, grantedAt: now },
         });
       }
+      let lateSuccessOverCap: { readonly usedUnits: number; readonly maxClaims: number } | null = null;
+      if (isTrialPurchase) {
+        const consumed = await consumePaidTrialClaim(transactionClient, {
+          userId: input.transaction.userId,
+          planId: input.purchasedPlan.id,
+          transactionId: input.transaction.id,
+          subscriptionId: createdSubscription.id,
+          now,
+        });
+        if (consumed.revivedReleased) {
+          const usedUnits = await countCommittedTrialClaimUnits(
+            transactionClient,
+            input.transaction.userId,
+          );
+          const maxClaims = readTrialSettings(
+            readPersistedTrialSettings(input.transaction.planSnapshot),
+          ).maxClaims;
+          if (usedUnits > maxClaims) {
+            lateSuccessOverCap = { usedUnits, maxClaims };
+          }
+        }
+      }
       const syncJob = await transactionClient.profileSyncJob.create({
         data: {
           subscriptionId: createdSubscription.id,
@@ -713,6 +747,7 @@ export class PaymentSubscriptionMutationService {
         data: {
           subscriptionId: createdSubscription.id,
           fulfilledAt: now,
+          status: TransactionStatus.COMPLETED,
         },
       });
       // Backfill the user's "current subscription" pointer when they don't
@@ -726,10 +761,34 @@ export class PaymentSubscriptionMutationService {
       return {
         subscription: createdSubscription,
         syncJob,
+        lateSuccessOverCap,
       };
     });
 
-    return result;
+    if (result.lateSuccessOverCap !== null) {
+      const metadata = {
+        code: 'TRIAL_CLAIM_LATE_SUCCESS_OVER_CAP',
+        userId: input.transaction.userId,
+        transactionId: input.transaction.id,
+        paymentId: input.transaction.paymentId,
+        planId: input.purchasedPlan.id,
+        subscriptionId: result.subscription.id,
+        usedUnits: result.lateSuccessOverCap.usedUnits,
+        maxClaims: result.lateSuccessOverCap.maxClaims,
+      };
+      this.logger.warn(
+        `TRIAL_CLAIM_LATE_SUCCESS_OVER_CAP transaction=${input.transaction.id} ` +
+          `used=${metadata.usedUnits} max=${metadata.maxClaims}`,
+      );
+      this.events.warn(
+        EVENT_TYPES.TRIAL_CLAIM_LATE_SUCCESS_OVER_CAP,
+        'PAYMENT',
+        'Late paid-trial success fulfilled after its released quota slot was reused',
+        metadata,
+      );
+    }
+
+    return { subscription: result.subscription, syncJob: result.syncJob };
   }
 
   private async renewSubscriptionFromPayment(input: {
@@ -741,12 +800,14 @@ export class PaymentSubscriptionMutationService {
       throw new NotFoundException('Source subscription not found');
     }
     const result = await this.prismaService.$transaction(async (transactionClient) => {
-      const currentSubscription = await transactionClient.subscription.findUnique({
-        where: { id: input.transaction.subscriptionId! },
-      });
-      if (currentSubscription === null) {
-        throw new NotFoundException('Source subscription not found');
-      }
+      const currentSubscription = await this.lockRenewalSubscriptionInTransaction(
+        transactionClient,
+        input.transaction.subscriptionId!,
+      );
+      assertRenewalFulfillmentPolicy(
+        currentSubscription,
+        readPersistedPlanAvailability(input.transaction.planSnapshot),
+      );
       const term = resolveAddOnRolloutFlags().entitlementShadow
         ? await this.scheduleRenewalTermInTransaction(transactionClient, {
             subscriptionId: currentSubscription.id,
@@ -799,7 +860,7 @@ export class PaymentSubscriptionMutationService {
       });
       await transactionClient.transaction.update({
         where: { id: input.transaction.id },
-        data: { fulfilledAt: now },
+        data: { fulfilledAt: now, status: TransactionStatus.COMPLETED },
       });
       return {
         subscription: renewedSubscription,
@@ -808,6 +869,32 @@ export class PaymentSubscriptionMutationService {
     });
 
     return result;
+  }
+
+  /**
+   * Locks and then re-reads the renewal source inside the fulfillment
+   * transaction. The row lock is unconditional (also when durable terms are
+   * disabled), so a concurrent disable/trial mutation cannot be overwritten by
+   * the later ACTIVE renewal update.
+   */
+  private async lockRenewalSubscriptionInTransaction(
+    tx: Prisma.TransactionClient,
+    subscriptionId: string,
+  ): Promise<Subscription> {
+    const locked = await tx.$queryRaw<readonly { readonly id: string }[]>(Prisma.sql`
+      SELECT "id"
+      FROM "subscriptions"
+      WHERE "id" = ${subscriptionId}
+      FOR UPDATE
+    `);
+    if (locked.length !== 1) {
+      throw new NotFoundException(`Renewal subscription not found: ${subscriptionId}`);
+    }
+    const subscription = await tx.subscription.findUnique({ where: { id: subscriptionId } });
+    if (subscription === null) {
+      throw new NotFoundException(`Renewal subscription not found: ${subscriptionId}`);
+    }
+    return subscription;
   }
 
   /**
@@ -865,6 +952,7 @@ export class PaymentSubscriptionMutationService {
         description: input.plan.description,
         tag: input.plan.tag,
         type: input.plan.type,
+        icon: input.plan.icon ?? null,
         trafficLimit: input.plan.trafficLimit,
         deviceLimit: input.plan.deviceLimit,
         trafficLimitStrategy: input.plan.trafficLimitStrategy,
@@ -884,6 +972,140 @@ export class PaymentSubscriptionMutationService {
     return { id: created.id, startsAt, endsAt };
   }
 
+  /**
+   * Opens the durable term for a fulfilled PLAN CHANGE (`PurchaseType.UPGRADE`).
+   *
+   * A term's `baseTrafficLimitBytes` / `baseDeviceLimit` are "what the customer
+   * bought for THIS term": written once by
+   * {@link SubscriptionTermService.createScheduledInTransaction} and never
+   * mutated afterwards (every other `subscriptionTerm` write touches only
+   * `status`, `endedAt` or `resetAnchorAt`), with add-on entitlements layering
+   * on top in {@link EffectiveProjectionService}. So a plan change cannot edit
+   * the baseline in place; it ends the current term and starts a new one, the
+   * same move {@link scheduleRenewalTermInTransaction} makes for a renewal.
+   *
+   * It differs from renewal in WHEN the new term starts. A renewal buys time at
+   * the tail, so its term is SCHEDULED at `tail.endsAt`. An upgrade resets the
+   * window to `now` (the `UPGRADE_RESETS_EXPIRY` quote warning), so its term
+   * starts NOW and is activated immediately — `activateInTransaction` ends the
+   * outgoing ACTIVE term as part of the same claim.
+   *
+   * Returns `null` when the durable model does not apply (no ACTIVE term, i.e.
+   * no cutover has run), leaving the caller on the legacy column-only path.
+   */
+  private async startUpgradeTermInTransaction(
+    tx: Prisma.TransactionClient,
+    input: {
+      readonly subscriptionId: string;
+      readonly plan: Plan;
+      readonly durationDays: number;
+      readonly startsAt: Date;
+      readonly endsAt: Date | null;
+    },
+  ): Promise<{ readonly id: string } | null> {
+    const parent = await tx.$queryRaw<Array<{ id: string; status: SubscriptionStatus }>>(Prisma.sql`
+      SELECT "id", "status"::text AS "status"
+      FROM "subscriptions"
+      WHERE "id" = ${input.subscriptionId}
+      FOR UPDATE
+    `);
+    if (parent.length !== 1 || parent[0]!.status === SubscriptionStatus.DELETED) {
+      throw new ConflictException('Cannot start an upgrade term on a missing or deleted subscription');
+    }
+
+    const activeTerm = await tx.subscriptionTerm.findFirst({
+      where: { subscriptionId: input.subscriptionId, status: SubscriptionTermStatus.ACTIVE },
+      orderBy: { generation: 'desc' },
+      select: { id: true },
+    });
+    if (activeTerm === null) return null; // durable model not applicable (no cutover)
+
+    // A queued SCHEDULED tail was allocated inside the expiry window this
+    // upgrade has just discarded, so its window is already void — and it also
+    // blocks activation outright, because `activateInTransaction` only ever
+    // activates the LOWEST scheduled generation while the term minted below is
+    // always the highest. Left alone it would activate later and reinstate a
+    // superseded plan's baseline: the very reversion this method exists to
+    // stop, merely deferred. So cancel it.
+    //
+    // Never when it carries entitlements, though. Stranding goods the customer
+    // has already paid for is worse than a stale baseline, and the entitlement
+    // state machine has no CANCEL command to retire them with (`REVERSE` is a
+    // compensating financial reversal, not a cancellation). That case keeps
+    // today's behaviour and is reported rather than silently resolved.
+    const scheduled = await tx.subscriptionTerm.findMany({
+      where: { subscriptionId: input.subscriptionId, status: SubscriptionTermStatus.SCHEDULED },
+      select: { id: true },
+    });
+    if (scheduled.length > 0) {
+      const scheduledIds = scheduled.map((term) => term.id);
+      const boundEntitlements = await tx.addOnEntitlement.count({
+        where: {
+          termId: { in: scheduledIds },
+          state: {
+            in: [
+              AddOnEntitlementState.PENDING_ACTIVATION,
+              AddOnEntitlementState.ACTIVE,
+              AddOnEntitlementState.EXPIRING,
+            ],
+          },
+        },
+      });
+      if (boundEntitlements > 0) {
+        this.logger.warn(
+          `UPGRADE_TERM_DEFERRED_SCHEDULED_ENTITLEMENTS subscription=${input.subscriptionId} ` +
+            `scheduledTerms=${scheduledIds.length} entitlements=${boundEntitlements}`,
+        );
+        this.events.warn(
+          EVENT_TYPES.SYSTEM_ERROR,
+          'SYSTEM',
+          'Upgrade kept the previous term baseline: a scheduled term carries paid entitlements',
+          {
+            code: 'UPGRADE_TERM_DEFERRED_SCHEDULED_ENTITLEMENTS',
+            subscriptionId: input.subscriptionId,
+            planId: input.plan.id,
+            scheduledTermIds: scheduledIds,
+            boundEntitlements,
+          },
+        );
+        return null;
+      }
+      await tx.subscriptionTerm.updateMany({
+        where: { id: { in: scheduledIds }, status: SubscriptionTermStatus.SCHEDULED },
+        data: { status: SubscriptionTermStatus.CANCELED, endedAt: input.startsAt },
+      });
+    }
+
+    const created = await this.subscriptionTermService.createScheduledInTransaction(tx, {
+      subscriptionId: input.subscriptionId,
+      planId: input.plan.id,
+      planSnapshot: {
+        id: input.plan.id,
+        name: input.plan.name,
+        description: input.plan.description,
+        tag: input.plan.tag,
+        type: input.plan.type,
+        icon: input.plan.icon ?? null,
+        trafficLimit: input.plan.trafficLimit,
+        deviceLimit: input.plan.deviceLimit,
+        trafficLimitStrategy: input.plan.trafficLimitStrategy,
+        internalSquads: input.plan.internalSquads,
+        externalSquad: input.plan.externalSquad,
+        selectedDurationDays: input.durationDays,
+        snapshotSource: 'UPGRADE_TERM',
+      } as Prisma.InputJsonValue,
+      startsAt: input.startsAt,
+      endsAt: input.endsAt,
+      baseTrafficLimitBytes:
+        input.plan.trafficLimit === null ? null : BigInt(input.plan.trafficLimit) * GIB_BYTES,
+      baseDeviceLimit: input.plan.deviceLimit <= 0 ? null : input.plan.deviceLimit,
+      trafficResetStrategy: input.plan.trafficLimitStrategy,
+      resetAnchorAt: provisionalResetAnchor(input.plan.trafficLimitStrategy, input.startsAt),
+    });
+    await this.subscriptionTermService.activateInTransaction(tx, created.id, input.startsAt);
+    return { id: created.id };
+  }
+
   private async upgradeSubscriptionFromPayment(input: {
     readonly transaction: Transaction;
     readonly purchasedPlan: Plan;
@@ -900,6 +1122,36 @@ export class PaymentSubscriptionMutationService {
         throw new NotFoundException('Source subscription not found');
       }
       const now = new Date();
+      const expiresAt = calculateExpiry(now, input.selectedDurationDays);
+      // Move the term baseline onto the purchased plan BEFORE the column write.
+      // Without this the ACTIVE term keeps the superseded plan's baseline, and
+      // any later versioned job recomputes `old_base + active add-ons` and
+      // pushes it to the panel — silently undoing the plan change the customer
+      // just paid for. Same gate as the renewal path, so a deployment with the
+      // durable model off is untouched.
+      const term = resolveAddOnRolloutFlags().entitlementShadow
+        ? await this.startUpgradeTermInTransaction(transactionClient, {
+            subscriptionId: currentSubscription.id,
+            plan: input.purchasedPlan,
+            durationDays: input.selectedDurationDays,
+            startsAt: now,
+            endsAt: expiresAt,
+          })
+        : null;
+      // With a durable term the projection owns the effective limits, so the
+      // legacy columns mirror it instead of the raw plan — otherwise add-on
+      // entitlements still ACTIVE across the plan change would be dropped from
+      // the columns and taken back by the legacy sync path. Matches every other
+      // projection-aware writer (`applyAddOnViaLedger`, the boundary sweep,
+      // `forceReconcile`). Renewal defers instead because its term is SCHEDULED,
+      // not active yet; an upgrade's term starts now.
+      const projection =
+        term === null
+          ? null
+          : await this.effectiveProjectionService.recomputeInTransaction(transactionClient, {
+              subscriptionId: currentSubscription.id,
+              mode: 'ACTIVE',
+            });
       const upgradedSubscription = await transactionClient.subscription.update({
         where: { id: currentSubscription.id },
         data: {
@@ -913,12 +1165,22 @@ export class PaymentSubscriptionMutationService {
             purchasedPlan: input.purchasedPlan,
             selectedDurationDays: input.selectedDurationDays,
           }) as Prisma.InputJsonValue,
-          trafficLimit: input.purchasedPlan.trafficLimit,
-          deviceLimit: input.purchasedPlan.deviceLimit,
+          trafficLimit:
+            projection === null
+              ? input.purchasedPlan.trafficLimit
+              : projection.desiredTrafficLimitBytes === null
+                ? null
+                : Number(projection.desiredTrafficLimitBytes / GIB_BYTES),
+          deviceLimit:
+            projection === null
+              ? input.purchasedPlan.deviceLimit
+              : projection.desiredDeviceLimit === null
+                ? 0
+                : projection.desiredDeviceLimit,
           internalSquads: input.purchasedPlan.internalSquads,
           externalSquad: input.purchasedPlan.externalSquad,
           startedAt: now,
-          expiresAt: calculateExpiry(now, input.selectedDurationDays),
+          expiresAt,
         },
       });
       const syncJob = await transactionClient.profileSyncJob.create({
@@ -926,6 +1188,16 @@ export class PaymentSubscriptionMutationService {
           subscriptionId: upgradedSubscription.id,
           action: upgradedSubscription.remnawaveId === null ? SyncAction.CREATE : SyncAction.UPDATE,
           status: SyncJobStatus.PENDING,
+          // Versioned only when a projection backs it: `tryVersionedDesiredStateWrite`
+          // requires both `aggregateKey` and `desiredRevision`, and a job carrying
+          // neither stays on the legacy absolute update exactly as before.
+          ...(projection === null
+            ? {}
+            : {
+                aggregateKey: upgradedSubscription.id,
+                desiredRevision: projection.desiredRevision,
+                cause: 'PLAN_CHANGE',
+              }),
           payload: {
             source: 'PAYMENT_COMPLETION',
             paymentId: input.transaction.paymentId,
@@ -934,7 +1206,7 @@ export class PaymentSubscriptionMutationService {
       });
       await transactionClient.transaction.update({
         where: { id: input.transaction.id },
-        data: { fulfilledAt: now },
+        data: { fulfilledAt: now, status: TransactionStatus.COMPLETED },
       });
       return {
         subscription: upgradedSubscription,
@@ -966,6 +1238,7 @@ function buildPlanSnapshot(input: {
     description: input.purchasedPlan.description,
     tag: input.purchasedPlan.tag,
     type: input.purchasedPlan.type,
+    icon: input.purchasedPlan.icon ?? null,
     trafficLimit: input.purchasedPlan.trafficLimit,
     deviceLimit: input.purchasedPlan.deviceLimit,
     trafficLimitStrategy: input.purchasedPlan.trafficLimitStrategy,
@@ -997,6 +1270,7 @@ function buildItemPlanSnapshot(input: {
     description: input.plan.description,
     tag: input.plan.tag,
     type: input.plan.type,
+    icon: input.plan.icon ?? null,
     trafficLimit: input.plan.trafficLimit,
     deviceLimit: input.plan.deviceLimit,
     trafficLimitStrategy: input.plan.trafficLimitStrategy,
@@ -1174,6 +1448,41 @@ function isCombinedRenewalTransaction(transaction: Transaction): boolean {
     (marker['snapshotVersion'] === 1 || marker['snapshotVersion'] === undefined)
   );
 }
+
+function assertRenewalFulfillmentPolicy(
+  subscription: Pick<Subscription, 'status' | 'isTrial'>,
+  persistedTargetAvailability: PlanAvailability | null,
+): void {
+  if (subscription.isTrial) {
+    throw new ConflictException('TRIAL_NOT_RENEWABLE');
+  }
+  if (subscription.status === SubscriptionStatus.DISABLED) {
+    throw new ConflictException('SUBSCRIPTION_DISABLED_NOT_RENEWABLE');
+  }
+  if (subscription.status === SubscriptionStatus.DELETED) {
+    throw new ConflictException('RENEWAL_SUBSCRIPTION_NOT_RENEWABLE');
+  }
+  if (persistedTargetAvailability === PlanAvailability.TRIAL) {
+    throw new ConflictException('TRIAL_PLAN_NOT_RENEWAL_TARGET');
+  }
+}
+
+function readPersistedPlanAvailability(raw: Prisma.JsonValue): PlanAvailability | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return null;
+  }
+  const availability = raw['availability'];
+  return (Object.values(PlanAvailability) as unknown[]).includes(availability)
+    ? (availability as PlanAvailability)
+    : null;
+}
+
+function readPersistedTrialSettings(raw: Prisma.JsonValue): Prisma.JsonValue | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return null;
+  }
+  return (raw['trialSettings'] as Prisma.JsonValue | undefined) ?? null;
+}
 /**
  * Verifies a paid renewal item's plan snapshot against the transaction item.
  *
@@ -1183,9 +1492,10 @@ function isCombinedRenewalTransaction(transaction: Transaction): boolean {
  * `type`/`trafficLimitStrategy`/`deviceLimit`/squads) and were always fulfilled
  * by reading the live plan row, so the caller must fall back to
  * `plan.findUnique` for them. Failing them here would strand paid money on an
- * unfulfillable transaction (the reconciler retries forever). New drafts carry
- * `snapshotVersion: 1` and are verified strictly to pin pricing/limits against
- * mutable catalog state.
+ * unfulfillable transaction (the reconciler retries forever). Version 1
+ * snapshots are verified strictly to pin pricing/limits against mutable
+ * catalog state. Version 2 additionally pins target availability so a later
+ * catalog edit cannot invalidate an already-paid renewal.
  */
 function parsePaidRenewalPlanSnapshot(
   raw: Prisma.JsonValue,
@@ -1203,7 +1513,7 @@ function parsePaidRenewalPlanSnapshot(
   const planTypes = ['TRAFFIC', 'DEVICES', 'BOTH', 'UNLIMITED'];
   const requiredStrings = ['id', 'name', 'type', 'description', 'tag'];
   if (
-    snapshot['snapshotVersion'] !== 1 ||
+    (snapshot['snapshotVersion'] !== 1 && snapshot['snapshotVersion'] !== 2) ||
     snapshot['snapshotSource'] !== 'RENEWAL_DRAFT' ||
     snapshot['purchaseType'] !== PurchaseType.RENEW ||
     requiredStrings.some((key) =>
@@ -1229,7 +1539,9 @@ function parsePaidRenewalPlanSnapshot(
     !strategies.includes(snapshot['trafficLimitStrategy']) ||
     !Array.isArray(snapshot['internalSquads']) ||
     snapshot['internalSquads'].some((value) => typeof value !== 'string') ||
-    (snapshot['externalSquad'] !== null && typeof snapshot['externalSquad'] !== 'string')
+    (snapshot['externalSquad'] !== null && typeof snapshot['externalSquad'] !== 'string') ||
+    (snapshot['snapshotVersion'] === 2 &&
+      !(Object.values(PlanAvailability) as unknown[]).includes(snapshot['availability']))
   ) {
     throw new ConflictException('Paid renewal plan snapshot does not match transaction item');
   }
@@ -1238,6 +1550,14 @@ function parsePaidRenewalPlanSnapshot(
     name: snapshot['name'] as string,
     description: typeof snapshot['description'] === 'string' ? snapshot['description'] : null,
     tag: typeof snapshot['tag'] === 'string' ? snapshot['tag'] : null,
+    // Carried through so the renewal keeps the plan icon frozen at draft time.
+    // Legacy drafts predate the field — absent → `null`, and the card falls
+    // back to the status glyph exactly as it did before.
+    icon: typeof snapshot['icon'] === 'string' ? snapshot['icon'] : null,
+    availability:
+      snapshot['snapshotVersion'] === 2
+        ? (snapshot['availability'] as PlanAvailability)
+        : PlanAvailability.ALL,
     type: snapshot['type'] as Plan['type'],
     trafficLimit: snapshot['trafficLimit'] as number | null,
     deviceLimit: snapshot['deviceLimit'] as number,

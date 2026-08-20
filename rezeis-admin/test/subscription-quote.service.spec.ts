@@ -75,7 +75,10 @@ describe('SubscriptionQuoteService', () => {
       UPGRADE: false,
       TRIAL: false,
     });
-    assert.deepStrictEqual(actualPolicy.availablePlans.map((plan) => plan.id), ['plan-new']);
+    assert.deepStrictEqual(
+      actualPolicy.availablePlans.map((plan) => plan.id),
+      ['plan-new'],
+    );
   });
 
   it('blocks NEW when an active trial requires upgrade and exposes upgrade candidates', async () => {
@@ -84,7 +87,11 @@ describe('SubscriptionQuoteService', () => {
       subscriptions: [createSubscription({ id: 'trial-sub', isTrial: true, planId: 'trial-plan' })],
       trialGrant: { id: 'trial-grant-1' },
       plans: [
-        createPlan({ id: 'trial-plan', availability: PlanAvailability.TRIAL, upgradeToPlanIds: ['paid-plan'] }),
+        createPlan({
+          id: 'trial-plan',
+          availability: PlanAvailability.TRIAL,
+          upgradeToPlanIds: ['paid-plan'],
+        }),
         createPlan({ id: 'paid-plan', availability: PlanAvailability.ALL }),
       ],
     });
@@ -97,12 +104,15 @@ describe('SubscriptionQuoteService', () => {
 
     assert.equal(actualPolicy.actions.NEW, false);
     assert.equal(actualPolicy.actions.UPGRADE, true);
-    assert.deepStrictEqual(actualPolicy.warnings.map((warning) => warning.code), [
-      'TRIAL_FREE_NOT_RENEWABLE',
-      'UPGRADE_RESETS_EXPIRY',
-      'TRIAL_UPGRADE_REQUIRED',
-      'TRIAL_ALREADY_USED',
-    ]);
+    assert.deepStrictEqual(
+      actualPolicy.warnings.map((warning) => warning.code),
+      [
+        'TRIAL_NOT_RENEWABLE',
+        'UPGRADE_RESETS_EXPIRY',
+        'TRIAL_UPGRADE_REQUIRED',
+        'TRIAL_ALREADY_USED',
+      ],
+    );
   });
 
   it('lets a trial without configured upgrade targets upgrade to any non-trial plan (fallback)', async () => {
@@ -154,9 +164,10 @@ describe('SubscriptionQuoteService', () => {
 
     assert.equal(actualQuote.isEligible, true);
     assert.equal(actualQuote.price?.price, '10');
-    assert.deepStrictEqual(actualQuote.warnings.map((warning) => warning.code), [
-      'UPGRADE_RESETS_EXPIRY',
-    ]);
+    assert.deepStrictEqual(
+      actualQuote.warnings.map((warning) => warning.code),
+      ['UPGRADE_RESETS_EXPIRY'],
+    );
   });
 
   it('blocks RENEW for a free trial source and steers the user to upgrade', async () => {
@@ -183,21 +194,29 @@ describe('SubscriptionQuoteService', () => {
     assert.equal(actualPolicy.actions.RENEW, false);
     assert.equal(actualPolicy.actions.UPGRADE, true);
     assert.equal(
-      actualPolicy.warnings.some((warning) => warning.code === 'TRIAL_FREE_NOT_RENEWABLE'),
+      actualPolicy.warnings.some((warning) => warning.code === 'TRIAL_NOT_RENEWABLE'),
       true,
     );
   });
 
-  it('keeps RENEW available for a paid trial source', async () => {
+  it('blocks RENEW for an expired paid trial so maxClaims cannot be bypassed', async () => {
     const service = createService({
       user: createUser({ maxSubscriptions: 2 }),
-      subscriptions: [createSubscription({ id: 'paid-trial-sub', isTrial: true, planId: 'paid-trial-plan' })],
+      subscriptions: [
+        createSubscription({
+          id: 'paid-trial-sub',
+          isTrial: true,
+          planId: 'paid-trial-plan',
+          status: SubscriptionStatus.EXPIRED,
+        }),
+      ],
       plans: [
         createPlan({
           id: 'paid-trial-plan',
           availability: PlanAvailability.TRIAL,
           trialSettings: { free: false },
         }),
+        createPlan({ id: 'regular-plan', availability: PlanAvailability.ALL }),
       ],
     });
 
@@ -207,14 +226,152 @@ describe('SubscriptionQuoteService', () => {
       channel: PurchaseChannel.WEB,
     });
 
-    assert.equal(actualPolicy.actions.RENEW, true);
+    assert.equal(actualPolicy.actions.RENEW, false);
+    assert.equal(actualPolicy.actions.UPGRADE, true);
     assert.equal(
-      actualPolicy.warnings.some((warning) => warning.code === 'TRIAL_FREE_NOT_RENEWABLE'),
-      false,
+      actualPolicy.warnings.some((warning) => warning.code === 'TRIAL_NOT_RENEWABLE'),
+      true,
     );
   });
 
-  it('blocks trial when a local trial grant exists even without an active trial subscription', async () => {
+  it('blocks RENEW for a disabled regular subscription', async () => {
+    const service = createService({
+      user: createUser({ maxSubscriptions: 2 }),
+      subscriptions: [
+        createSubscription({
+          id: 'disabled-sub',
+          isTrial: false,
+          planId: 'regular-plan',
+          status: SubscriptionStatus.DISABLED,
+        }),
+      ],
+      plans: [createPlan({ id: 'regular-plan', availability: PlanAvailability.ALL })],
+    });
+
+    const quote = await service.getQuote({
+      userId: 'user-1',
+      subscriptionId: 'disabled-sub',
+      purchaseType: PurchaseType.RENEW,
+      planId: 'regular-plan',
+      durationDays: 30,
+      channel: PurchaseChannel.WEB,
+    });
+
+    assert.equal(quote.isEligible, false);
+    assert.equal(
+      quote.warnings.some(
+        (warning) => warning.code === 'SUBSCRIPTION_DISABLED_NOT_RENEWABLE',
+      ),
+      true,
+    );
+  });
+
+  it('blocks self-renew before payment when the live source plan became TRIAL', async () => {
+    const service = createService({
+      user: createUser({ maxSubscriptions: 2 }),
+      subscriptions: [
+        createSubscription({
+          id: 'regular-sub',
+          isTrial: false,
+          planId: 'reclassified-plan',
+        }),
+      ],
+      plans: [
+        createPlan({
+          id: 'reclassified-plan',
+          availability: PlanAvailability.TRIAL,
+        }),
+      ],
+    });
+
+    const quote = await service.getQuote({
+      userId: 'user-1',
+      subscriptionId: 'regular-sub',
+      purchaseType: PurchaseType.RENEW,
+      planId: 'reclassified-plan',
+      durationDays: 30,
+      channel: PurchaseChannel.WEB,
+    });
+
+    assert.equal(quote.isEligible, false);
+    assert.deepStrictEqual(quote.availablePlans, []);
+    assert.equal(
+      quote.warnings.some((warning) => warning.code === 'TRIAL_PLAN_NOT_RENEWAL_TARGET'),
+      true,
+    );
+  });
+
+  it('allows the second paid-trial claim when maxClaims is 2', async () => {
+    const service = createService({
+      user: createUser({ maxSubscriptions: 3 }),
+      subscriptions: [
+        createSubscription({
+          id: 'first-paid-trial',
+          isTrial: true,
+          planId: 'paid-trial-plan',
+          status: SubscriptionStatus.EXPIRED,
+        }),
+      ],
+      trialGrant: { id: 'legacy-marker-does-not-imply-exhaustion' },
+      plans: [
+        createPlan({
+          id: 'paid-trial-plan',
+          availability: PlanAvailability.TRIAL,
+          trialSettings: { free: false, maxClaims: 2 },
+        }),
+      ],
+    });
+
+    const quote = await service.getQuote({
+      userId: 'user-1',
+      purchaseType: PurchaseType.ADDITIONAL,
+      planId: 'paid-trial-plan',
+      durationDays: 30,
+      channel: PurchaseChannel.WEB,
+    });
+
+    assert.equal(quote.isEligible, true);
+    assert.equal(quote.selectedPlan?.id, 'paid-trial-plan');
+  });
+
+  it('keeps an exhausted paid trial out of NEW checkout quotes', async () => {
+    const service = createService({
+      user: createUser({ maxSubscriptions: 2 }),
+      subscriptions: [
+        createSubscription({
+          id: 'paid-trial-sub',
+          isTrial: true,
+          planId: 'paid-trial-plan',
+          status: SubscriptionStatus.EXPIRED,
+        }),
+      ],
+      trialGrant: { id: 'trial-grant-1' },
+      plans: [
+        createPlan({
+          id: 'paid-trial-plan',
+          availability: PlanAvailability.TRIAL,
+          trialSettings: { free: false, maxClaims: 1 },
+        }),
+      ],
+    });
+
+    const actualQuote = await service.getQuote({
+      userId: 'user-1',
+      purchaseType: PurchaseType.ADDITIONAL,
+      planId: 'paid-trial-plan',
+      durationDays: 30,
+      channel: PurchaseChannel.WEB,
+    });
+
+    assert.equal(actualQuote.isEligible, false);
+    assert.deepStrictEqual(actualQuote.availablePlans, []);
+    assert.equal(
+      actualQuote.warnings.some((warning) => warning.code === 'TRIAL_ALREADY_USED'),
+      true,
+    );
+  });
+
+  it('uses subscription claim count instead of the legacy TrialGrant marker', async () => {
     const service = createService({
       user: createUser({ maxSubscriptions: 2 }),
       subscriptions: [],
@@ -227,14 +384,14 @@ describe('SubscriptionQuoteService', () => {
       channel: PurchaseChannel.WEB,
     });
 
-    assert.equal(actualPolicy.actions.TRIAL, false);
-    assert.deepStrictEqual(actualPolicy.warnings.map((warning) => warning.code), [
-      'SOURCE_SUBSCRIPTION_REQUIRED',
-      'TRIAL_ALREADY_USED',
-    ]);
+    assert.equal(actualPolicy.actions.TRIAL, true);
+    assert.deepStrictEqual(
+      actualPolicy.warnings.map((warning) => warning.code),
+      ['SOURCE_SUBSCRIPTION_REQUIRED'],
+    );
   });
 
-  it('returns an explicit trial-used warning for trial quote attempts after a grant exists', async () => {
+  it('keeps a free trial claimable when only the legacy TrialGrant marker exists', async () => {
     const service = createService({
       user: createUser({ maxSubscriptions: 2 }),
       subscriptions: [],
@@ -250,12 +407,43 @@ describe('SubscriptionQuoteService', () => {
       channel: PurchaseChannel.WEB,
     });
 
-    assert.equal(actualQuote.isEligible, false);
-    assert.deepStrictEqual(actualQuote.availablePlans, []);
-    assert.deepStrictEqual(actualQuote.warnings.map((warning) => warning.code), [
-      'TRIAL_ALREADY_USED',
-      'PLAN_NOT_AVAILABLE',
-    ]);
+    assert.equal(actualQuote.isEligible, true);
+    assert.equal(actualQuote.selectedPlan?.id, 'trial-plan');
+    assert.deepStrictEqual(actualQuote.warnings, []);
+  });
+
+  it('filters TRIAL plans out of configured upgrade targets', async () => {
+    const service = createService({
+      user: createUser({ maxSubscriptions: 2 }),
+      subscriptions: [createSubscription({ id: 'sub-1', isTrial: false, planId: 'plan-1' })],
+      plans: [
+        createPlan({
+          id: 'plan-1',
+          availability: PlanAvailability.ALL,
+          upgradeToPlanIds: ['trial-target', 'regular-target'],
+        }),
+        createPlan({ id: 'trial-target', availability: PlanAvailability.TRIAL }),
+        createPlan({ id: 'regular-target', availability: PlanAvailability.ALL }),
+      ],
+    });
+
+    const policy = await service.getActionPolicy({
+      userId: 'user-1',
+      subscriptionId: 'sub-1',
+      channel: PurchaseChannel.WEB,
+    });
+
+    assert.equal(policy.actions.UPGRADE, true);
+    const quote = await service.getQuote({
+      userId: 'user-1',
+      subscriptionId: 'sub-1',
+      purchaseType: PurchaseType.UPGRADE,
+      planId: 'trial-target',
+      durationDays: 30,
+      channel: PurchaseChannel.WEB,
+    });
+    assert.equal(quote.isEligible, false);
+    assert.equal(quote.availablePlans.some((plan) => plan.id === 'trial-target'), false);
   });
 
   it('returns replacement renew options for archived replace-on-renew source plans', async () => {
@@ -287,10 +475,14 @@ describe('SubscriptionQuoteService', () => {
     // onto the valid replacement plan), so the quote stays ELIGIBLE — otherwise
     // archived REPLACE_ON_RENEW subscriptions could never be renewed.
     assert.equal(actualQuote.isEligible, true);
-    assert.deepStrictEqual(actualQuote.availablePlans.map((plan) => plan.id), ['new-plan']);
-    assert.deepStrictEqual(actualQuote.warnings.map((warning) => warning.code), [
-      'ARCHIVED_PLAN_REPLACEMENT',
-    ]);
+    assert.deepStrictEqual(
+      actualQuote.availablePlans.map((plan) => plan.id),
+      ['new-plan'],
+    );
+    assert.deepStrictEqual(
+      actualQuote.warnings.map((warning) => warning.code),
+      ['ARCHIVED_PLAN_REPLACEMENT'],
+    );
   });
 
   it('calculates discount-aware quote pricing without creating transactions', async () => {
@@ -319,6 +511,70 @@ describe('SubscriptionQuoteService', () => {
     });
   });
 
+  it("keeps the trial offered while the buyer's own attempt is unpaid", async () => {
+    // The reported bug: an abandoned checkout holds a RESERVED claim, the quota
+    // counter treats RESERVED as spent, and the buyer was told the trial was
+    // already used — for an attempt they had not paid for and could still
+    // finish. That reservation is theirs to resolve, so it must not hide the plan.
+    const service = createService({
+      user: createUser({ maxSubscriptions: 2 }),
+      subscriptions: [],
+      trialClaimUnits: 1,
+      resumableTrialTransactionId: 'tx-pending',
+      plans: [
+        createPlan({
+          id: 'paid-trial-plan',
+          availability: PlanAvailability.TRIAL,
+          trialSettings: { free: false, maxClaims: 1 },
+        }),
+      ],
+    });
+
+    const actualQuote = await service.getQuote({
+      userId: 'user-1',
+      purchaseType: PurchaseType.ADDITIONAL,
+      planId: 'paid-trial-plan',
+      durationDays: 30,
+      channel: PurchaseChannel.WEB,
+    });
+
+    assert.equal(
+      actualQuote.warnings.some((warning) => warning.code === 'TRIAL_ALREADY_USED'),
+      false,
+      'the buyer must not be told the trial is used while their own draft is unpaid',
+    );
+    assert.equal(actualQuote.isEligible, true);
+  });
+
+  it('still blocks the trial once it was genuinely consumed', async () => {
+    // Same spent count, nothing resumable behind it — this one must keep blocking.
+    const service = createService({
+      user: createUser({ maxSubscriptions: 2 }),
+      subscriptions: [],
+      trialClaimUnits: 1,
+      plans: [
+        createPlan({
+          id: 'paid-trial-plan',
+          availability: PlanAvailability.TRIAL,
+          trialSettings: { free: false, maxClaims: 1 },
+        }),
+      ],
+    });
+
+    const actualQuote = await service.getQuote({
+      userId: 'user-1',
+      purchaseType: PurchaseType.ADDITIONAL,
+      planId: 'paid-trial-plan',
+      durationDays: 30,
+      channel: PurchaseChannel.WEB,
+    });
+
+    assert.equal(
+      actualQuote.warnings.some((warning) => warning.code === 'TRIAL_ALREADY_USED'),
+      true,
+    );
+  });
+
   it('returns a missing source plan warning for legacy subscription snapshots', async () => {
     const service = createService({
       user: createUser({ maxSubscriptions: 2 }),
@@ -334,10 +590,10 @@ describe('SubscriptionQuoteService', () => {
     });
 
     assert.equal(actualQuote.isEligible, false);
-    assert.deepStrictEqual(actualQuote.warnings.map((warning) => warning.code), [
-      'SOURCE_PLAN_MISSING',
-      'PLAN_SELECTION_REQUIRED',
-    ]);
+    assert.deepStrictEqual(
+      actualQuote.warnings.map((warning) => warning.code),
+      ['SOURCE_PLAN_MISSING', 'PLAN_SELECTION_REQUIRED'],
+    );
   });
 });
 
@@ -345,6 +601,10 @@ function createService(input: {
   readonly user: Record<string, unknown>;
   readonly subscriptions: readonly Record<string, unknown>[];
   readonly trialGrant?: Record<string, unknown> | null;
+  readonly trialClaimUnits?: number;
+  /** A RESERVED claim on a still-PENDING draft — the buyer's own unfinished
+   *  attempt, which quoting must not count against them. */
+  readonly resumableTrialTransactionId?: string;
   readonly plans: readonly Record<string, unknown>[];
   readonly multiSubscriptionSettings?: Record<string, unknown> | null;
 }): SubscriptionQuoteService {
@@ -359,9 +619,34 @@ function createService(input: {
     },
     subscription: {
       findMany: async () => input.subscriptions,
+      count: async () =>
+        input.subscriptions.filter((subscription) => subscription.isTrial === true).length,
     },
     trialGrant: {
       findUnique: async () => input.trialGrant ?? null,
+    },
+    trialClaim: {
+      aggregate: async (args: { where?: { transactionId?: { not?: string } } }) => {
+        const base =
+          input.trialClaimUnits ??
+          input.subscriptions.filter((subscription) => subscription.isTrial === true).length;
+        // Mirror the real exclusion: skipping the buyer's own resumable draft
+        // removes exactly its one unit from the total.
+        const excluded = args?.where?.transactionId?.not;
+        const skips =
+          excluded !== undefined && excluded === input.resumableTrialTransactionId ? 1 : 0;
+        return { _sum: { units: Math.max(0, base - skips) } };
+      },
+      findMany: async () =>
+        input.resumableTrialTransactionId === undefined
+          ? []
+          : [{ transactionId: input.resumableTrialTransactionId }],
+    },
+    transaction: {
+      findFirst: async () =>
+        input.resumableTrialTransactionId === undefined
+          ? null
+          : { id: input.resumableTrialTransactionId },
     },
     paymentGateway: {
       findMany: async () => [
@@ -378,7 +663,15 @@ function createService(input: {
       findFirst: async () => null,
     },
     plan: {
-      findMany: async (args: { readonly where?: { readonly id?: { readonly in?: readonly string[] }, readonly isActive?: boolean, readonly isArchived?: boolean } } = {}) => {
+      findMany: async (
+        args: {
+          readonly where?: {
+            readonly id?: { readonly in?: readonly string[] };
+            readonly isActive?: boolean;
+            readonly isArchived?: boolean;
+          };
+        } = {},
+      ) => {
         const ids = args.where?.id?.in;
         return input.plans.filter((plan) => {
           const id = plan.id as string;
@@ -399,11 +692,12 @@ function createService(input: {
     },
   };
   const planCatalogService = {
-    getCatalogPlans: async () => input.plans
-      .filter((plan) => plan.isActive !== false && plan.isArchived !== true)
-      .map((plan) => ({
-        id: plan.id,
-      })),
+    getCatalogPlans: async () =>
+      input.plans
+        .filter((plan) => plan.isActive !== false && plan.isArchived !== true)
+        .map((plan) => ({
+          id: plan.id,
+        })),
   };
   return new SubscriptionQuoteService(
     prismaService as never,
@@ -429,11 +723,12 @@ function createSubscription(input: {
   readonly id: string;
   readonly isTrial: boolean;
   readonly planId: string | null;
+  readonly status?: SubscriptionStatus;
 }): Record<string, unknown> {
   return {
     id: input.id,
     userId: 'user-1',
-    status: SubscriptionStatus.ACTIVE,
+    status: input.status ?? SubscriptionStatus.ACTIVE,
     isTrial: input.isTrial,
     planSnapshot: input.planId === null ? {} : { id: input.planId },
     createdAt: new Date('2026-04-19T12:00:00.000Z'),

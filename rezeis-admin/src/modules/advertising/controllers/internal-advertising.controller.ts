@@ -23,12 +23,26 @@ export class InternalAdvertisingController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Records an advertising click (bot/Mini-App opened via ad_<code>)' })
   public async ingestClick(@Body() input: IngestClickDto): Promise<{ ok: true }> {
+    const surface = parseClickSurface(input.surface);
     await this.attributionService.recordClick({
       code: input.code,
       telegramId: input.telegramId ?? null,
-      surface: AdClickSurface.BOT,
+      userId: input.userId ?? null,
+      surface,
       isNewUser: input.isNewUser ?? false,
+      attributeOnly: input.attributeOnly ?? false,
+      utmSource: input.utmSource,
+      utmMedium: input.utmMedium,
+      utmCampaign: input.utmCampaign,
+      utmContent: input.utmContent,
+      utmCreative: input.utmCreative,
     });
     return { ok: true };
   }
+}
+
+function parseClickSurface(raw: string | undefined): AdClickSurface {
+  if (raw === 'MINIAPP') return AdClickSurface.MINIAPP;
+  if (raw === 'WEB') return AdClickSurface.WEB;
+  return AdClickSurface.BOT;
 }

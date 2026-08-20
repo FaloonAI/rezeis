@@ -4,6 +4,13 @@ interface InternalUserSubscriptionPlanInterface {
   readonly id: string | null;
   readonly name: string | null;
   readonly type: PlanType | null;
+  /**
+   * Plan icon identifier frozen in the subscription's `planSnapshot` (lucide
+   * key, `custom:<id>`, or a `:emoji:` shortcode). The cabinet renders it beside
+   * the plan name; `null` when the plan had no icon → the card falls back to a
+   * status glyph. Frozen at snapshot time, so it does not track later plan edits.
+   */
+  readonly icon: string | null;
 }
 
 /**
@@ -23,9 +30,8 @@ export interface InternalUserSubscriptionInterface {
   readonly isTrial: boolean;
   /**
    * True only for a FREE trial (availability `TRIAL` + `trialSettings.free`).
-   * A free trial cannot be renewed — it must be UPGRADED to a paid plan — so
-   * the cabinet disables the "Renew" action for it. Paid trials are renewable
-   * and stay `false`.
+   * This distinguishes a zero-cost grant from a paid trial checkout. All trial
+   * subscriptions are non-renewable and must be upgraded.
    */
   readonly trialFree: boolean;
   readonly plan: InternalUserSubscriptionPlanInterface | null;
