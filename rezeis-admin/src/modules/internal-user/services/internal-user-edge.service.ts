@@ -15,6 +15,7 @@ import {
 } from '../../../common/services/system-events.service';
 import { AccessModeGuard } from '../../settings/services/access-mode-guard.service';
 import { SettingsService } from '../../settings/services/settings.service';
+import { ReferralManualAttachService } from '../../referrals/services/referral-manual-attach.service';
 import { InternalBootstrapUserInput } from '../interfaces/internal-user-bootstrap.interface';
 import {
   InternalUserAddOnEntitlementInterface,
@@ -24,7 +25,8 @@ import {
 import { InternalUserSessionInterface } from '../interfaces/internal-user-session.interface';
 import { buildUserReferenceWhere } from '../utils/user-reference.util';
 import { mapInternalUserSession, INTERNAL_USER_INCLUDE } from './internal-user.mappers';
-import { evaluateTrialClaim, readTrialSettings } from '../../plans/utils/trial-settings.util';
+import { evaluateTrialClaim, readTrialSettings, TRIAL_CLAIM_LIMIT_MESSAGE } from '../../plans/utils/trial-settings.util';
+import { countCommittedTrialClaimUnits } from '../../subscriptions/services/trial-claim-ledger.util';
 import { isInvitedUser } from '../../plans/utils/trial-invite.util';
 
 /**
@@ -54,6 +56,7 @@ export class InternalUserEdgeService {
     private readonly settingsService: SettingsService,
     private readonly accessModeGuard: AccessModeGuard,
     private readonly systemEventsService: SystemEventsService,
+    private readonly referralManualAttachService: ReferralManualAttachService,
   ) {}
 
   // ── Bootstrap / language ─────────────────────────────────────────────────
@@ -101,19 +104,37 @@ export class InternalUserEdgeService {
     });
     if (existing === null) {
       const policy = await this.settingsService.getInternalPlatformPolicy();
-      // For Telegram-driven sign-up there's no referralCode yet; the
-      // INVITED gate would surface as INVITE_REQUIRED. The bot avoids
-      // this path on the edge anyway (it shows a banner), so this is
-      // the defence-in-depth fallback.
+      // A `ref_<code>` deep-link IS the Telegram-side invite: treat it exactly
+      // like the web register flow does (`WebAuthService.register`), otherwise
+      // INVITED mode rejects a legitimately-invited bot sign-up with
+      // INVITE_REQUIRED before the user row is even created — and the bot
+      // swallows the bootstrap error, so the user just sees a plain menu.
+      const hasInviteCode =
+        typeof input.referralCode === 'string' && input.referralCode.trim().length > 0;
       const rejection = this.accessModeGuard.evaluate({
         gate: 'register',
         mode: policy.accessMode,
-        hasInvite: false,
+        hasInvite: hasInviteCode,
       });
       if (rejection !== null) {
         throw rejection.status === 503
           ? new ServiceUnavailableException({ code: rejection.code, message: rejection.message })
           : new ForbiddenException({ code: rejection.code, message: rejection.message });
+      }
+      // Under INVITED, admission requires a real single-use `ReferralInvite`.
+      // A permanent sharing code (reiwa_id / username / telegramId) resolves to
+      // a referrer for ATTRIBUTION purposes, but accepting it here would make
+      // the mode decorative: every existing user would hold an unlimited,
+      // never-expiring pass, and the invite TTL / slot caps would constrain
+      // nothing. Attribution and admission are deliberately different keys.
+      if (policy.accessMode === 'INVITED' && hasInviteCode) {
+        const referrer = await this.resolveReferrer(input.referralCode!.trim());
+        if (referrer === null || referrer.inviteId === undefined) {
+          throw new ForbiddenException({
+            code: 'INVITE_REQUIRED',
+            message: 'Referral code is invalid or has expired',
+          });
+        }
       }
     }
 
@@ -153,9 +174,163 @@ export class InternalUserEdgeService {
           source: 'telegram_bot',
         },
       );
+
+      // Bind the inviting user from a `ref_<token>` bot deep-link — ONLY on a
+      // brand-new bootstrap, mirroring the web register flow. Previously the
+      // bot's referral links (`t.me/<bot>?start=ref_<token>`) silently did
+      // nothing: `ref_` was never parsed and `referralCode` never reached
+      // here, so the referrer never got the reward. Best-effort: a bad /
+      // duplicate / self referral must never fail the /start bootstrap.
+      if (typeof input.referralCode === 'string' && input.referralCode.trim().length > 0) {
+        await this.consumeReferralCode(user.id, input.referralCode);
+      }
     }
 
     return mapInternalUserSession(user);
+  }
+
+  /**
+   * Resolves a referral code to a referrer and attaches the new user as their
+   * referral. Silently no-ops on self-referral, unknown codes, or an
+   * already-attributed user — bootstrap must never fail because of a bad or
+   * duplicate referral deep-link. Mirrors `WebAuthService.consumeReferralCode`.
+   */
+  private async consumeReferralCode(newUserId: string, rawCode: string): Promise<void> {
+    try {
+      const code = rawCode.trim();
+      if (code.length === 0) {
+        return;
+      }
+      const referrer = await this.resolveReferrer(code);
+      if (referrer === null || referrer.id === newUserId) {
+        return;
+      }
+      // A `ReferralInvite` is single-use. Claim it FIRST with a conditional
+      // update guarded on `consumedAt: null` — two concurrent sign-ups both
+      // read the invite as unconsumed, so stamping after the attach would let
+      // both attribute it (duplicate referral + duplicate reward for the
+      // inviter; the attach service's guard keys on the *referred* user, which
+      // differs). `count === 0` means another sign-up won the race.
+      const inviteId = referrer.inviteId;
+      const claimedAt = new Date();
+      if (inviteId !== undefined) {
+        const claimed = await this.prismaService.referralInvite.updateMany({
+          where: { id: inviteId, consumedAt: null },
+          data: { consumedAt: claimedAt },
+        });
+        if (claimed.count === 0) {
+          return;
+        }
+      }
+      try {
+        await this.referralManualAttachService.attachReferrerManually({
+          userId: newUserId,
+          referrerId: referrer.id,
+        });
+      } catch (attachError: unknown) {
+        if (inviteId !== undefined) {
+          await this.releaseInviteClaimBestEffort(inviteId, claimedAt, newUserId);
+        }
+        throw attachError;
+      }
+    } catch (error: unknown) {
+      // Duplicate attribution / self-referral throw BadRequest — expected,
+      // must not break the bootstrap response.
+      this.logger.warn(
+        `Bot referral consume skipped for user ${newUserId}: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * Releases a single-use invite claim after a failed attach, so a genuine
+   * invite isn't burned by a sign-up that never got attributed.
+   *
+   * Two guards make this safe:
+   *  - the release is fenced on OUR claim timestamp, so it can never reopen an
+   *    invite that a concurrent sign-up has since claimed;
+   *  - `attachReferrerManually` is not atomic (it creates the `Referral` edge
+   *    first, then replays partner/referral side-effects, any of which can
+   *    throw). If the edge already exists the invite really was spent — keep it
+   *    consumed, or a second user could redeem it and the inviter would be paid
+   *    twice for one invite.
+   */
+  private async releaseInviteClaimBestEffort(
+    inviteId: string,
+    claimedAt: Date,
+    newUserId: string,
+  ): Promise<void> {
+    try {
+      const attributed = await this.prismaService.referral.findUnique({
+        where: { referredId: newUserId },
+        select: { id: true },
+      });
+      if (attributed !== null) {
+        return;
+      }
+      await this.prismaService.referralInvite.updateMany({
+        where: { id: inviteId, consumedAt: claimedAt },
+        data: { consumedAt: null },
+      });
+    } catch (error: unknown) {
+      this.logger.warn(
+        `Failed to release referral invite claim ${inviteId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Resolves a referral code into a referrer `User`. Accepts the canonical
+   * reiwa_id (CUID), a numeric telegramId, a username, or the user's
+   * `referralCode` (all shared by the cabinet's own `ref_<code>` links), and —
+   * when none of those match — a bot-issued `ReferralInvite.token`. For an
+   * invite token the `inviteId` is returned too so the caller can stamp
+   * `consumedAt`. Returns `null` when nothing matches. Mirrors
+   * `WebAuthService.resolveReferrer` so the bot and web paths behave alike.
+   */
+  private async resolveReferrer(
+    code: string,
+  ): Promise<{ id: string; inviteId?: string } | null> {
+    // Invite tokens are matched FIRST. They live in the narrower namespace
+    // (server-generated base64url), whereas `User.username` is user-controlled
+    // and re-synced from Telegram on every /start — checking users first would
+    // let someone set their @username to a live invite token and hijack every
+    // sign-up made through that link (the invite would also never be spent).
+    const invite = await this.prismaService.referralInvite.findFirst({
+      where: {
+        token: code,
+        revokedAt: null,
+        consumedAt: null,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      select: { id: true, inviterId: true },
+    });
+    if (invite !== null) {
+      // Confirm the inviter still exists and is not banned — same check the web
+      // path performs, so the two surfaces cannot disagree about who may invite.
+      const inviter = await this.prismaService.user.findFirst({
+        where: { id: invite.inviterId, isBlocked: false },
+        select: { id: true },
+      });
+      return inviter === null ? null : { id: inviter.id, inviteId: invite.id };
+    }
+    const orConditions: Prisma.UserWhereInput[] = [
+      { id: code },
+      { username: code },
+      { referralCode: code },
+    ];
+    if (/^\d{1,19}$/.test(code)) {
+      orConditions.push({ telegramId: BigInt(code) });
+    }
+    const user = await this.prismaService.user.findFirst({
+      // A blocked user must stop earning referrals: they keep their link, but it
+      // no longer attributes anyone.
+      where: { isBlocked: false, OR: orConditions },
+      select: { id: true },
+    });
+    return user === null ? null : { id: user.id };
   }
 
   public async updateLanguage(
@@ -365,21 +540,43 @@ export class InternalUserEdgeService {
     const userId = await this.resolveUserId(telegramId);
     const eligibility = await this.computeTrialEligibility(userId);
     if (!eligibility.eligible) {
+      // Logged: a refusal used to be invisible on both sides — the client showed
+      // one generic sentence for every cause, and nothing reached the log, so
+      // "the offer is shown but activating fails" could not be diagnosed at all.
+      this.logger.log(
+        `trial activation refused for user ${userId}: ${eligibility.reason ?? 'INELIGIBLE'}`,
+      );
       return { activated: false, reason: eligibility.reason ?? 'INELIGIBLE' };
     }
     const trialPlan = await this.prismaService.plan.findFirst({
       where: { availability: 'TRIAL', isActive: true, isArchived: false },
+      // Must match the ordering eligibility uses, or the two can answer about
+      // different plans when several TRIAL plans are active.
+      orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }],
       include: { durations: { take: 1, orderBy: { days: 'asc' } } },
     });
-    if (trialPlan === null || trialPlan.durations.length === 0) {
+    if (trialPlan === null || (trialPlan.durations[0]?.days ?? 0) <= 0) {
+      this.logger.warn(`trial activation refused for user ${userId}: TRIAL_NOT_CONFIGURED`);
       return { activated: false, reason: 'TRIAL_NOT_CONFIGURED' };
     }
-    const result = await grantTrial({
-      userId,
-      planId: trialPlan.id,
-      durationDays: trialPlan.durations[0].days,
-    });
-    return { activated: true, subscriptionId: result.subscriptionId };
+    try {
+      const result = await grantTrial({
+        userId,
+        planId: trialPlan.id,
+        durationDays: trialPlan.durations[0].days,
+      });
+      return { activated: true, subscriptionId: result.subscriptionId };
+    } catch (error: unknown) {
+      // `grantTrial` enforces the claim limit by throwing. Propagating that as a
+      // bare 400 gave the cabinet nothing to act on, so it kept offering a retry
+      // that could never succeed. Return it as a reason instead.
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes(TRIAL_CLAIM_LIMIT_MESSAGE)) {
+        this.logger.log(`trial activation refused for user ${userId}: TRIAL_ALREADY_USED (grant guard)`);
+        return { activated: false, reason: 'TRIAL_ALREADY_USED' };
+      }
+      throw error;
+    }
   }
 
   // ── Devices (telegram-id wrappers around the existing devices service) ──
@@ -409,11 +606,33 @@ export class InternalUserEdgeService {
   private async computeTrialEligibility(
     userId: string,
   ): Promise<{ eligible: boolean; reason: string | null }> {
+    // The duration matters here, not only at activation: the grant needs a
+    // duration row (`durations[0].days`), so a trial plan without one is not
+    // configured. Checking it only on activation meant eligibility could answer
+    // "yes", the cabinet showed the offer, and the button then failed every
+    // single time with no way for the user to make progress.
+    // Deliberately the same `orderBy` and the same duration row that activation
+    // reads. Both lookups used to be unordered `findFirst`s with different
+    // shapes, so with more than one active TRIAL plan (a remnashop import can
+    // create them; the admin API's uniqueness check is a raced `findFirst`) they
+    // could resolve to different rows — eligibility saying yes about one plan
+    // while activation refused about another, which is the same "offer shown,
+    // button always fails" divergence this method exists to prevent.
+    //
+    // `days` is checked, not just the row's existence: the grant copies it
+    // straight into the expiry, and imported durations are not validated, so a
+    // `days: 0` row would burn the user's one lifetime claim on a subscription
+    // that expires the instant it is created.
     const trialPlan = await this.prismaService.plan.findFirst({
       where: { availability: 'TRIAL', isActive: true, isArchived: false },
-      select: { id: true, trialSettings: true },
+      orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        trialSettings: true,
+        durations: { take: 1, orderBy: { days: 'asc' }, select: { days: true } },
+      },
     });
-    if (trialPlan === null) {
+    if (trialPlan === null || (trialPlan.durations[0]?.days ?? 0) <= 0) {
       return { eligible: false, reason: 'TRIAL_NOT_CONFIGURED' };
     }
     const settings = readTrialSettings(trialPlan.trialSettings);
@@ -423,9 +642,7 @@ export class InternalUserEdgeService {
     }
 
     const [trialClaims, activeSubscriptions, invited, userRow] = await Promise.all([
-      this.prismaService.subscription.count({
-        where: { userId, isTrial: true },
-      }),
+      countCommittedTrialClaimUnits(this.prismaService, userId),
       this.prismaService.subscription.count({
         where: { userId, status: { in: ['ACTIVE', 'LIMITED'] } },
       }),

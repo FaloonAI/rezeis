@@ -4,25 +4,93 @@ import {
   Logger,
 } from '@nestjs/common';
 
+import { LegalDocumentKey } from '@prisma/client';
+
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import {
+  LEGAL_DOCUMENT_KEYS,
+} from '../../legal-documents/services/legal-documents.service';
+import { isValidPermission } from '../../rbac/rbac.resources';
 import {
   ALL_SECTIONS,
   CONFIG_EXPORT_VERSION,
+  ConfigExportManifestInterface,
   ConfigExportPayloadInterface,
   ConfigExportSection,
 } from './config-export.service';
 
 export type ImportStrategy = 'skip' | 'overwrite';
 
+/**
+ * Sections that can create/alter RBAC grants. Importing them is a
+ * privilege-escalation surface, so we gate them behind `rbac_roles:edit`
+ * (see `PRIVILEGED_SECTION_TOKEN`) in addition to the endpoint's own
+ * `config_portability:import` permission.
+ */
+const PRIVILEGED_SECTIONS: ReadonlySet<ConfigExportSection> = new Set([
+  'roles',
+  'permissions',
+]);
+
+/** The permission an importer must hold to import roles/permissions. */
+const PRIVILEGED_SECTION_TOKEN = 'rbac_roles:edit';
+
 export interface ConfigImportInput {
   readonly payload: ConfigExportPayloadInterface;
   readonly sections: readonly ConfigExportSection[] | null;
   readonly strategy: ImportStrategy;
   readonly dryRun: boolean;
+  /**
+   * Flat `resource:action` tokens the importing admin effectively holds.
+   * Used to enforce two invariants on RBAC-bearing sections:
+   *   1. `roles`/`permissions` may only be imported by an admin who holds
+   *      `rbac_roles:edit`;
+   *   2. an admin can never import a permission it does not itself hold
+   *      (no self-escalation via a crafted export payload).
+   * Superadmin/DEV hold the full catalog, so both checks pass for them.
+   */
+  readonly importerPermissions: ReadonlySet<string>;
 }
+
+/**
+ * What actually happened to a section, as opposed to how many rows moved.
+ *
+ * `created: 0, updated: 0, errors: []` used to be the answer for four
+ * different situations, only one of which is a success. They are now
+ * four different words:
+ *
+ *   - `imported` — the section was in the file and every row was
+ *     processed. Zero counts here mean the file genuinely held zero rows.
+ *   - `missing`  — the file has no such key. Nothing was imported and
+ *     nothing is known about it. This is NOT a failure when the operator
+ *     imported "everything" from a deliberately partial file; it is one
+ *     when they named the section.
+ *   - `rejected` — the key is there but the payload is not trustworthy
+ *     (not an array, or it contradicts the export manifest). Refused
+ *     before touching the database.
+ *   - `failed`   — the section was attempted and the write threw. See
+ *     `errors`.
+ */
+export type SectionImportStatus = 'imported' | 'missing' | 'rejected' | 'failed';
+
+/**
+ * Whether the payload could be held against its own manifest.
+ *
+ * - `verified`     — the file carries a manifest and every section this
+ *   import looked at agreed with it. Sections outside the requested set
+ *   are not checked, so this is a statement about what was imported, not
+ *   about the whole file.
+ * - `unverifiable` — the file carries no manifest. Either it predates
+ *   the manifest or it was written by hand. Its sections are taken at
+ *   face value, exactly as they always were.
+ * - `violated`     — the manifest and the payload disagree somewhere.
+ *   The file is damaged; the disagreeing sections were refused.
+ */
+export type PayloadIntegrityStatus = 'verified' | 'unverifiable' | 'violated';
 
 export interface SectionImportSummaryInterface {
   readonly section: ConfigExportSection;
+  readonly status: SectionImportStatus;
   readonly created: number;
   readonly updated: number;
   readonly skipped: number;
@@ -33,6 +101,7 @@ export interface ConfigImportResultInterface {
   readonly version: number;
   readonly strategy: ImportStrategy;
   readonly dryRun: boolean;
+  readonly integrity: PayloadIntegrityStatus;
   readonly summaries: readonly SectionImportSummaryInterface[];
   readonly startedAt: string;
   readonly finishedAt: string;
@@ -70,9 +139,41 @@ export class ConfigImportService {
   public async importConfig(input: ConfigImportInput): Promise<ConfigImportResultInterface> {
     this.validatePayload(input.payload);
 
-    const requested = input.sections === null || input.sections.length === 0
-      ? ALL_SECTIONS
-      : input.sections;
+    const explicit = input.sections !== null && input.sections.length > 0;
+    const requested = explicit
+      ? (input.sections as readonly ConfigExportSection[])
+      : ALL_SECTIONS;
+
+    // Read every requested section out of the payload BEFORE any write,
+    // so the escalation gate, the manifest check and the summary all
+    // agree on what the file actually contains.
+    const manifest = readManifest(input.payload);
+    const plan = requested.map((section) =>
+      classifySection(section, input.payload.sections, manifest, explicit),
+    );
+
+    // Privilege-escalation guard: importing roles/permissions can hand out
+    // grants, so an admin needs `rbac_roles:edit` on top of the endpoint's
+    // `config_portability:import`. Without this, an admin whose ONLY power
+    // is config import could inject `rbac_roles:edit`/`admins:edit` grants
+    // and take over the panel.
+    //
+    // Reads the classified rows rather than the raw payload: `?? []`
+    // followed by `.length > 0` also passed for a non-array `sections.roles`
+    // (a string has a length), and a section the manifest check refuses
+    // must not arm the gate either.
+    const touchesPrivileged = plan.some(
+      (entry) =>
+        PRIVILEGED_SECTIONS.has(entry.section)
+        && entry.status === 'imported'
+        && entry.rows.length > 0,
+    );
+    if (touchesPrivileged && !input.importerPermissions.has(PRIVILEGED_SECTION_TOKEN)) {
+      throw new BadRequestException(
+        'Importing roles/permissions requires the rbac_roles:edit permission',
+      );
+    }
+
     const startedAt = new Date();
 
     const summaries: SectionImportSummaryInterface[] = [];
@@ -81,10 +182,29 @@ export class ConfigImportService {
     // a whole. Dry-run uses an explicit rollback at the end.
     try {
       await this.prismaService.$transaction(async (tx) => {
-        for (const section of requested) {
-          const rows = (input.payload.sections[section] ?? []) as Array<Record<string, unknown>>;
+        for (const entry of plan) {
+          if (entry.status !== 'imported') {
+            // Absent or untrustworthy: nothing was attempted, and the
+            // summary says so instead of reporting a row of zeros that
+            // reads like a success.
+            summaries.push({
+              section: entry.section,
+              status: entry.status,
+              created: 0,
+              updated: 0,
+              skipped: 0,
+              errors: entry.errors,
+            });
+            continue;
+          }
           summaries.push(
-            await this.importSection(tx, section, rows, input.strategy),
+            await this.importSection(
+              tx,
+              entry.section,
+              entry.rows,
+              input.strategy,
+              input.importerPermissions,
+            ),
           );
         }
         if (input.dryRun) {
@@ -102,6 +222,7 @@ export class ConfigImportService {
       version: CONFIG_EXPORT_VERSION,
       strategy: input.strategy,
       dryRun: input.dryRun,
+      integrity: resolveIntegrity(manifest, plan),
       summaries,
       startedAt: startedAt.toISOString(),
       finishedAt: new Date().toISOString(),
@@ -120,6 +241,7 @@ export class ConfigImportService {
     if (typeof payload.sections !== 'object' || payload.sections === null) {
       throw new BadRequestException('Payload.sections must be an object');
     }
+    assertManifestShape(payload.manifest);
   }
 
   private async importSection(
@@ -127,6 +249,7 @@ export class ConfigImportService {
     section: ConfigExportSection,
     rows: Array<Record<string, unknown>>,
     strategy: ImportStrategy,
+    importerPermissions: ReadonlySet<string>,
   ): Promise<SectionImportSummaryInterface> {
     const errors: string[] = [];
     let created = 0;
@@ -134,7 +257,9 @@ export class ConfigImportService {
     let skipped = 0;
 
     if (rows.length === 0) {
-      return { section, created, updated, skipped, errors };
+      // The file asserts the source had zero rows here, and the manifest
+      // (when present) has already agreed. A genuine no-op.
+      return { section, status: 'imported', created, updated, skipped, errors };
     }
 
     try {
@@ -145,7 +270,12 @@ export class ConfigImportService {
         case 'permissions':
           // Permissions hang off roles via FK. Drop rows whose role is
           // missing in the destination instead of failing the section.
-          ({ created, updated, skipped } = await this.upsertPermissions(tx, rows, strategy));
+          ({ created, updated, skipped } = await this.upsertPermissions(
+            tx,
+            rows,
+            strategy,
+            importerPermissions,
+          ));
           break;
         case 'scopePolicies':
           ({ created, updated, skipped } = await this.upsertById(tx.adminScopePolicy, rows, strategy));
@@ -171,6 +301,9 @@ export class ConfigImportService {
         case 'faqItems':
           ({ created, updated, skipped } = await this.upsertById(tx.faqItem, rows, strategy));
           break;
+        case 'legalDocuments':
+          ({ created, updated, skipped } = await this.upsertLegalDocuments(tx, rows, strategy));
+          break;
         default: {
           const exhaustive: never = section;
           throw new Error(`Unknown config section: ${String(exhaustive)}`);
@@ -180,7 +313,14 @@ export class ConfigImportService {
       errors.push((err as Error).message);
     }
 
-    return { section, created, updated, skipped, errors };
+    return {
+      section,
+      status: errors.length === 0 ? 'imported' : 'failed',
+      created,
+      updated,
+      skipped,
+      errors,
+    };
   }
 
   /**
@@ -222,6 +362,50 @@ export class ConfigImportService {
   }
 
   /**
+   * Legal documents are keyed by `key`, not by `id`, so the generic
+   * `upsertById` would skip every row — it requires a string `id` and there is
+   * none. Keyed on the enum by design: there are exactly two documents and
+   * neither is created or deleted, only edited.
+   *
+   * An unknown key is skipped rather than created. A payload from a newer
+   * source may name a third document this instance has no enum value for, and
+   * inventing the row would fail on the foreign key from `user_legal_consents`
+   * anyway.
+   */
+  private async upsertLegalDocuments(
+    tx: PrismaTransactionClient,
+    rows: Array<Record<string, unknown>>,
+    strategy: ImportStrategy,
+  ): Promise<{ created: number; updated: number; skipped: number }> {
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      const key = row['key'];
+      if (typeof key !== 'string' || !LEGAL_DOCUMENT_KEYS.includes(key as LegalDocumentKey)) {
+        skipped += 1;
+        continue;
+      }
+      const documentKey = key as LegalDocumentKey;
+      const existing = await tx.legalDocument.findUnique({ where: { key: documentKey } });
+      const data = stripRelationFields(coerceTimestamps(row));
+      if (existing) {
+        if (strategy === 'skip') {
+          skipped += 1;
+          continue;
+        }
+        await tx.legalDocument.update({ where: { key: documentKey }, data });
+        updated += 1;
+      } else {
+        await tx.legalDocument.create({ data: data as never });
+        created += 1;
+      }
+    }
+    return { created, updated, skipped };
+  }
+
+  /**
    * Permissions need an extra step: drop rows whose role is missing in
    * the destination. Uses the `(roleId, resource, action)` composite
    * unique index for upsert lookup.
@@ -230,6 +414,7 @@ export class ConfigImportService {
     tx: PrismaTransactionClient,
     rows: Array<Record<string, unknown>>,
     strategy: ImportStrategy,
+    importerPermissions: ReadonlySet<string>,
   ): Promise<{ created: number; updated: number; skipped: number }> {
     let created = 0;
     const updated = 0;
@@ -240,6 +425,22 @@ export class ConfigImportService {
       const resource = row['resource'];
       const action = row['action'];
       if (typeof roleId !== 'string' || typeof resource !== 'string' || typeof action !== 'string') {
+        skipped += 1;
+        continue;
+      }
+      // Reject grants that aren't in the RBAC catalog: `upsertPermissions`
+      // writes `adminPermission` rows directly (bypassing the validated
+      // role-editor path), so a crafted payload could otherwise persist a
+      // bogus/forged (resource, action).
+      if (!isValidPermission(resource, action)) {
+        skipped += 1;
+        continue;
+      }
+      // Self-escalation guard: never let an admin import a permission it
+      // does not itself hold. Combined with the section-level
+      // `rbac_roles:edit` gate this closes the "grant myself anything"
+      // path — a limited admin can only import grants ⊆ its own set.
+      if (!importerPermissions.has(permissionToken(resource, action))) {
         skipped += 1;
         continue;
       }
@@ -295,6 +496,151 @@ export class ConfigImportService {
     await tx.settings.create({ data: { ...data, id: 1 } });
     return { created: 1, updated: 0, skipped: 0 };
   }
+}
+
+function permissionToken(resource: string, action: string): string {
+  return `${resource}:${action}`;
+}
+
+/**
+ * One requested section, resolved against the payload before any write.
+ * `rows` is only populated for `imported`; the other statuses carry an
+ * empty array precisely so a caller cannot accidentally act on them.
+ */
+interface SectionPlanEntryInterface {
+  readonly section: ConfigExportSection;
+  readonly status: SectionImportStatus;
+  readonly rows: Array<Record<string, unknown>>;
+  readonly errors: string[];
+  /** Set when this entry is the reason the payload failed its manifest. */
+  readonly manifestViolation: boolean;
+}
+
+/**
+ * The payload arrives as operator-uploaded JSON, so the manifest is only
+ * usable once it has been shown to be a map of known sections to
+ * non-negative integers. A junk manifest is a bad request, not something
+ * to shrug off — shrugging is how the payload lost its sections in the
+ * first place.
+ */
+function assertManifestShape(manifest: unknown): void {
+  // `null` reads the same as an omitted key here, matching how a `null`
+  // section is treated as absent rather than as a damaged array. Keeping
+  // the two in step is what makes `readManifest`'s null branch reachable
+  // instead of dead.
+  if (manifest === undefined || manifest === null) return;
+  if (typeof manifest !== 'object' || Array.isArray(manifest)) {
+    throw new BadRequestException('Payload.manifest must be an object when present');
+  }
+  for (const section of ALL_SECTIONS) {
+    const declared = (manifest as Record<string, unknown>)[section];
+    if (declared === undefined) continue;
+    if (typeof declared !== 'number' || !Number.isInteger(declared) || declared < 0) {
+      throw new BadRequestException(
+        `Payload.manifest.${section} must be a non-negative integer`,
+      );
+    }
+  }
+}
+
+function readManifest(
+  payload: ConfigExportPayloadInterface,
+): ConfigExportManifestInterface | undefined {
+  const manifest = payload.manifest;
+  if (manifest === undefined || manifest === null) return undefined;
+  return manifest;
+}
+
+/**
+ * Decide what a single requested section is, before anything is written.
+ *
+ * The distinction the old `?? []` collapsed:
+ *   - the key is absent  → the file makes no claim about this section;
+ *   - the key is `[]`    → the file claims the source had zero rows.
+ *
+ * Absent is only an error when the operator named the section. Importing
+ * "everything" from a file that was deliberately exported as a subset is
+ * a normal workflow, and turning nine informational rows into nine red
+ * errors would train operators to ignore the column.
+ */
+function classifySection(
+  section: ConfigExportSection,
+  sections: ConfigExportPayloadInterface['sections'],
+  manifest: ConfigExportManifestInterface | undefined,
+  explicitlyRequested: boolean,
+): SectionPlanEntryInterface {
+  const raw = (sections as Record<string, unknown>)[section];
+  const present = raw !== undefined && raw !== null;
+  const declared = manifest?.[section];
+
+  if (present && !Array.isArray(raw)) {
+    return {
+      section,
+      status: 'rejected',
+      rows: [],
+      manifestViolation: false,
+      errors: [
+        `section "${section}" is present but is not an array (got ${typeof raw}) `
+          + '— refused, nothing was imported for it',
+      ],
+    };
+  }
+
+  const actual = present ? (raw as unknown[]).length : undefined;
+
+  // A manifest is the file's account of itself; if it disagrees with the
+  // payload the file is damaged and we refuse the section rather than
+  // restore a truncated one. Refusing is safe — the import only ever
+  // upserts, so declining to touch a section leaves the destination as
+  // it was.
+  if (manifest !== undefined && declared !== actual) {
+    return {
+      section,
+      status: 'rejected',
+      rows: [],
+      manifestViolation: true,
+      errors: [
+        `section "${section}" contradicts the export manifest `
+          + `(manifest: ${describeCount(declared)}, payload: ${describeCount(actual)}) `
+          + '— the file is damaged, nothing was imported for it',
+      ],
+    };
+  }
+
+  if (!present) {
+    return {
+      section,
+      status: 'missing',
+      rows: [],
+      manifestViolation: false,
+      errors: explicitlyRequested
+        ? [
+            `section "${section}" was requested but is absent from the payload `
+              + '— nothing was imported for it',
+          ]
+        : [],
+    };
+  }
+
+  return {
+    section,
+    status: 'imported',
+    rows: raw as Array<Record<string, unknown>>,
+    manifestViolation: false,
+    errors: [],
+  };
+}
+
+function describeCount(count: number | undefined): string {
+  return count === undefined ? 'section absent' : `${count} row(s)`;
+}
+
+function resolveIntegrity(
+  manifest: ConfigExportManifestInterface | undefined,
+  plan: readonly SectionPlanEntryInterface[],
+): PayloadIntegrityStatus {
+  if (manifest === undefined) return 'unverifiable';
+  return plan.some((entry) => entry.manifestViolation) ? 'violated' : 'verified';
 }
 
 class DryRunRollback extends Error {

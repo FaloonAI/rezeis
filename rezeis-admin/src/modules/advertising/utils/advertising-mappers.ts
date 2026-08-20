@@ -66,7 +66,7 @@ export function mapPlacement(
     trackingCode: placement.trackingCode,
     payload: buildAdPayload(placement.trackingCode),
     links: buildAdDeepLinks({
-      botUsername: config.botUsername ?? '',
+      adminReiwaBotUsername: config.adminReiwaBotUsername,
       miniAppShortName: config.miniAppShortName,
       miniAppWebBaseUrl: config.webBaseUrl,
       code: placement.trackingCode,
@@ -110,6 +110,7 @@ export function mapRequest(request: AdPlacementRequest): AdPlacementRequestView 
     approvedWindowDays: request.approvedWindowDays,
     selfFundedBudgetNote: request.selfFundedBudgetNote,
     status: request.status,
+    reviewNotes: request.reviewNotes,
     reviewedBy: request.reviewedBy,
     reviewedAt: request.reviewedAt?.toISOString() ?? null,
     campaignId: request.campaignId,

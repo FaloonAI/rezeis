@@ -10,10 +10,11 @@
  *   - opacity: 0.05–1
  */
 
-import { Suspense, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
@@ -21,11 +22,22 @@ import { Switch } from '@/components/ui/switch'
 import { Check } from 'lucide-react'
 
 import {
-  CARD_EFFECT_COMPONENTS,
   CARD_EFFECT_REGISTRY,
   getCardEffectDef,
   getCardEffectDefaults,
 } from './card-effect-registry'
+import {
+  buildCardEffectThumbnailArtwork,
+  resolveCardEffectPreviewColors,
+} from './card-effect-preview-utils'
+import { toColorInputValue, withColorInputValue } from './card-effect-color-input'
+import {
+  resolveControlLabel,
+  resolveOptionLabel,
+  type LabelLookup,
+} from './card-effect-control-labels'
+import { CardEffectPreviewLayer } from './card-effect-preview-runtime'
+import './card-effect-preview-runtime.css'
 import type { ControlDef } from '@/features/appearance/background-controls'
 
 interface CardEffectSectionProps {
@@ -35,6 +47,8 @@ interface CardEffectSectionProps {
   onEffectChange: (effect: string) => void
   onPropsChange: (props: Record<string, unknown>) => void
   onOpacityChange: (opacity: number) => void
+  /** Render the actual selected renderer in its tile, rather than only artwork. */
+  livePreview?: boolean
 }
 
 export function CardEffectSection(props: CardEffectSectionProps) {
@@ -46,7 +60,7 @@ export function CardEffectSection(props: CardEffectSectionProps) {
         <CardDescription>{t('brandingPage.sections.cardEffect.description')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <CardEffectPicker {...props} />
+        <CardEffectPicker {...props} livePreview={props.livePreview ?? true} />
       </CardContent>
     </Card>
   )
@@ -64,6 +78,7 @@ export function CardEffectPicker({
   onEffectChange,
   onPropsChange,
   onOpacityChange,
+  livePreview = false,
 }: CardEffectSectionProps) {
   const { t } = useTranslation()
   const def = effect !== 'NONE' ? getCardEffectDef(effect) : undefined
@@ -97,14 +112,17 @@ export function CardEffectPicker({
         >
           {t('brandingPage.cardEffects.NONE')}
           {effect === 'NONE' && (
-            <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
-              <Check className="h-2.5 w-2.5" />
+            <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+              <Check className="size-2.5" />
             </span>
           )}
         </button>
         {CARD_EFFECT_REGISTRY.map((e) => {
-          const Eff = CARD_EFFECT_COMPONENTS[e.id]
           const isActive = effect === e.id
+          const thumbnailProps = isActive ? mergedProps : getCardEffectDefaults(e.id)
+          const thumbnailArtwork = buildCardEffectThumbnailArtwork(
+            resolveCardEffectPreviewColors(e.id, thumbnailProps),
+          )
           return (
             <button
               key={e.id}
@@ -116,21 +134,37 @@ export function CardEffectPicker({
                 isActive ? 'border-primary ring-2 ring-primary/40' : 'border-border hover:border-primary/40'
               }`}
             >
-              {/* Static thumbnail: render the live effect at default props only
-                  for the ACTIVE one (cheap) and a label otherwise. */}
-              {isActive ? (
-                <Suspense fallback={null}>
-                  <div className="pointer-events-none absolute inset-0">
-                    <Eff {...mergedProps} />
-                  </div>
-                </Suspense>
-              ) : null}
+              {/* Every tile has a stable palette fallback. The actively edited
+                  card can additionally show its *actual* renderer, so the
+                  operator does not have to infer an animation from a generic
+                  gradient. All unselected tiles remain GPU-free. */}
+              <div
+                aria-hidden="true"
+                data-card-effect-thumbnail
+                data-card-effect-thumbnail-active={isActive ? 'true' : 'false'}
+                className={`pointer-events-none absolute inset-0 ${
+                  isActive ? 'card-effect-preview__picker-artwork' : ''
+                }`}
+                style={{ backgroundImage: thumbnailArtwork }}
+              />
+              {isActive && livePreview && (
+                <div
+                  data-card-effect-thumbnail-renderer
+                  className="pointer-events-none absolute inset-0"
+                >
+                  <CardEffectPreviewLayer
+                    effect={e.id}
+                    props={thumbnailProps}
+                    opacity={opacity}
+                  />
+                </div>
+              )}
               <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[9px] font-medium text-white">
                 {t(`brandingPage.cardEffects.${e.id}`, { defaultValue: e.name })}
               </span>
               {isActive && (
-                <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                  <Check className="h-2.5 w-2.5" />
+                <span className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <Check className="size-2.5" />
                 </span>
               )}
             </button>
@@ -166,6 +200,7 @@ export function CardEffectPicker({
             {def.controls.map((control) => (
               <DynamicControl
                 key={control.prop}
+                effect={effect}
                 control={control}
                 value={mergedProps[control.prop]}
                 onChange={(v) => handleProp(control.prop, v)}
@@ -181,45 +216,94 @@ export function CardEffectPicker({
 // ── Control renderers (slider / color / colorArray / rgbColor / toggle) ───────
 
 function DynamicControl({
+  effect,
   control,
   value,
   onChange,
 }: {
+  effect: string
   control: ControlDef
   value: unknown
   onChange: (v: unknown) => void
 }) {
+  const { t } = useTranslation()
+  const lookup: LabelLookup = (key, fallback) => t(key, { defaultValue: fallback })
+  const label = resolveControlLabel(lookup, effect, control)
   switch (control.type) {
     case 'slider':
-      return <SliderControl control={control} value={value as number} onChange={onChange} />
+      return <SliderControl control={control} label={label} value={value as number} onChange={onChange} />
     case 'color':
-      return <ColorControl control={control} value={value as string} onChange={onChange} />
+      return <ColorControl control={control} label={label} value={value as string} onChange={onChange} />
     case 'colorArray':
-      return <ColorArrayControl control={control} value={value as string[]} onChange={onChange} />
+      return <ColorArrayControl control={control} label={label} value={value as string[]} onChange={onChange} />
     case 'rgbColor':
-      return <RgbColorControl control={control} value={value as number[]} onChange={onChange} />
+      return <RgbColorControl control={control} label={label} value={value as number[]} onChange={onChange} />
     case 'toggle':
-      return <ToggleControl control={control} value={value as boolean} onChange={onChange} />
+      return <ToggleControl control={control} label={label} value={value as boolean} onChange={onChange} />
     case 'select':
-      return <SelectControl control={control} value={value as string} onChange={onChange} />
+      return (
+        <SelectControl
+          control={control}
+          label={label}
+          optionLabel={(option) => resolveOptionLabel(lookup, control.prop, option)}
+          value={value as string}
+          onChange={onChange}
+        />
+      )
+    case 'text':
+      return <TextControl control={control} label={label} value={value as string} onChange={onChange} />
     default:
       return null
   }
 }
 
-function SelectControl({ control, value, onChange }: { control: ControlDef; value: string; onChange: (v: unknown) => void }) {
+interface ControlRenderProps {
+  control: ControlDef
+  /** Already translated — see `resolveControlLabel`. */
+  label: string
+  onChange: (v: unknown) => void
+}
+
+function TextControl({ control, label, value, onChange }: ControlRenderProps & { value: string }) {
+  const v = typeof value === 'string' ? value : (control.default as string)
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs">{label}</Label>
+      <Input
+        value={v}
+        // Bounded because this string is walked every frame — a pasted essay
+        // would turn a background into a stutter. The ceiling is generous for
+        // anything anyone would legitimately put on a card.
+        maxLength={control.maxLength ?? 64}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-7 text-xs"
+        aria-label={label}
+      />
+    </div>
+  )
+}
+
+function SelectControl({
+  control,
+  label,
+  optionLabel,
+  value,
+  onChange,
+}: ControlRenderProps & { optionLabel: (option: string) => string; value: string }) {
   const options = control.options ?? []
   const v = typeof value === 'string' && options.includes(value) ? value : (control.default as string)
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs">{control.label}</Label>
+      <Label className="text-xs">{label}</Label>
       <Select value={v} onValueChange={(next) => onChange(next)}>
-        <SelectTrigger className="h-7 text-xs" aria-label={control.label}>
-          <SelectValue />
+        <SelectTrigger className="h-7 text-xs" aria-label={label}>
+          {/* The trigger renders the option's translated text rather than
+              `<SelectValue />`, which would echo the raw stored value. */}
+          <SelectValue>{optionLabel(v)}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {options.map((opt) => (
-            <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
+            <SelectItem key={opt} value={opt} className="text-xs">{optionLabel(opt)}</SelectItem>
           ))}
         </SelectContent>
       </Select>
@@ -227,12 +311,12 @@ function SelectControl({ control, value, onChange }: { control: ControlDef; valu
   )
 }
 
-function SliderControl({ control, value, onChange }: { control: ControlDef; value: number; onChange: (v: unknown) => void }) {
+function SliderControl({ control, label, value, onChange }: ControlRenderProps & { value: number }) {
   const v = typeof value === 'number' ? value : (control.default as number)
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <Label className="text-xs">{control.label}</Label>
+        <Label className="text-xs">{label}</Label>
         <span className="font-mono text-[10px] text-muted-foreground">{v}</span>
       </div>
       <Slider
@@ -241,47 +325,52 @@ function SliderControl({ control, value, onChange }: { control: ControlDef; valu
         max={control.max ?? 1}
         step={control.step ?? 0.1}
         onValueChange={(arr: number[]) => onChange(arr[0] ?? v)}
-        aria-label={control.label}
+        aria-label={label}
       />
     </div>
   )
 }
 
-function ColorControl({ control, value, onChange }: { control: ControlDef; value: string; onChange: (v: unknown) => void }) {
+function ColorControl({ control, label, value, onChange }: ControlRenderProps & { value: string }) {
   const v = typeof value === 'string' ? value : (control.default as string)
   return (
     <div className="flex items-center justify-between">
-      <Label className="text-xs">{control.label}</Label>
+      <Label className="text-xs">{label}</Label>
       <input
         type="color"
-        value={/^#[0-9a-fA-F]{6}$/.test(v) ? v : '#ffffff'}
-        onChange={(e) => onChange(e.target.value)}
+        // Was `/^#[0-9a-fA-F]{6}$/.test(v) ? v : '#ffffff'`, which showed white
+        // for anything carrying alpha and then wrote a six-digit hex over it.
+        value={toColorInputValue(v)}
+        onChange={(e) => onChange(withColorInputValue(v, e.target.value))}
         className="h-7 w-10 cursor-pointer rounded border"
-        aria-label={control.label}
+        aria-label={label}
       />
     </div>
   )
 }
 
-function ColorArrayControl({ control, value, onChange }: { control: ControlDef; value: string[]; onChange: (v: unknown) => void }) {
+function ColorArrayControl({ control, label, value, onChange }: ControlRenderProps & { value: string[] }) {
   const colors = Array.isArray(value) ? value : (control.default as string[])
   const count = control.count ?? colors.length
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs">{control.label}</Label>
+      <Label className="text-xs">{label}</Label>
       <div className="flex gap-2">
         {Array.from({ length: count }).map((_, i) => (
           <input
             key={i}
             type="color"
-            value={colors[i] && /^#[0-9a-fA-F]{6}$/.test(colors[i]) ? colors[i] : '#ffffff'}
+            // `pixelCard.colors` ships an alpha ramp (1 / 0.8 / 0.6). The old
+            // hex-only guard rendered all three swatches as `#ffffff` and the
+            // first click flattened the ramp to opaque white for good.
+            value={toColorInputValue(colors[i])}
             onChange={(e) => {
               const next = [...colors]
-              next[i] = e.target.value
+              next[i] = withColorInputValue(colors[i], e.target.value)
               onChange(next)
             }}
             className="h-7 w-9 cursor-pointer rounded border"
-            aria-label={`${control.label} ${i + 1}`}
+            aria-label={`${label} ${i + 1}`}
           />
         ))}
       </div>
@@ -289,7 +378,7 @@ function ColorArrayControl({ control, value, onChange }: { control: ControlDef; 
   )
 }
 
-function RgbColorControl({ control, value, onChange }: { control: ControlDef; value: number[]; onChange: (v: unknown) => void }) {
+function RgbColorControl({ control, label, value, onChange }: ControlRenderProps & { value: number[] }) {
   const rgb = Array.isArray(value) && value.length === 3 ? value : (control.default as number[])
   const toHex = (c: number[]) =>
     '#' + c.map((x) => Math.round(Math.max(0, Math.min(1, x)) * 255).toString(16).padStart(2, '0')).join('')
@@ -299,24 +388,24 @@ function RgbColorControl({ control, value, onChange }: { control: ControlDef; va
   }
   return (
     <div className="flex items-center justify-between">
-      <Label className="text-xs">{control.label}</Label>
+      <Label className="text-xs">{label}</Label>
       <input
         type="color"
         value={toHex(rgb)}
         onChange={(e) => onChange(fromHex(e.target.value))}
         className="h-7 w-10 cursor-pointer rounded border"
-        aria-label={control.label}
+        aria-label={label}
       />
     </div>
   )
 }
 
-function ToggleControl({ control, value, onChange }: { control: ControlDef; value: boolean; onChange: (v: unknown) => void }) {
+function ToggleControl({ control, label, value, onChange }: ControlRenderProps & { value: boolean }) {
   const v = typeof value === 'boolean' ? value : (control.default as boolean)
   return (
     <div className="flex items-center justify-between">
-      <Label className="text-xs">{control.label}</Label>
-      <Switch checked={v} onCheckedChange={(c) => onChange(c)} aria-label={control.label} />
+      <Label className="text-xs">{label}</Label>
+      <Switch checked={v} onCheckedChange={(c) => onChange(c)} aria-label={label} />
     </div>
   )
 }

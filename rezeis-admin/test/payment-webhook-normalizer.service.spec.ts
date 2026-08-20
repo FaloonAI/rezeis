@@ -69,6 +69,39 @@ describe('PaymentWebhookNormalizerService', () => {
     assert.equal(result.eventStatus, 'succeeded');
   });
 
+  it('normalizes a YOOKASSA refund.succeeded to REFUNDED, keyed by the original payment id', () => {
+    // The refund object carries `payment_id` (the original YooKassa payment id)
+    // and its own `status: succeeded` — but no `metadata.paymentId`. The
+    // normalizer must key by `payment_id` (matched via `gatewayId` downstream)
+    // and surface REFUNDED so the reconciler reverses the payment's side-effects
+    // instead of reading `succeeded` as a fresh completed payment.
+    const rawBody = Buffer.from(
+      JSON.stringify({
+        type: 'notification',
+        event: 'refund.succeeded',
+        object: {
+          id: 'yoo-refund-id',
+          status: 'succeeded',
+          payment_id: 'yoo-original-payment-id',
+          amount: { value: '100.00', currency: 'RUB' },
+        },
+      }),
+      'utf8',
+    );
+
+    const result = service.normalizeWebhook({
+      gatewayType: PaymentGatewayType.YOOKASSA,
+      rawBody,
+      headers: { 'x-forwarded-for': '185.71.76.1' },
+      clientIp: '185.71.76.1',
+      gatewaySettings: {},
+      verifySignature: true,
+    });
+
+    assert.equal(result.paymentId, 'yoo-original-payment-id');
+    assert.equal(result.eventStatus, 'REFUNDED');
+  });
+
   it('normalizes HELEKET webhooks with md5 signature verification', () => {
     const payload = {
       order_id: 'heleket-payment-id',
@@ -246,6 +279,18 @@ describe('PaymentWebhookNormalizerService — CryptoPay', () => {
     return { rawBody, signature };
   }
 
+  function normalizeSigned(body: unknown) {
+    const { rawBody, signature } = signedBody(body);
+    return service.normalizeWebhook({
+      gatewayType: PaymentGatewayType.CRYPTOPAY,
+      rawBody,
+      headers: { 'crypto-pay-api-signature': signature },
+      clientIp: null,
+      gatewaySettings: { apiToken },
+      verifySignature: true,
+    });
+  }
+
   it('normalizes a verified invoice_paid webhook to a SUCCESS-mapping status', () => {
     const { rawBody, signature } = signedBody({
       update_id: 9001,
@@ -269,28 +314,77 @@ describe('PaymentWebhookNormalizerService — CryptoPay', () => {
     });
 
     assert.equal(result.paymentId, 'local-payment-cryptopay');
-    assert.equal(result.providerEventId, '9001');
+    // The invoice id, not the update id — see the collision test below.
+    assert.equal(result.providerEventId, '555');
     assert.equal(result.eventStatus, 'paid');
   });
 
-  it('falls back to invoice_id for the dedup key when update_id is absent', () => {
-    const { rawBody, signature } = signedBody({
+  it('keys the dedup id on invoice_id when update_id is absent', () => {
+    const result = normalizeSigned({
       update_type: 'invoice_paid',
       payload: { invoice_id: 777, status: 'active', payload: 'pid-2' },
-    });
-
-    const result = service.normalizeWebhook({
-      gatewayType: PaymentGatewayType.CRYPTOPAY,
-      rawBody,
-      headers: { 'crypto-pay-api-signature': signature },
-      clientIp: null,
-      gatewaySettings: { apiToken },
-      verifySignature: true,
     });
 
     assert.equal(result.paymentId, 'pid-2');
     assert.equal(result.providerEventId, '777');
     assert.equal(result.eventStatus, 'active');
+  });
+
+  it('gives two invoices sharing one update_id distinct providerEventIds', () => {
+    // Crypto Pay documents `update_id` as a "Non-unique update ID". Keying the
+    // inbox on it meant a collision between two invoices landed on one dedup
+    // row: the differing payload hash made the inbox overwrite that row in
+    // place, re-pointing the already-queued job at the other invoice, so the
+    // first invoice's `paid` event was destroyed before it was ever applied.
+    const paidA = normalizeSigned({
+      update_id: 4242,
+      update_type: 'invoice_paid',
+      payload: { invoice_id: 111, status: 'paid', payload: 'local-payment-a' },
+    });
+    const paidB = normalizeSigned({
+      update_id: 4242,
+      update_type: 'invoice_paid',
+      payload: { invoice_id: 222, status: 'paid', payload: 'local-payment-b' },
+    });
+
+    assert.equal(paidA.providerEventId, '111');
+    assert.equal(paidB.providerEventId, '222');
+    assert.notEqual(paidA.providerEventId, paidB.providerEventId);
+  });
+
+  it('reuses one dedup key across an invoice active → paid transition, with distinct payload hashes', () => {
+    // Same key by design. The inbox calls a collision a true duplicate only
+    // when the payload hash matches too, so the `paid` body refreshes the row
+    // and re-enqueues rather than being dropped. That is why the invoice id
+    // alone suffices and `update_type` need not be folded into the key.
+    const active = normalizeSigned({
+      update_id: 1,
+      update_type: 'invoice_paid',
+      payload: { invoice_id: 333, status: 'active', payload: 'local-payment-c' },
+    });
+    const paid = normalizeSigned({
+      update_id: 2,
+      update_type: 'invoice_paid',
+      payload: { invoice_id: 333, status: 'paid', payload: 'local-payment-c' },
+    });
+
+    assert.equal(active.providerEventId, '333');
+    assert.equal(paid.providerEventId, '333');
+    assert.notEqual(active.payloadHash, paid.payloadHash);
+  });
+
+  it('falls back to the local payment id when the invoice carries no invoice_id', () => {
+    // A null from `resolveProviderEventId` is not a crash: `normalizeWebhook`
+    // falls back to the already-resolved paymentId, which for CryptoPay is the
+    // invoice's own `payload` — still one stable key per invoice.
+    const result = normalizeSigned({
+      update_id: 5,
+      update_type: 'invoice_paid',
+      payload: { status: 'paid', payload: 'local-payment-no-invoice-id' },
+    });
+
+    assert.equal(result.paymentId, 'local-payment-no-invoice-id');
+    assert.equal(result.providerEventId, 'local-payment-no-invoice-id');
   });
 
   it('rejects a CryptoPay webhook with a tampered signature', () => {

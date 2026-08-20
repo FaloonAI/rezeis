@@ -46,6 +46,8 @@ function fakePrisma(opts: {
     sourceTransactionId: string | null;
     referralUserId: string;
   }>;
+  /** When true, partnerTransaction.create throws P2002 (unique sourceKey race). */
+  createThrowsUnique?: boolean;
 }) {
   const createdTransactions: Array<Record<string, unknown>> = [];
   const partnerById = new Map(opts.partners.map((p) => [p.id, { ...p, balance: p.balance ?? 0, totalEarned: p.totalEarned ?? 0 }]));
@@ -54,6 +56,12 @@ function fakePrisma(opts: {
   const tx = {
     partnerTransaction: {
       create: async (args: { data: Record<string, unknown> }) => {
+        if (opts.createThrowsUnique === true) {
+          throw new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+            code: 'P2002',
+            clientVersion: 'test',
+          });
+        }
         createdTransactions.push(args.data);
         existing.push({
           partnerId: args.data.partnerId as string,
@@ -178,6 +186,42 @@ describe('PartnerEarningsService', () => {
     });
     assert.equal(fake.state.createdTransactions.length, 1);
     assert.equal((fake.state.createdTransactions[0] as { earnedAmount: number }).earnedAmount, 1000);
+    // Deterministic sourceKey enables the unique-index race guard.
+    assert.equal(
+      (fake.state.createdTransactions[0] as { sourceKey: string }).sourceKey,
+      'runtime:p1:tx-1',
+    );
+  });
+
+  it('does not double-credit when a concurrent accrual wins the unique race (P2002)', async () => {
+    const fake = fakePrisma({
+      settings: { enabled: true, levels: { LEVEL_1: 10 } },
+      partners: [
+        {
+          id: 'p1',
+          userId: 'u1',
+          isActive: true,
+          useGlobalSettings: true,
+          accrualStrategy: PartnerAccrualStrategy.ON_EACH_PAYMENT,
+          rewardType: PartnerRewardType.PERCENT,
+          balance: 500,
+          totalEarned: 500,
+        },
+      ],
+      edges: [{ partnerId: 'p1', referralUserId: 'payer', level: 1 }],
+      createThrowsUnique: true,
+    });
+    const service = new PartnerEarningsService(fake.client as never, NULL_LOGGER as never, NULL_NOTIFICATIONS as never);
+    // Must resolve (idempotent no-op), not throw.
+    await service.processPartnerEarning({
+      payerUserId: 'payer',
+      paymentAmountMinorUnits: 10000,
+      gatewayType: null,
+      sourceTransactionId: 'tx-1',
+    });
+    // Balance untouched — the racing create rolled back the increment.
+    assert.equal(fake.state.partnerById.get('p1')?.balance, 500);
+    assert.equal(fake.state.partnerById.get('p1')?.totalEarned, 500);
   });
 
   it('uses individual fixed amount when reward type is FIXED', async () => {
@@ -378,5 +422,69 @@ describe('PartnerEarningsService', () => {
     // 10000 * 0.95 * 0.94 * 0.10 = 893
     const earned = (fake.state.createdTransactions[0] as { earnedAmount: number }).earnedAmount;
     assert.ok(earned >= 890 && earned <= 894, `expected ~893, got ${earned}`);
+  });
+});
+
+describe('PartnerEarningsService.attachPartnerReferralChain', () => {
+  function build(existingL1: { partnerId: string } | null) {
+    const created: Array<Record<string, unknown>> = [];
+    const prisma = {
+      partner: {
+        findUnique: async () => ({ id: 'partner-b', isActive: true }),
+      },
+      partnerReferral: {
+        findFirst: async (args: { where: Record<string, unknown> }) =>
+          args.where['level'] === 1 ? existingL1 : null,
+        findUnique: async () => null,
+        create: async (args: { data: Record<string, unknown> }) => {
+          created.push(args.data);
+          return args.data;
+        },
+      },
+    };
+    const service = new PartnerEarningsService(
+      prisma as never,
+      NULL_LOGGER as never,
+      NULL_NOTIFICATIONS as never,
+    );
+    return { service, created };
+  }
+
+  // Money: processPartnerEarning pays EVERY edge it finds for a payer, on every
+  // payment. A second level-1 edge from a different partner therefore doubles the
+  // commission on one payment, forever — and the composite unique key
+  // (partnerId, referralUserId) does not stop it.
+  it('refuses a second level-1 chain when the user already belongs to another partner', async () => {
+    const { service, created } = build({ partnerId: 'partner-a' });
+    const attached = await service.attachPartnerReferralChain({
+      newUserId: 'u1',
+      referrerUserId: 'partner-b-user',
+    });
+    assert.equal(attached, false);
+    assert.deepEqual(created, [], 'a second level-1 edge would double the commission');
+  });
+
+  it('still attaches when the user has no partner attribution yet', async () => {
+    const { service, created } = build(null);
+    const attached = await service.attachPartnerReferralChain({
+      newUserId: 'u1',
+      referrerUserId: 'partner-b-user',
+    });
+    assert.equal(attached, true);
+    assert.equal(created.length, 1);
+    assert.equal(created[0]?.['level'], 1);
+    assert.equal(created[0]?.['partnerId'], 'partner-b');
+  });
+
+  it('stays idempotent when the same partner chain is re-run', async () => {
+    const { service, created } = build({ partnerId: 'partner-b' });
+    const attached = await service.attachPartnerReferralChain({
+      newUserId: 'u1',
+      referrerUserId: 'partner-b-user',
+    });
+    assert.equal(attached, true, 're-running the same chain must not report a conflict');
+    // findUnique returns null in this stub, so the upsert proceeds; in production
+    // it short-circuits. What matters is that the same partner is never refused.
+    assert.equal(created.length, 1);
   });
 });

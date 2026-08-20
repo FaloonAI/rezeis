@@ -23,9 +23,10 @@ import { CARD_GRADIENT_PRESETS } from './theme-presets'
 import { useCustomGradients } from './use-custom-gradients'
 
 export interface CardEffectSlot {
-  cardEffect: string
-  cardEffectProps: Record<string, unknown>
-  cardEffectOpacity: number
+  mode?: 'inherit' | 'override'
+  cardEffect?: string
+  cardEffectProps?: Record<string, unknown>
+  cardEffectOpacity?: number
   /** Optional per-slot static gradient. Null/absent = use the global gradient. */
   cardGradient?: string | null
 }
@@ -37,7 +38,10 @@ interface CardEffectSlotsSectionProps {
 
 const MAX_SLOTS = 20
 
-export function CardEffectSlotsSection({ slots, onChange }: CardEffectSlotsSectionProps) {
+export function CardEffectSlotsSection({
+  slots,
+  onChange,
+}: CardEffectSlotsSectionProps) {
   const { t } = useTranslation()
   const customGradients = useCustomGradients()
 
@@ -61,7 +65,7 @@ export function CardEffectSlotsSection({ slots, onChange }: CardEffectSlotsSecti
     if (slotsRef.current.length >= MAX_SLOTS) return
     const next = [
       ...slotsRef.current,
-      { cardEffect: 'aurora', cardEffectProps: getCardEffectDefaults('aurora'), cardEffectOpacity: 1 },
+      { mode: 'inherit' as const, cardGradient: null },
     ]
     slotsRef.current = next
     onChange(next)
@@ -88,6 +92,9 @@ export function CardEffectSlotsSection({ slots, onChange }: CardEffectSlotsSecti
 
         {slots.map((slot, index) => (
           <div key={index} className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3">
+            {(() => {
+              const overridesEffect = slot.mode === 'override'
+              return <>
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">
                 {t('brandingPage.sections.cardEffectSlots.slotLabel', { index: index + 1 })}
@@ -104,16 +111,63 @@ export function CardEffectSlotsSection({ slots, onChange }: CardEffectSlotsSecti
                 {t('brandingPage.sections.cardEffectSlots.removeSlot')}
               </Button>
             </div>
+            <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background/40 p-2.5">
+              <div className="space-y-0.5">
+                <span className="block text-xs text-muted-foreground">
+                  {overridesEffect
+                    ? t('brandingPage.sections.cardEffectSlots.effectOverride')
+                    : t('brandingPage.sections.cardEffectSlots.effectInherit')}
+                </span>
+                <span className="block text-[11px] text-muted-foreground">
+                  {t('brandingPage.sections.cardEffectSlots.effectModeHint')}
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                onClick={() => updateSlot(index, overridesEffect
+                  ? { mode: 'inherit' }
+                  : {
+                      mode: 'override',
+                      cardEffect: 'aurora',
+                      cardEffectProps: getCardEffectDefaults('aurora'),
+                      cardEffectOpacity: 1,
+                    })}
+              >
+                {overridesEffect
+                  ? t('brandingPage.sections.cardEffectSlots.effectUseGlobal')
+                  : t('brandingPage.sections.cardEffectSlots.effectCustomize')}
+              </Button>
+            </div>
             {/* Reuse the picker body (grid + opacity + dynamic controls) WITHOUT
                 the surrounding Card/title to avoid duplicate headers. */}
-            <CardEffectPicker
-              effect={slot.cardEffect}
-              props={slot.cardEffectProps ?? {}}
-              opacity={slot.cardEffectOpacity ?? 1}
-              onEffectChange={(e) => updateSlot(index, { cardEffect: e })}
-              onPropsChange={(p) => updateSlot(index, { cardEffectProps: p })}
-              onOpacityChange={(o) => updateSlot(index, { cardEffectOpacity: o })}
-            />
+            {overridesEffect && (
+              <CardEffectPicker
+                effect={slot.cardEffect ?? 'aurora'}
+                props={slot.cardEffectProps ?? {}}
+                opacity={slot.cardEffectOpacity ?? 1}
+                /* Every override slot renders its own picker, and this section
+                   allows up to MAX_SLOTS of them at once. A live preview here
+                   was therefore not "one renderer" but one PER SLOT: with the
+                   always-mounted phone preview and its app-background layer on
+                   top, thirteen override slots already exceeded WebKit's
+                   sixteen-context ceiling, and iOS answers that by discarding
+                   the OLDEST contexts — a loss the discarded canvases never
+                   recover from, so those cards stay black for the rest of the
+                   session. The prop that let a caller switch this on is gone
+                   rather than merely set to false, so the count cannot be
+                   raised above one from any call site. `plan-card-styles-section`
+                   and `app-background-section` pass `livePreview={false}` for
+                   the same reason; the effect grid's static gradients already
+                   tell the operator which effect is which. */
+                livePreview={false}
+                onEffectChange={(e) => updateSlot(index, { mode: 'override', cardEffect: e })}
+                onPropsChange={(p) => updateSlot(index, { mode: 'override', cardEffectProps: p })}
+                onOpacityChange={(o) => updateSlot(index, { mode: 'override', cardEffectOpacity: o })}
+              />
+            )}
 
             {/* Per-slot static gradient — overrides the global card gradient
                 for this card position. Absent = use the global gradient. */}
@@ -171,6 +225,8 @@ export function CardEffectSlotsSection({ slots, onChange }: CardEffectSlotsSecti
                 placeholder={t('brandingPage.sections.cardEffectSlots.gradientPlaceholder')}
               />
             </div>
+              </>
+            })()}
           </div>
         ))}
 

@@ -1,4 +1,15 @@
-import { Controller, ParseEnumPipe, Post, RawBody, Param, Req, Inject } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Param,
+  ParseEnumPipe,
+  Post,
+  RawBody,
+  Req,
+} from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { PaymentGatewayType } from '@prisma/client';
 import type { Request } from 'express';
@@ -19,6 +30,13 @@ export class PublicPaymentWebhooksController {
     private readonly configuration: ConfigType<typeof paymentsConfig>,
   ) {}
 
+  /**
+   * 200, not Nest's default 201 for POST. Several providers treat anything
+   * other than a literal 200 as a failed delivery and retry: Platega 3 times,
+   * AuraPay 5, MulenPay likewise, and SeverPay up to **100**. Nothing was lost —
+   * the inbox is idempotent — but every single payment produced a retry storm.
+   */
+  @HttpCode(HttpStatus.OK)
   @Post(':gatewayType')
   public async ingest(
     @Param('gatewayType', new ParseEnumPipe(PaymentGatewayType)) gatewayType: PaymentGatewayType,
@@ -29,6 +47,9 @@ export class PublicPaymentWebhooksController {
     | { readonly accepted: true; readonly lifecycleStatus: 'TELEGRAM_PRECHECKOUT' }
   > {
     const resolvedRawBody = rawBody ?? Buffer.from('{}', 'utf8');
+    if (resolvedRawBody.byteLength > webhookBodyLimit(gatewayType)) {
+      throw new BadRequestException('PAYMENT_WEBHOOK_BODY_TOO_LARGE');
+    }
     if (gatewayType === PaymentGatewayType.TELEGRAM_STARS) {
       const telegramResult = await this.telegramStarsWebhookService.handleTelegramUpdate({
         rawBody: resolvedRawBody,
@@ -51,6 +72,18 @@ export class PublicPaymentWebhooksController {
       clientIp: resolveClientIp(request),
       verifySignature: true,
     });
+  }
+}
+
+function webhookBodyLimit(gatewayType: PaymentGatewayType): number {
+  switch (gatewayType) {
+    case PaymentGatewayType.TELEGRAM_STARS:
+      return 256 * 1024;
+    case PaymentGatewayType.YOOKASSA:
+    case PaymentGatewayType.CRYPTOPAY:
+      return 128 * 1024;
+    default:
+      return 256 * 1024;
   }
 }
 

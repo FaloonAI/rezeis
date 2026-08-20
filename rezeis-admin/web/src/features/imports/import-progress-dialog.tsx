@@ -249,8 +249,10 @@ export function ImportProgressDialog({
         if (!next && isTerminal) onClose()
       }}
     >
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
+      {/* Wider than default max-w-lg: success footer can hold rollback +
+          skip / clone / assign without crushing labels into each other. */}
+      <DialogContent className="flex max-h-[min(92vh,840px)] w-[calc(100%-1.5rem)] max-w-2xl flex-col gap-4 overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{t(titleKey, { source: capitalize(source) })}</DialogTitle>
           {!isTerminal ? (
             <DialogDescription>
@@ -259,22 +261,26 @@ export function ImportProgressDialog({
           ) : null}
         </DialogHeader>
 
-        {!isTerminal ? (
-          <InProgressBody
-            stageIndex={stageIndex}
-            timedOut={timedOut}
-          />
-        ) : (
-          <DoneBody record={record!} summary={summary} mode={mode} />
-        )}
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          {!isTerminal ? (
+            <InProgressBody
+              stageIndex={stageIndex}
+              timedOut={timedOut}
+            />
+          ) : (
+            <DoneBody record={record!} summary={summary} mode={mode} />
+          )}
+        </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        {/* Override DialogFooter sm:flex-row — terminal actions are a full-width
+            stacked block (DoneFooter), not a single trailing button row. */}
+        <DialogFooter className="shrink-0 flex-col gap-3 space-x-0 sm:flex-col sm:space-x-0">
           {!isTerminal && importRecordId !== null ? (
             <Button
               variant="outline"
               onClick={() => cancelMutation.mutate(importRecordId)}
               disabled={cancelMutation.isPending}
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto sm:self-end"
             >
               {cancelMutation.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -409,7 +415,7 @@ function DoneBody({
       {/* Stat grid — values default to "—" when the field is not present
           for this importer, so we never show "0" for "we did not measure". */}
       {summary ? (
-        <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+        <div className="grid max-w-full grid-cols-2 gap-2 overflow-hidden text-sm sm:grid-cols-3">
           <Stat label={t('importsPage.progressDialog.stats.fetched')} value={summary.fetched} />
           <Stat label={t('importsPage.progressDialog.stats.created')} value={summary.created} />
           <Stat label={t('importsPage.progressDialog.stats.updated')} value={summary.updated} />
@@ -472,11 +478,11 @@ function Stat({
   readonly tone?: 'neutral' | 'danger'
 }): JSX.Element {
   return (
-    <div className="rounded-md border bg-card px-3 py-2">
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+    <div className="min-w-0 overflow-hidden rounded-md border bg-card px-3 py-2">
+      <p className="truncate text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
       <p
         className={cn(
-          'text-lg font-semibold tabular-nums',
+          'truncate text-lg font-semibold tabular-nums',
           tone === 'danger' && Number(value) > 0 ? 'text-destructive' : 'text-foreground',
         )}
       >
@@ -545,30 +551,35 @@ function DoneFooter({
     onRollback !== undefined &&
     createdCount > 0
 
+  // Layout (must not crush on narrow viewports / RU labels):
+  //   1) destructive rollback on its own row
+  //   2) primary actions wrap with gap — never share one squeezed row with rollback
   const rollbackNode = offerRollback ? (
     confirmRollback ? (
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-muted-foreground">
+      <div className="flex w-full flex-col gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <span className="min-w-0 flex-1 text-xs text-muted-foreground">
           {t('importsPage.progressDialog.rollbackConfirm', { count: createdCount })}
         </span>
-        <Button size="sm" variant="destructive" onClick={onRollback} disabled={rollbackPending}>
-          {rollbackPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-          {t('importsPage.progressDialog.rollbackConfirmYes')}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setConfirmRollback(false)}
-          disabled={rollbackPending}
-        >
-          {t('importsPage.progressDialog.rollbackConfirmNo')}
-        </Button>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Button size="sm" variant="destructive" onClick={onRollback} disabled={rollbackPending}>
+            {rollbackPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+            {t('importsPage.progressDialog.rollbackConfirmYes')}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setConfirmRollback(false)}
+            disabled={rollbackPending}
+          >
+            {t('importsPage.progressDialog.rollbackConfirmNo')}
+          </Button>
+        </div>
       </div>
     ) : (
       <Button
         size="sm"
         variant="ghost"
-        className="text-destructive hover:text-destructive"
+        className="self-start text-destructive hover:text-destructive"
         onClick={() => setConfirmRollback(true)}
       >
         <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
@@ -577,31 +588,35 @@ function DoneFooter({
     )
   ) : null
 
-  const actions =
+  const actionButtons =
     !offerPlanAssignment && !offerClone ? (
       <Button onClick={onClose} className="w-full sm:w-auto">
         {t('importsPage.progressDialog.close')}
       </Button>
     ) : (
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <Button variant="outline" onClick={onClose}>
+      <>
+        <Button variant="outline" onClick={onClose} className="w-full shrink-0 sm:w-auto">
           {t('importsPage.progressDialog.skipAssign')}
         </Button>
         {offerClone ? (
-          <Button variant="secondary" onClick={onClonePlans}>
+          <Button variant="secondary" onClick={onClonePlans} className="w-full shrink-0 sm:w-auto">
             {t('importsPage.progressDialog.clonePlans')}
           </Button>
         ) : null}
         {offerPlanAssignment ? (
-          <Button onClick={onAssignPlan}>{t('importsPage.progressDialog.assignPlan')}</Button>
+          <Button onClick={onAssignPlan} className="w-full shrink-0 sm:w-auto">
+            {t('importsPage.progressDialog.assignPlan')}
+          </Button>
         ) : null}
-      </div>
+      </>
     )
 
   return (
-    <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0">{rollbackNode}</div>
-      <div className="sm:ml-auto">{actions}</div>
+    <div className="flex w-full min-w-0 flex-col gap-3">
+      {rollbackNode}
+      <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+        {actionButtons}
+      </div>
     </div>
   )
 }

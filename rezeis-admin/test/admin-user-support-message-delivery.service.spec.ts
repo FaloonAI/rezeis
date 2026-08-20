@@ -36,11 +36,16 @@ describe('AdminUserManagementController support notifications', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
       {
         create: async (input: unknown) => {
           notificationCalls.push(input);
         },
       } as never,
+      // RbacService (users:view_registration on Analytics detail)
+      { hasPermission: async () => false } as never,
+      {} as never,
     );
 
     assert.deepStrictEqual(await controller.sendNotification('12345', { message: 'Support answer' }), {

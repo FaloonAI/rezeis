@@ -47,7 +47,7 @@ interface BrandingSettings {
 }
 
 interface AdminSettingsPayload {
-  readonly brandingSettings?: BrandingSettings | null
+  readonly branding?: BrandingSettings | null
 }
 
 export default function PanelBrandingTab() {
@@ -65,7 +65,7 @@ export default function PanelBrandingTab() {
     )
   }
 
-  const branding = settingsQuery.data?.brandingSettings ?? {}
+  const branding = settingsQuery.data?.branding ?? {}
   return <PanelBrandingForm branding={branding} />
 }
 
@@ -104,7 +104,6 @@ function PanelBrandingForm({ branding }: PanelBrandingFormProps) {
   const namingPrefix = form.watch('namingPrefix')
   const namingSeparator = form.watch('namingSeparator')
   const namingSuffixBase = form.watch('namingSuffixBase')
-  // eslint-disable-next-line react-hooks/incompatible-library
   const adminPwaIconUrl = form.watch('adminPwaIconUrl')
 
   // Apply the saved admin PWA icon on mount so the installed-app icon reflects

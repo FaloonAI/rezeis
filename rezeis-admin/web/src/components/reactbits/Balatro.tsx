@@ -1,5 +1,7 @@
 import { Renderer, Program, Mesh, Triangle } from 'ogl';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+
+import { resolveBufferRatio } from './render-scale';
 
 interface BalatroProps {
   spinRotation?: number;
@@ -134,6 +136,11 @@ export default function Balatro({
   mouseInteraction = true
 }: BalatroProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // Bumped by `webglcontextrestored` to re-run the effect below. OGL keeps every
+  // GL handle inside Renderer/Program/Geometry and caches driver state on the
+  // Renderer, none of which survive a context loss and none of which it can
+  // reset — so the only honest recovery is to build the whole thing again.
+  const [glGeneration, setGlGeneration] = useState(0);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -145,7 +152,29 @@ export default function Balatro({
     let program: Program;
 
     function resize() {
-      renderer.setSize(container.offsetWidth, container.offsetHeight);
+      const width = container.offsetWidth;
+      const height = container.offsetHeight;
+      // Cap the DRAWING BUFFER, never the CSS box. ogl's `setSize` writes
+      // `canvas.style` from the CSS numbers below and multiplies only
+      // `canvas.width/height` by `dpr`, so this lowers sampling density and
+      // changes nothing the operator configured — every feature this shader
+      // derives from `uResolution` is a fraction of it. See `render-scale.ts`.
+      const bufferRatio = resolveBufferRatio(width, height, 1);
+      // Reallocate the drawing buffer only when the box actually moved. iOS
+      // fires `window.resize` per frame while the address bar collapses
+      // mid-scroll, and a full-viewport host sized in `lvh` — which is how
+      // both apps size theirs — stays exactly where it was — while ogl's
+      // `setSize` writes `gl.canvas.width` unconditionally, and writing a
+      // canvas's width reallocates the WebGL drawing buffer even for an
+      // identical value. Same guard as `LiquidChrome.tsx`.
+      //
+      // The uniform stays OUTSIDE the guard: it is an array assignment, not a
+      // buffer, and leaving it inside would make a container that happens to
+      // match ogl's 300×150 construction size skip its only initialisation.
+      if (width !== renderer.width || height !== renderer.height || bufferRatio !== renderer.dpr) {
+        renderer.dpr = bufferRatio;
+        renderer.setSize(width, height);
+      }
       if (program) {
         program.uniforms.iResolution.value = [gl.canvas.width, gl.canvas.height, gl.canvas.width / gl.canvas.height];
       }
@@ -180,14 +209,33 @@ export default function Balatro({
 
     const mesh = new Mesh(gl, { geometry, program });
     let animationFrameId: number;
+    let contextLost = false;
 
     function update(time: number) {
+      if (contextLost) return;
       animationFrameId = requestAnimationFrame(update);
       program.uniforms.iTime.value = time * 0.001;
       renderer.render({ scene: mesh });
     }
     animationFrameId = requestAnimationFrame(update);
     container.appendChild(gl.canvas);
+
+    // Without preventDefault the browser never fires `webglcontextrestored`,
+    // so a recoverable loss becomes permanent.
+    const handleContextLost = (event: Event) => {
+      event.preventDefault();
+      contextLost = true;
+      cancelAnimationFrame(animationFrameId);
+    };
+    // Restarting the loop alone would draw with handles the loss detached.
+    // Re-running the effect tears this renderer down (freeing its slot) and
+    // builds a fresh one, so the count of live contexts stays flat.
+    const handleContextRestored = () => {
+      setGlGeneration(generation => generation + 1);
+    };
+    const canvas = gl.canvas as HTMLCanvasElement;
+    canvas.addEventListener('webglcontextlost', handleContextLost);
+    canvas.addEventListener('webglcontextrestored', handleContextRestored);
 
     function handleMouseMove(e: MouseEvent) {
       if (!mouseInteraction) return;
@@ -202,10 +250,15 @@ export default function Balatro({
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener('resize', resize);
       container.removeEventListener('mousemove', handleMouseMove);
+      // Listeners come off before loseContext, or handleContextRestored would
+      // fire during teardown and rebuild everything we are about to free.
+      canvas.removeEventListener('webglcontextlost', handleContextLost);
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored);
       container.removeChild(gl.canvas);
       gl.getExtension('WEBGL_lose_context')?.loseContext();
     };
   }, [
+    glGeneration,
     spinRotation,
     spinSpeed,
     offset,

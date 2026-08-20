@@ -13,7 +13,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import { cn } from '@/lib/utils'
+import { cn, truncate } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import {
   Card,
@@ -76,6 +76,7 @@ const POSITIVE_EVENTS = new Set<string>([
   'user.created',
   'user.enabled',
   'user.first_connected',
+  'user.first_traffic',
   'user.traffic_reset',
   'service.login_attempt_success',
   'service.panel_started',
@@ -260,7 +261,7 @@ function eventDetail(payload: Record<string, unknown>): string | null {
   if (named) return named
 
   const uuid = pick('uuid')
-  return uuid ? `${uuid.slice(0, 8)}…` : null
+  return uuid ? truncate(uuid, 8) : null
 }
 
 function relativeTime(t: ReturnType<typeof useTranslation>['t'], iso: string): string {

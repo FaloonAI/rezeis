@@ -5,6 +5,7 @@ import { Smile, Upload, Loader2, Trash2, Save, ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
+import { expectArray } from '@/lib/api-utils'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/http-errors'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -25,6 +26,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 
+import { findEmojiSaveProblem, resolveEmojiDelivery } from './emoji-delivery'
 import { EmojiPreview } from './emoji-preview'
 import { EmojiStudioTab } from './emoji-studio-tab'
 
@@ -50,7 +52,8 @@ export default function CustomEmojiPage() {
   const { t } = useTranslation()
   const { data: packs, isLoading } = useQuery<ReadonlyArray<CustomEmojiPack>>({
     queryKey: PACKS_KEY,
-    queryFn: async () => (await api.get<ReadonlyArray<CustomEmojiPack>>('/admin/custom-emoji/packs')).data,
+    queryFn: async () =>
+      expectArray<CustomEmojiPack>((await api.get('/admin/custom-emoji/packs')).data),
   })
 
   return (
@@ -266,12 +269,26 @@ function PackCard({ pack }: { pack: CustomEmojiPack }) {
   )
 }
 
+/**
+ * One editable pack entry.
+ *
+ * The stored image is a panel/cabinet asset — Telegram only ever receives the
+ * `custom_emoji_id` and the fallback glyph. An entry with neither (which a
+ * plain sticker-set import produces silently, since only `addemoji` sets carry
+ * `custom_emoji_id`) renders here and delivers nothing, so the state is named
+ * on the row and a save that would keep it broken is blocked before the
+ * request — matching `assertEmojiIsDeliverable` on the backend.
+ */
 function EmojiRow({ packId, emoji }: { packId: string; emoji: CustomEmoji }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [name, setName] = useState(emoji.name)
   const [fallback, setFallback] = useState(emoji.fallback ?? '')
   const [customEmojiId, setCustomEmojiId] = useState(emoji.customEmojiId ?? '')
+
+  const draft = { fallback, customEmojiId }
+  const problem = findEmojiSaveProblem(draft)
+  const glyphOnly = problem === null && resolveEmojiDelivery(draft) === 'glyph'
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -312,6 +329,7 @@ function EmojiRow({ packId, emoji }: { packId: string; emoji: CustomEmoji }) {
             className="h-7 w-12 text-xs"
             placeholder={t('emojiPacksPage.emoji.fallbackPlaceholder')}
             aria-label={t('emojiPacksPage.emoji.fallback')}
+            aria-invalid={problem === 'nothing-to-deliver'}
           />
           <Input
             value={customEmojiId}
@@ -319,19 +337,36 @@ function EmojiRow({ packId, emoji }: { packId: string; emoji: CustomEmoji }) {
             className="h-7 flex-1 font-mono text-[10px]"
             placeholder={t('emojiPacksPage.emoji.idPlaceholder')}
             aria-label={t('emojiPacksPage.emoji.id')}
+            aria-invalid={problem === 'id-not-numeric'}
           />
           <Button
             size="icon"
             variant="ghost"
             className="h-7 w-7 shrink-0"
-            disabled={saveMutation.isPending}
+            disabled={saveMutation.isPending || problem !== null}
             onClick={() => saveMutation.mutate()}
             aria-label={t('emojiPacksPage.emoji.save')}
           >
             {saveMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
           </Button>
         </div>
+        {problem !== null && (
+          <p className="text-[10px] text-destructive">
+            {t(EMOJI_PROBLEM_KEYS[problem])}
+          </p>
+        )}
+        {glyphOnly && (
+          <p className="text-[10px] text-muted-foreground">
+            {t('emojiPacksPage.emoji.glyphOnlyNote')}
+          </p>
+        )}
       </div>
     </div>
   )
 }
+
+/** Why a row refuses to save, as an i18n key. Mirrors the backend's 400s. */
+const EMOJI_PROBLEM_KEYS = {
+  'id-not-numeric': 'emojiPacksPage.emoji.problemIdNotNumeric',
+  'nothing-to-deliver': 'emojiPacksPage.emoji.problemNothingToDeliver',
+} as const

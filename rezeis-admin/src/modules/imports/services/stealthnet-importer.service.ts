@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import {
+  AddOnType,
   Currency,
   ImportStatus,
   Locale,
@@ -14,16 +15,19 @@ import {
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { RemnawaveApiService } from '../../remnawave/services/remnawave-api.service';
 import { ImportSummary } from '../interfaces/import-summary.interface';
+import { StealthnetReferralSyncService } from './stealthnet-referral-sync.service';
 import {
   buildPanelLookup,
   panelSubscriptionState,
   reconcileMissingPanelStatus,
   resolvePanelProfile,
+  type PanelAbsenceProbe,
   type PanelLookup,
 } from '../utils/remnawave-overlay.util';
 import {
   StealthnetClient,
   StealthnetPayment,
+  StealthnetReferralCredit,
   StealthnetSubscription,
   StealthnetTariff,
   StealthnetTariffCategory,
@@ -41,6 +45,7 @@ interface RunInput {
   readonly tariffCategories: readonly StealthnetTariffCategory[];
   readonly tariffPriceOptions: readonly StealthnetTariffPriceOption[];
   readonly payments: readonly StealthnetPayment[];
+  readonly referralCredits: readonly StealthnetReferralCredit[];
   /**
    * Optional migration goodwill: convert each imported user's leftover
    * STEALTHNET wallet balance into loyalty points. Applied only on user
@@ -89,6 +94,7 @@ export class StealthnetImporterService {
   public constructor(
     private readonly prismaService: PrismaService,
     private readonly remnawaveApiService: RemnawaveApiService,
+    private readonly stealthnetReferralSyncService: StealthnetReferralSyncService,
   ) {}
 
   public async run(input: RunInput): Promise<ImportSummary> {
@@ -102,6 +108,7 @@ export class StealthnetImporterService {
       tariffCategories,
       tariffPriceOptions,
       payments,
+      referralCredits,
     } = input;
 
     if (clients.length === 0) {
@@ -130,7 +137,15 @@ export class StealthnetImporterService {
     // profiles the panel still has get refreshed from it (the truth), profiles
     // it no longer has become EXPIRED. Scales past the bulk ceiling via a
     // targeted per-UUID fallback; fail-soft to backup values if unreachable.
-    const panelLookup = await buildPanelLookup(() => this.remnawaveApiService.getAllPanelUsers());
+    //
+    // This importer passes a hardcoded ACTIVE to `reconcileMissingPanelStatus`,
+    // so an unverified miss expires UNCONDITIONALLY — it therefore depends on
+    // the bulk read refusing rather than shortening (see `buildPanelLookup`)
+    // AND on the per-UUID fallback proving a 404 before it calls a profile gone
+    // (see `panelAbsenceProbe`).
+    const panelLookup = await buildPanelLookup(() =>
+      this.remnawaveApiService.strictGetAllPanelUsers(),
+    );
 
     const errors: string[] = [];
     let created = 0;
@@ -140,6 +155,7 @@ export class StealthnetImporterService {
     let subscriptionsUpdated = 0;
     let transactionsCreated = 0;
     const createdUserIds: string[] = [];
+    const sourceUserIds = new Map<string, string>();
 
     // Resolve the balance→points conversion once. Default: enabled at 1:1 so
     // callers that omit the option keep the migration-friendly behaviour.
@@ -162,6 +178,7 @@ export class StealthnetImporterService {
           skipped += 1;
           continue;
         }
+        sourceUserIds.set(client.id, userId);
 
         const wasJustCreated = await this.wasJustCreated(userId);
         if (wasJustCreated) {
@@ -192,7 +209,7 @@ export class StealthnetImporterService {
         // Subscriptions
         const userSubs = subsByOwner.get(client.id) ?? [];
         for (const sub of userSubs) {
-          const result = await this.syncSubscription(userId, sub, tariffById, panelLookup);
+          const result = await this.syncSubscription(userId, sub, tariffById, panelLookup, importRecordId ?? null);
           if (result === 'created') subscriptionsCreated += 1;
           else if (result === 'updated') subscriptionsUpdated += 1;
         }
@@ -210,6 +227,29 @@ export class StealthnetImporterService {
       }
     }
 
+    // Referral edges require both sides to be resolved first, so they must run
+    // after the user pass rather than inside it. This also makes a re-import
+    // idempotent and safe for users that were matched to existing accounts.
+    const referralImport = await this.stealthnetReferralSyncService.syncImport({
+      clients,
+      payments,
+      referralCredits,
+      sourceUserIds,
+    });
+
+    // Ensure sellable EXTRA_DEVICES catalog rows exist for any observed
+    // STEALTHNET extra-device prices (tariff price_per_extra_device or
+    // subscription-level monthly extras). Idempotent by name.
+    const derivedAddOns = deriveExtraDeviceAddOns(tariffs, subscriptions);
+    let addOnsCreated = 0;
+    try {
+      addOnsCreated = await this.ensureExtraDeviceAddOns(derivedAddOns);
+    } catch (err) {
+      const message = `extra-device add-ons: ${(err as Error).message}`;
+      errors.push(message);
+      this.logger.warn(message);
+    }
+
     const finalStatus = errors.length === 0 ? ImportStatus.COMMITTED : ImportStatus.FAILED;
     const resultPayload: Prisma.InputJsonValue = {
       mode,
@@ -222,8 +262,12 @@ export class StealthnetImporterService {
       transactionsProcessed: payments.length,
       transactionsCreated,
       pointsGranted,
+      stealthnetReferrals: JSON.parse(JSON.stringify(referralImport)),
+      addOnsCreated,
       errors,
-      rollback: { createdUserIds },
+      // hasMatchedWrites blocks a destructive rollback when matched users were
+      // updated (no pre-import snapshot to restore). See ImportsService.rollback.
+      rollback: { createdUserIds, hasMatchedWrites: updated > 0 },
       // Catalog snapshot — reused by BackupPlanClonerService for the
       // optional second-step clone. We pre-translate STEALTHNET rows
       // into the same shape altshop emits so the cloner doesn't need
@@ -233,6 +277,10 @@ export class StealthnetImporterService {
           plans: tariffs.map((t) => mapTariffToPlanRow(t, tariffCategories)),
           planDurations: deriveDurations(tariffs, tariffPriceOptions),
           planPrices: derivePrices(tariffs, tariffPriceOptions),
+          // STEALTHNET does not have a separate add_ons table — extra
+          // devices are tariff/subscription fields. Surface a synthetic
+          // EXTRA_DEVICES catalog so clone/operator can recreate pricing.
+          addOns: derivedAddOns,
         }),
       ),
     };
@@ -409,11 +457,35 @@ export class StealthnetImporterService {
 
   // ── Subscription sync ─────────────────────────────────────────────────────
 
+  /**
+   * The strict half of a per-UUID miss confirmation (see
+   * {@link resolvePanelProfile}). This importer is the one that hands
+   * `reconcileMissingPanelStatus` a hardcoded ACTIVE, so an unproven miss
+   * expires unconditionally — it needs a read that can tell a 404 from a 502.
+   *
+   * `strictGetPanelUserExpiry` rather than `strictGetPanelUser`: all we need
+   * from it is 404-vs-everything-else, and the wide parser fails closed on nine
+   * fields this importer never reads (`tag` shape, squad encoding,
+   * `trafficLimitStrategy`), so one unrelated contract drift would turn EVERY
+   * confirmation into `invalidContract` and quietly switch off the expiry half
+   * of the overlay for whole runs.
+   */
+  private panelAbsenceProbe(): PanelAbsenceProbe {
+    return {
+      confirmAbsence: (uuid) => this.remnawaveApiService.strictGetPanelUserExpiry(uuid),
+      onUnconfirmed: (uuid, reason) =>
+        this.logger.warn(
+          `STEALTHNET import: panel state for ${uuid} is unconfirmed (${reason}) — keeping the subscription live instead of expiring it`,
+        ),
+    };
+  }
+
   private async syncSubscription(
     userId: string,
     sub: StealthnetSubscription,
     tariffById: ReadonlyMap<string, StealthnetTariff>,
     panelLookup: PanelLookup,
+    importRecordId: string | null,
   ): Promise<'created' | 'updated' | 'skipped'> {
     if (!sub.remnawave_uuid) return 'skipped';
 
@@ -425,40 +497,72 @@ export class StealthnetImporterService {
     const tariff = sub.tariff_id ? tariffById.get(sub.tariff_id) : undefined;
     const tariffSquads = tariff?.internal_squad_uuids ? [...tariff.internal_squad_uuids] : [];
 
+    const baseDevices =
+      tariff?.device_limit ??
+      (tariff?.included_devices && tariff.included_devices > 0 ? tariff.included_devices : 0);
+    const extraDevices = Math.max(0, sub.extra_devices ?? 0);
+    const backupDeviceLimit = baseDevices + extraDevices;
+
     const planSnapshot: Prisma.InputJsonValue = {
       importedFrom: 'stealthnet',
+      // Durable link for bulk plan re-assignment (see BulkPlanAssignmentService).
+      ...(importRecordId ? { importRecordId } : {}),
       sourceSubscriptionId: sub.id,
       sourceTariffId: sub.tariff_id,
       // Mirror altshop's `originalPlanSnapshot.id` shape so the Plan
       // Cloner's `extractSourcePlanId()` walks both seamlessly.
       originalPlanSnapshot: tariff
-        ? { id: tariff.id, name: tariff.name, duration_days: tariff.duration_days }
+        ? {
+            id: tariff.id,
+            name: tariff.name,
+            duration_days: tariff.duration_days,
+            included_devices: tariff.included_devices,
+            max_extra_devices: tariff.max_extra_devices,
+            price_per_extra_device: tariff.price_per_extra_device,
+          }
         : null,
       tariffName: tariff?.name ?? null,
       currency: tariff?.currency ?? null,
       durationDays: tariff?.duration_days ?? null,
+      // STEALTHNET "extra devices" are per-subscription, not a separate
+      // entitlement table — surface them for clone/analytics + device sum.
+      extraDevices,
+      extraDevicesMonthlyPrice: sub.extra_devices_monthly_price ?? 0,
+      backupExpireAt: sub.expire_at,
     };
 
     // Remnawave is the source of truth. If the panel still has this profile,
-    // overlay its FRESH state (active subscriptions become accurate). If it's
-    // gone from the panel, the subscription is no longer live → EXPIRED, kept
-    // locally so the user can re-buy through the bot.
+    // overlay its FRESH state (active subscriptions become accurate). If the
+    // panel PROVES it is gone (404), the subscription is no longer live →
+    // EXPIRED, kept locally so the user can re-buy through the bot. A panel
+    // that merely failed to answer proves nothing and keeps the row live.
     const { panel, known } = await resolvePanelProfile(
       sub.remnawave_uuid,
       panelLookup,
       (uuid) => this.remnawaveApiService.getPanelUser(uuid),
+      this.panelAbsenceProbe(),
     );
+    const backupExpiresAt = parseOptionalDate(sub.expire_at);
     const dataShared = panel
       ? (() => {
           const fresh = panelSubscriptionState(panel);
+          // Prefer panel device limit; if panel reports 0/null but the dump
+          // has included+extra devices, keep the higher backup sum so the
+          // operator does not lose paid extra slots during import.
+          const panelDevices = fresh.deviceLimit ?? 0;
+          const deviceLimit =
+            panelDevices > 0 ? Math.max(panelDevices, backupDeviceLimit) : backupDeviceLimit || panelDevices;
           return {
             status: fresh.status,
             isTrial: false,
             trafficLimit: fresh.trafficLimit,
-            deviceLimit: fresh.deviceLimit,
+            deviceLimit,
             internalSquads: fresh.internalSquads.length > 0 ? fresh.internalSquads : tariffSquads,
             externalSquad: fresh.externalSquad,
             configUrl: fresh.configUrl,
+            // A null panel expiry is a lifetime profile. Falling back to an
+            // obsolete backup expiry turns it into a finite local subscription
+            // and later makes duration rewards corrupt its lifetime contract.
             expiresAt: fresh.expiresAt,
             planSnapshot,
           };
@@ -470,9 +574,9 @@ export class StealthnetImporterService {
             tariff?.traffic_limit_bytes && tariff.traffic_limit_bytes > 0
               ? Math.max(1, Math.round(Number(tariff.traffic_limit_bytes) / 1024 ** 3))
               : null,
-          deviceLimit: tariff?.device_limit ?? tariff?.included_devices ?? 0,
+          deviceLimit: backupDeviceLimit,
           internalSquads: tariffSquads,
-          expiresAt: null,
+          expiresAt: backupExpiresAt,
           planSnapshot,
         };
 
@@ -634,6 +738,56 @@ export class StealthnetImporterService {
     };
     return validCurrencies[upper] ?? null;
   }
+
+  /**
+   * Create missing EXTRA_DEVICES catalog items (+ prices) for STEALTHNET
+   * extra-device unit prices. Existing names are left alone (idempotent).
+   */
+  private async ensureExtraDeviceAddOns(
+    rows: ReadonlyArray<Record<string, unknown>>,
+  ): Promise<number> {
+    let created = 0;
+    for (const row of rows) {
+      const name = typeof row.name === 'string' ? row.name : null;
+      if (!name) continue;
+      const existing = await this.prismaService.addOn.findFirst({
+        where: { name },
+        select: { id: true },
+      });
+      if (existing) continue;
+      const currencyRaw =
+        Array.isArray(row.prices) &&
+        row.prices[0] &&
+        typeof (row.prices[0] as { currency?: string }).currency === 'string'
+          ? (row.prices[0] as { currency: string }).currency
+          : 'RUB';
+      const priceRaw =
+        Array.isArray(row.prices) &&
+        row.prices[0] &&
+        typeof (row.prices[0] as { price?: number }).price === 'number'
+          ? (row.prices[0] as { price: number }).price
+          : 0;
+      const currency = this.mapCurrency(currencyRaw) ?? Currency.RUB;
+      await this.prismaService.addOn.create({
+        data: {
+          name,
+          description:
+            typeof row.description === 'string'
+              ? row.description
+              : 'Imported from STEALTHNET extra-device pricing',
+          type: AddOnType.EXTRA_DEVICES,
+          value: 1,
+          isActive: true,
+          orderIndex: typeof row.order_index === 'number' ? row.order_index : 0,
+          prices: {
+            create: [{ currency, price: priceRaw }],
+          },
+        },
+      });
+      created += 1;
+    }
+    return created;
+  }
 }
 
 // ── Module-level helpers ────────────────────────────────────────────────────
@@ -643,16 +797,25 @@ export class StealthnetImporterService {
 // importer emits.
 
 /**
- * Converts a leftover STEALTHNET wallet balance into loyalty points using the
- * operator-chosen rate (points per 1 currency unit), floored and never
- * negative. Credited once per migrated user (guarded by a `points = 0`
- * conditional update in the run loop) so both freshly-created and re-matched
- * existing users keep the value they had in the old bot without double-credit.
+ * Converts a leftover STEALTHNET wallet balance into loyalty points.
+ *
+ * STEALTHNET stores balance as major currency units (double, e.g. RUB).
+ * Fractional coppers/kopecks are first rounded half-up to 2 decimals so
+ * float dust (`10.005`, `19.999999`) does not strand or invent value,
+ * then `major * rate` is rounded half-up to whole points.
+ *
+ * Rate = points per 1 major unit (default 1:1). Never negative.
+ * Credited once per migrated user (guarded by `points = 0` updateMany).
  */
-function balanceToPoints(balance: number, rate: number): number {
+export function balanceToPoints(balance: number, rate: number): number {
   if (!Number.isFinite(balance) || balance <= 0) return 0;
   if (!Number.isFinite(rate) || rate <= 0) return 0;
-  return Math.floor(balance * rate);
+  // Integer kopecks (half-up). Small epsilon kills IEEE dust on *100
+  // (e.g. 1.005 * 100 → 100.4999… without epsilon).
+  const kopecks = Math.round(balance * 100 + 1e-8);
+  if (kopecks <= 0) return 0;
+  // points = (kopecks/100) * rate, half-up via integer arithmetic.
+  return Math.round((kopecks * rate) / 100 + 1e-8);
 }
 
 /**
@@ -679,6 +842,57 @@ function parseTelegramId(raw: string | null): bigint | null {
  * `result.catalog.plans[].id/name/internal_squads/...` directly so the
  * field names matter.
  */
+function parseOptionalDate(raw: string | null | undefined): Date | null {
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Build synthetic EXTRA_DEVICES add-on rows from tariff
+ * `price_per_extra_device` and any observed subscription extras.
+ * Rezeis stores paid extras as catalog add-ons + entitlements; STEALTHNET
+ * only stores counters — cloning recreates the sellable unit.
+ */
+function deriveExtraDeviceAddOns(
+  tariffs: readonly StealthnetTariff[],
+  subscriptions: readonly StealthnetSubscription[],
+): ReadonlyArray<Record<string, unknown>> {
+  const prices = new Map<string, { currency: string; price: number }>();
+  for (const t of tariffs) {
+    if (t.price_per_extra_device > 0) {
+      const currency = (t.currency || 'rub').toUpperCase();
+      prices.set(`${currency}:${t.price_per_extra_device}`, {
+        currency,
+        price: t.price_per_extra_device,
+      });
+    }
+  }
+  for (const s of subscriptions) {
+    if (s.extra_devices > 0 && s.extra_devices_monthly_price > 0) {
+      // Subscription-level monthly price is in major units of the shop
+      // default (RUB in this dump). Use RUB unless tariffs say otherwise.
+      const currency = 'RUB';
+      const key = `${currency}:${s.extra_devices_monthly_price}`;
+      if (!prices.has(key)) {
+        prices.set(key, { currency, price: s.extra_devices_monthly_price });
+      }
+    }
+  }
+  return Array.from(prices.values()).map((p, index) => ({
+    id: stableHashId(`extra-device-${p.currency}-${p.price}`),
+    name: `Extra device (${p.price} ${p.currency}/mo)`,
+    description: 'Imported from STEALTHNET tariff/subscription extra-device pricing',
+    type: 'EXTRA_DEVICES',
+    value: 1,
+    is_active: true,
+    order_index: index,
+    lifetime: 'UNTIL_SUBSCRIPTION_END',
+    prices: [{ currency: p.currency, price: p.price }],
+    source: 'stealthnet',
+  }));
+}
+
 function mapTariffToPlanRow(
   tariff: StealthnetTariff,
   categories: readonly StealthnetTariffCategory[],
@@ -687,6 +901,12 @@ function mapTariffToPlanRow(
   // STEALTHNET CUIDs into stable integers so the cloner's internal
   // `Map<number, string>` works without changes.
   const sortIndex = categories.findIndex((c) => c.id === tariff.category_id);
+  const deviceLimit =
+    tariff.device_limit !== null && tariff.device_limit !== undefined && tariff.device_limit > 0
+      ? tariff.device_limit
+      : tariff.included_devices > 0
+        ? tariff.included_devices
+        : 0;
   return {
     id: stableHashId(tariff.id),
     order_index: tariff.sort_order,
@@ -698,11 +918,14 @@ function mapTariffToPlanRow(
     name: tariff.name,
     description: tariff.description,
     tag: null,
+    device_limit: deviceLimit,
+    included_devices: tariff.included_devices,
+    max_extra_devices: tariff.max_extra_devices,
+    price_per_extra_device: tariff.price_per_extra_device,
     traffic_limit:
       tariff.traffic_limit_bytes && tariff.traffic_limit_bytes > 0
         ? Number(tariff.traffic_limit_bytes)
         : 0,
-    device_limit: tariff.device_limit ?? tariff.included_devices,
     traffic_limit_strategy: mapResetMode(tariff.traffic_reset_mode),
     replacement_plan_ids: [],
     upgrade_to_plan_ids: [],

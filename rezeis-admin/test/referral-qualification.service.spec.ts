@@ -18,6 +18,89 @@ function withTx(client: Record<string, unknown>): Record<string, unknown> {
 }
 
 describe('ReferralQualificationService', () => {
+  it('does nothing when the operator disabled the referral program', async () => {
+    // `enabled` was parsed but never checked, so switching the program off in
+    // the panel kept qualifying referrals and minting rewards.
+    const referralUpdates: unknown[] = [];
+    const rewardCreates: unknown[] = [];
+    const service = new ReferralQualificationService(
+      withTx({
+        transaction: {
+          findUnique: async () => ({
+            id: 'tx-1',
+            userId: 'referred-1',
+            purchaseType: PurchaseType.NEW,
+            channel: PurchaseChannel.WEB,
+            planSnapshot: { id: 'plan-1' },
+          }),
+        },
+        settings: {
+          findFirst: async () => ({
+            referralSettings: {
+              enabled: false,
+              reward: { type: 'POINTS', strategy: 'AMOUNT', config: { FIRST: 100 } },
+            },
+          }),
+        },
+        referral: {
+          findUnique: async () => ({
+            id: 'referral-1',
+            referrerId: 'referrer-1',
+            level: 1,
+            qualifiedAt: null,
+          }),
+          update: async (args: unknown) => referralUpdates.push(args),
+        },
+        partner: { findUnique: async () => null },
+        referralReward: { create: async (args: unknown) => rewardCreates.push(args) },
+      }) as never,
+      { info: () => undefined } as never,
+    );
+
+    await service.qualifyReferralAfterPurchase('tx-1');
+
+    assert.deepStrictEqual(referralUpdates, []);
+    assert.deepStrictEqual(rewardCreates, []);
+  });
+
+  it('stays enabled when the flag is absent (existing installs are unaffected)', async () => {
+    const rewardCreates: unknown[] = [];
+    const service = new ReferralQualificationService(
+      withTx({
+        transaction: {
+          findUnique: async () => ({
+            id: 'tx-1',
+            userId: 'referred-1',
+            purchaseType: PurchaseType.NEW,
+            channel: PurchaseChannel.WEB,
+            planSnapshot: { id: 'plan-1' },
+          }),
+        },
+        settings: {
+          findFirst: async () => ({
+            referralSettings: {
+              reward: { type: 'POINTS', strategy: 'AMOUNT', config: { FIRST: 100 } },
+            },
+          }),
+        },
+        referral: {
+          findUnique: async ({ where }: { readonly where: Record<string, unknown> }) =>
+            where.referredId === 'referred-1'
+              ? { id: 'referral-1', referrerId: 'referrer-1', level: 1, qualifiedAt: null }
+              : null,
+          update: async () => undefined,
+        },
+        partner: { findUnique: async () => null },
+        referralReward: { create: async (args: unknown) => rewardCreates.push(args) },
+      }) as never,
+      { info: () => undefined } as never,
+    );
+
+    await service.qualifyReferralAfterPurchase('tx-1');
+
+    assert.equal(rewardCreates.length, 1);
+  });
+
   it('qualifies a referral and creates configured L1/L2 rewards after a purchase', async () => {
     const referralUpdates: unknown[] = [];
     const rewardCreates: unknown[] = [];
@@ -339,5 +422,53 @@ describe('ReferralQualificationService', () => {
 
     assert.deepStrictEqual(rewardCreates, [], 'paid→paid UPGRADE must not qualify');
     assert.deepStrictEqual(events, [], 'no event for non-qualifying UPGRADE');
+  });
+
+  it('manually qualifies once and stages configured rewards with the admin actor', async () => {
+    const referralUpdates: unknown[] = [];
+    const rewardCreates: unknown[] = [];
+    const events: unknown[] = [];
+    const service = new ReferralQualificationService(
+      withTx({
+        settings: {
+          findFirst: async () => ({
+            referralSettings: { rewardType: 'POINTS', level1Reward: 75 },
+          }),
+        },
+        referral: {
+          findUnique: async () => ({
+            id: 'referral-manual-1',
+            referrerId: 'referrer-1',
+            qualifiedAt: null,
+          }),
+          update: async (args: unknown) => referralUpdates.push(args),
+        },
+        partner: { findUnique: async () => null },
+        referralReward: { create: async (args: unknown) => rewardCreates.push(args) },
+      }) as never,
+      { info: (...args: unknown[]) => events.push(args) } as never,
+    );
+
+    const result = await service.qualifyReferralManually({
+      referredUserId: 'referred-1',
+      actorAdminId: 'admin-1',
+    });
+
+    assert.deepStrictEqual(result, {
+      referralId: 'referral-manual-1',
+      qualified: true,
+      rewardsCreated: 1,
+    });
+    assert.equal(referralUpdates.length, 1);
+    assert.deepStrictEqual(rewardCreates, [{
+      data: {
+        referralId: 'referral-manual-1',
+        userId: 'referrer-1',
+        type: ReferralRewardType.POINTS,
+        amount: 75,
+        grantedBy: 'admin-1',
+      },
+    }]);
+    assert.equal(events.length, 1);
   });
 });

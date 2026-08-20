@@ -1,3 +1,16 @@
+# Everything is stored with LF in the repository, whatever a clone's
+# `core.autocrlf` happens to be. This normalises the INDEX only — working
+# trees keep the platform's own convention, so no clone gets rewritten.
+#
+# Not housekeeping: `account-merge.service.ts` reached `main` with CRLF and
+# went unnoticed, and a file whose stored endings differ from its neighbours'
+# shows up as wholly rewritten the first time anyone edits it on a machine
+# configured the other way — a diff nobody can review.
+#
+# Kept first so every rule below still wins where line endings are content
+# rather than convention.
+* text=auto
+
 # Force LF for shell scripts even on Windows clones — they end up inside
 # Linux containers where CRLF causes "no such file or directory" from
 # `exec` (a notorious Docker pitfall).
@@ -7,3 +20,10 @@ Dockerfile  text eol=lf
 # Treat SVG and JSON deterministically so diffs stay tidy.
 *.svg       text eol=lf
 *.json      text eol=lf
+
+# The vendored landing kit is content-addressed: `landing-kit.manifest.json`
+# stores a sha256 per file and a test fails the build on any mismatch. Line
+# endings are content to a hash, so without this pin the manifest would be
+# valid only on the machine that generated it — red on CI and on every fresh
+# Windows clone, for files nobody edited.
+rezeis-admin/web/src/features/landing-builder/live/** text eol=lf

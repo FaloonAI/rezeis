@@ -21,6 +21,7 @@ import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
 import { EmojiPicker } from '@/features/broadcast/emoji-picker'
+import { EmojiFieldOverlay } from '@/features/custom-emoji/emoji-field-overlay'
 import { insertAtCaret } from '@/features/bot-map/utils/insert-at-caret'
 import { Button } from '@/components/ui/button'
 import {
@@ -51,6 +52,7 @@ import {
   type CreateBotButtonPayload,
   type UpdateBotButtonPayload,
 } from './bot-config-api'
+import { buildActionPayload } from './bot-button-payload'
 
 const STYLES: BotButtonStyle[] = ['DEFAULT', 'PRIMARY', 'SUCCESS', 'DANGER']
 const ACTION_TYPES: BotButtonAction[] = ['CALLBACK', 'URL', 'WEBAPP', 'SCREEN', 'SUPPORT_URL']
@@ -219,17 +221,6 @@ export function ActionFields({
  * SUPPORT_URL always reset target to `null` regardless of UI state so
  * stale typing doesn't leak through after switching action kinds.
  */
-export function buildActionPayload(
-  actionType: BotButtonAction,
-  actionTarget: string,
-): { actionType: BotButtonAction; actionTarget: string | null } {
-  if (actionType === 'CALLBACK' || actionType === 'SUPPORT_URL') {
-    return { actionType, actionTarget: null }
-  }
-  const trimmed = actionTarget.trim()
-  return { actionType, actionTarget: trimmed.length > 0 ? trimmed : null }
-}
-
 // ── Edit ───────────────────────────────────────────────────────────────────
 
 interface BotButtonEditDialogProps {
@@ -343,13 +334,18 @@ export function BotButtonEditDialog({
               <Label htmlFor="bbd-edit-label">{t('botConfigPage.buttons.fields.label')}</Label>
               <EmojiPicker onSelect={insertLabelEmoji} ariaLabel={t('emojiPicker.trigger')} />
             </div>
-            <Input
-              id="bbd-edit-label"
-              ref={labelRef}
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              maxLength={120}
-            />
+            {/* `buttonLabel`: a leading shortcode never reaches this caption —
+                reiwa lifts it into `icon_custom_emoji_id`, so the layer shows
+                it as the button's separate icon instead of inline. */}
+            <EmojiFieldOverlay value={label} mode="buttonLabel">
+              <Input
+                id="bbd-edit-label"
+                ref={labelRef}
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                maxLength={120}
+              />
+            </EmojiFieldOverlay>
           </div>
 
           <div className="space-y-1.5">
@@ -561,13 +557,15 @@ export function BotButtonCreateDialog({
               <Label htmlFor="bbd-new-label">{t('botConfigPage.buttons.fields.label')}</Label>
               <EmojiPicker onSelect={insertLabelEmoji} ariaLabel={t('emojiPicker.trigger')} />
             </div>
-            <Input
-              id="bbd-new-label"
-              ref={labelRef}
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              maxLength={120}
-            />
+            <EmojiFieldOverlay value={label} mode="buttonLabel">
+              <Input
+                id="bbd-new-label"
+                ref={labelRef}
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                maxLength={120}
+              />
+            </EmojiFieldOverlay>
           </div>
 
           <div className="space-y-1.5">

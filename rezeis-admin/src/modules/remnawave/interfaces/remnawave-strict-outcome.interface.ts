@@ -50,9 +50,46 @@ export function strictInvalidContract<T>(details: string): RemnawaveStrictOutcom
   return { kind: 'invalidContract', details };
 }
 
+/**
+ * One-line, log-safe rendering of an outcome.
+ *
+ * A caller that DEGRADES on a non-`ok` outcome (skips a detector run, falls
+ * back to backup values) has to say so out loud — a silent degrade is exactly
+ * the failure mode the strict outcomes exist to end.
+ */
+export function describeStrictOutcome(outcome: RemnawaveStrictOutcome<unknown>): string {
+  switch (outcome.kind) {
+    case 'ok':
+      return 'ok';
+    case 'notFound':
+      return 'notFound';
+    case 'unsupported':
+      return 'unsupported';
+    case 'unavailable':
+      return outcome.retryAfterMs === null
+        ? 'unavailable'
+        : `unavailable (retry after ${outcome.retryAfterMs}ms)`;
+    case 'invalidContract':
+      return `invalidContract: ${outcome.details}`;
+  }
+}
+
 /** A strict user snapshot with the canonical nullable-unlimited encoding. */
 export interface RemnawaveStrictUser {
+  /**
+   * How this panel names the profile: a 2.x uuid, or a 3.x numeric id rendered
+   * in decimal. It is the identity as the ROW gave it, not a value converted
+   * from one era to the other.
+   */
   readonly uuid: string;
+  /**
+   * The panel's numeric id, present on every supported version. Carried so a
+   * caller can back-fill `Subscription.remnawavePanelId` from a read it was
+   * making anyway — which is what keeps a 2.x-created profile addressable after
+   * the operator upgrades to 3.x and the panel drops the uuid column.
+   * `null` only when the panel omitted the field entirely.
+   */
+  readonly panelId: number | null;
   readonly status: string;
   /** Authoritative anchor used by Remnawave MONTH_ROLLING. */
   readonly createdAt: string;
@@ -65,6 +102,20 @@ export interface RemnawaveStrictUser {
   readonly trafficLimitBytes: bigint | null;
   /** Canonical unlimited = `null` (upstream `0` is decoded to `null`). */
   readonly hwidDeviceLimit: number | null;
+}
+
+/**
+ * The two fields the expired-profile sweep reads from a panel profile.
+ *
+ * Deliberately NOT `RemnawaveStrictUser`: that parser fails closed on nine
+ * fields the sweep never looks at, so an unrelated contract drift (a `tag`
+ * shape, a squad encoding) would make the sweep defer every deletion forever.
+ * This one validates exactly what it uses.
+ */
+export interface RemnawavePanelExpirySnapshot {
+  /** Panel-canonical expiry, already proven parseable by the adapter. */
+  readonly expireAtMs: number;
+  readonly subscriptionUrl: string | null;
 }
 
 /** A strict, owner-agnostic device row (never trusts a row's own owner field). */

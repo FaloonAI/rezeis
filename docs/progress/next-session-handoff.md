@@ -1,6 +1,6 @@
 # Next Session Handoff — Rezeis Remediation
 
-Updated: 2026-06-04
+Updated: 2026-08-20
 
 ## User Context
 
@@ -41,7 +41,7 @@ These existed before this handoff. Do not overwrite or delete them unless explic
 
 ## Current Gate Snapshot
 
-Generated: 2026-06-04T16:08:13.877Z (checks not re-run; previous observed results preserved)
+Generated: 2026-08-01T22:28:45.923Z
 
 Run these from `V:\REZEIS_ADMIN_RUID_USER\rezeis` or the listed subdirectory.
 
@@ -50,39 +50,12 @@ Run these from `V:\REZEIS_ADMIN_RUID_USER\rezeis` or the listed subdirectory.
 | Backend Prisma generate | `npm run prisma:generate` in `rezeis-admin` | Pass |
 | Backend typecheck | `npm run typecheck` in `rezeis-admin` | Pass |
 | Backend lint | `npm run lint` in `rezeis-admin` | Pass |
-| Backend tests | `npm test` in `rezeis-admin` | Pass: 513 tests |
-| Backend maintained tests | `npm run test:maintained` in `rezeis-admin` | Pass: 423 tests (336 core + 22 admin-surfaces + 65 email-linking) |
-| Backend admin surfaces tests | `npm run test:maintained:admin-surfaces` in `rezeis-admin` | Pass: 23 tests |
-| Backend admin auth tests | `node --require ts-node/register --test test/admin-auth.service.spec.ts test/auth.controller.spec.ts test/internal-admin.controller.spec.ts test/current-admin.decorator.spec.ts test/current-internal-request.decorator.spec.ts` in `rezeis-admin` | Pass: 22 tests (5 files) |
-| Backend config tests | `node --require ts-node/register --test test/auth.config.spec.ts test/email.config.spec.ts test/payments.config.spec.ts test/redis.config.spec.ts test/remnawave.config.spec.ts test/env.schema.spec.ts` in `rezeis-admin` | Pass: 16 tests |
-| Backend email service tests | `node --require ts-node/register --test test/email.service.spec.ts` in `rezeis-admin` | Pass: 3 tests |
-| Backend Prisma service tests | `node --require ts-node/register --test test/prisma.service.spec.ts` in `rezeis-admin` | Pass: 5 tests |
-| Backend safe exception tests | `node --require ts-node/register --test test/admin-safe-exception.filter.spec.ts` in `rezeis-admin` | Pass: 4 tests |
-| Backend payment diagnostics tests | `node --require ts-node/register --test test/payment-provider-error.util.spec.ts test/payment-provider-execution.service.spec.ts test/payment-webhook-inbox.service.spec.ts test/payments-checkout.service.spec.ts test/payment-ops-alert-delivery.service.spec.ts` in `rezeis-admin` | Pass: 20 tests |
-| Backend payment reconciliation side effects tests | `node --require ts-node/register --test test/payment-reconciliation-notifications.service.spec.ts` in `rezeis-admin` | Pass: 7 tests |
-| Backend user activity edge tests | `node --require ts-node/register --test test/user-activity-query.dto.spec.ts test/user-notifications.service.spec.ts test/user-transactions-history.service.spec.ts` in `rezeis-admin` | Pass: 13 tests |
-| Backend webhook queue ops tests | `node --require ts-node/register --test test/payment-webhook-ingress.service.spec.ts test/payment-webhook-ops.service.spec.ts` in `rezeis-admin` | Pass: 24 tests |
-| Backend internal platform policy tests | `node --require ts-node/register --test test/internal-platform-policy.controller.spec.ts` in `rezeis-admin` | Pass: 6 tests |
-| Backend health endpoint tests | `node --require ts-node/register --test test/health.controller.spec.ts test/health.service.spec.ts` in `rezeis-admin` | Pass: 11 tests |
-| Backend settings/current contract tests | `node --require ts-node/register --test test/settings.controller.spec.ts test/settings.service.spec.ts test/payment-ops-alert-settings.util.spec.ts` in `rezeis-admin` | Pass: 15 tests |
-| Backend web-auth DTO tests | `node --require ts-node/register --test test/web-auth.dto.spec.ts test/web-auth-register-validation.pbt.spec.ts` in `rezeis-admin` | Pass: 13 tests |
-| Backend web-auth controller tests | `node --require ts-node/register --test test/web-auth.controller.spec.ts` in `rezeis-admin` | Pass: 6 tests |
-| Backend web-auth service/password tests | `node --require ts-node/register --test test/web-auth.service.spec.ts test/web-auth.password-hashing.pbt.spec.ts` in `rezeis-admin` | Pass: 16 tests |
-| Backend runtime/request/HTTP tests | `node --require ts-node/register --test test/request-correlation.middleware.spec.ts test/runtime-entrypoints.spec.ts test/api-docs.spec.ts test/app-lifecycle.logger.spec.ts test/bigint-json.spec.ts test/outbound-http-options.spec.ts test/http-runtime.middleware.spec.ts` in `rezeis-admin` | Pass: 23 tests |
-| Backend payment gateway registry tests | `node --require ts-node/register --test test/payment-gateway-registry.service.spec.ts` in `rezeis-admin` | Pass: 6 tests |
-| Backend plans admin tests | `node --require ts-node/register --test test/plans-admin.service.spec.ts` in `rezeis-admin` | Pass: 4 tests |
-| Backend promocode mapper tests | `node --require ts-node/register --test test/plan-record.util.spec.ts` in `rezeis-admin` | Pass: 4 tests |
-| Backend profile-sync tests | `node --require ts-node/register --test test/profile-sync-queue.service.spec.ts test/profile-sync.processor.spec.ts` in `rezeis-admin` | Pass: 14 tests |
-| Backend payment transaction tests | `node --require ts-node/register --test test/payments-transactions.service.spec.ts test/admin-payment-transactions.controller.spec.ts` in `rezeis-admin` | Pass: 7 tests |
-| Backend push tests | `node --require ts-node/register --test test/push.service.spec.ts` in `rezeis-admin` | Pass: 10 tests |
-| Backend Remnawave API/node tests | `node --require ts-node/register --test test/remnawave-api.service.spec.ts test/remnawave-node-mapper.spec.ts` in `rezeis-admin` | Pass: 14 tests |
-| Backend internal user devices tests | `node --require ts-node/register --test test/internal-user-subscription-devices.service.spec.ts` in `rezeis-admin` | Pass: 5 tests |
-| Backend broadcast tests | `node --require ts-node/register --test test/admin-broadcast.service.spec.ts test/admin-broadcast-delivery.service.spec.ts test/admin-broadcast.controller.spec.ts` in `rezeis-admin` | Pass: 15 tests |
-| Backend email-linking tests | `node --require ts-node/register --test test/linking.service.spec.ts test/linking.controller.spec.ts test/internal-user.service.spec.ts test/internal-user-linked-web-account-sign-in.spec.ts test/complete-web-account-email-verification.dto.spec.ts` in `rezeis-admin` | Pass: 65 tests |
+| Backend tests | `npm test` in `rezeis-admin` | Pass (tests 1922 ℹ suites 354 ℹ pass 1922) |
+| Backend maintained tests | `npm run test:maintained` in `rezeis-admin` | Pass (tests 526 ℹ suites 95 ℹ pass 526) |
 | Backend audit | `npm audit` in `rezeis-admin` | Pass: found 0 vulnerabilities |
 | Web typecheck | `npx tsc -p tsconfig.app.json --noEmit --incremental false` in `rezeis-admin/web` | Pass |
-| Web tests | `npm test` in `rezeis-admin/web` | Pass: 12 files, 65 tests |
-| Web lint | `npm run lint` in `rezeis-admin/web` | Pass, 26 warnings |
+| Web tests | `npm test` in `rezeis-admin/web` | Pass (Tests 353 passed (353)) |
+| Web lint | `npm run lint` in `rezeis-admin/web` | Pass |
 | Web build | `npm run build` in `rezeis-admin/web` | Pass |
 | Web audit | `npm audit` in `rezeis-admin/web` | Pass: found 0 vulnerabilities |
 
@@ -91,6 +64,15 @@ Run these from `V:\REZEIS_ADMIN_RUID_USER\rezeis` or the listed subdirectory.
 Current recommendation override after the S5 subscriptions read/stat RBAC slice: continue the bounded S5 residual RBAC audit with the next small admin route group that has an existing permission resource. Start by auditing one auth-only admin controller and implement only a concrete missing gate/test if found; keep the slice narrow and do not globalize `RbacGuard`. The F5 accessibility sweep remains closed for this remediation phase unless a concrete blocking keyboard/focus regression is reported.
 
 Current recommendation: continue P2 frontend correctness with the next F4 critical form schema surface, preferably broadcast payload composition, notification JSON, or branding URLs. The OAuth provider settings F4 slice is closed for now: provider cards use a Zod/react-hook-form validation boundary before submit, block malformed backend/frontend domains, Generic OAuth2 authorization/token URLs, allowlist emails, and Telegram ID allowlists before calling `/admin/oauth/config/:type`, and submit normalized comma-separated allowlists after validation passes. The plans F4 slice is closed for now: plan create/edit submit uses a Zod/react-hook-form validation boundary, blocks malformed limits, duplicate durations/currencies, unsupported currencies, invalid trial/archive/allowed-user combinations, and normalizes unlimited traffic (`0`) to backend `null` before mutation. F3 production devtools/client-log redaction is closed for this slice: React Query Devtools are dynamically imported only in Vite development mode, production build output no longer references the devtools package, and client crash reports/local diagnostics redact query strings, authorization/cookie fragments, token/password/secret assignments, emails, UUIDs, JWT-like values, and long hex secrets. F2 query-key factories/realtime invalidation is closed for this slice: shared admin query-key factories now cover touched backup, broadcast, dashboard, subscriptions, payments, imports, settings, notifications, and email settings surfaces; realtime invalidation uses those factories; payment/admin events invalidate actual query prefixes; realtime auth failure uses the same hard session-clear path as HTTP 401; and notification-template plus SMTP settings changes now emit realtime-visible system events. F1 auth readiness is closed for this slice: protected admin routes now wait for `/admin/auth/me` plus effective permissions/mustChangePassword before rendering the workspace, permission probe failures keep the workspace locked with retry, and `/change-password` is authenticated-only without mounting the full admin shell. The S7/S5 payment transaction slice is closed for now: `AdminPaymentTransactionsController` has explicit `RbacGuard` + `payments:view/create` metadata, the payments nav/page/quick-search no longer expose payment surfaces without the matching grants, and the legacy payments webhook tab now uses the current `/admin/payments/webhooks/events` contract. `gatewayId` and `providerEventId` remain operational identifiers available only behind explicit payment/webhook RBAC, not a separate reveal flow. Do not globalize `RbacGuard` yet.
+
+## Current Remnawave Follow-up
+
+- PR #9 is open: `https://github.com/FaloonAI/rezeis/pull/9`.
+- Fork CI is running; backend, web, React Doctor, and PostgreSQL checks must finish before merge.
+- Backend sync-state commit is pushed and backend typecheck passes.
+- The focused admin card identity test passes after switching its mock to `getPanelUserOutcome`.
+- Remaining in this slice: restore frontend shape/UI/localization changes, add explicit coverage for `MISSING`, `UNAVAILABLE`, `PENDING`, and `FAILED`, run web checks, and review CI failures.
+- After PR #9: audit `/admin/users` contract drift, then add composable user/subscription filters and quick-search categories.
 
 ## Completion Estimate And Remaining Work
 
@@ -188,7 +170,7 @@ Historical P0.3 triage notes retained for context:
 - Root CI now runs full backend `npm test` as a blocking backend test signal.
 - Backend tests are now trustworthy enough for CI. Real regressions around env parsing, safe exception output, payment diagnostics, payment transaction list/draft behavior, push subscription/delivery behavior, provider checkout failure redaction, payment reconciliation side effects, webhook queue failure bounds, Remnawave node status redaction, internal platform policy behavior, current settings behavior, health diagnostic redaction, current promocodes/referrals behavior, current payment gateway defaults, plans unarchive/update normalization, profile-sync queue/processor behavior, current email verification dispatch validation, current email-linking duplicate/attempt/revoke-sanitization behavior, current web-auth behavior, current password hashing, request correlation/log sanitization, runtime API/worker scripts, API docs exposure, shutdown lifecycle logging, BigInt JSON serialization, bounded outbound HTTP defaults, and HTTP runtime middleware were fixed or reverified in current slices.
 - Previous stale specs were deleted only after confirming the runtime contract was removed: old metrics modules, old user-activity queue/bot/event modules, old web-registration settings, old web-auth challenge/recovery/property contracts, old internal-user password recovery/reset endpoints, old Telegram password recovery delivery service, old settings notification-delivery retry methods, old dedicated worker module graph, old profile-sync executor/admin ops surface, old job observability/metrics modules, old `EmailVerificationService` contracts, old cache-backed linking code properties, duplicate old linking email controller specs, removed governance module specs, and removed internal-device-provisioning controller specs.
-- Latest full-suite run passes: 513 tests. P0.4 audit triage is closed: backend audit passes after overriding Prisma dev-tooling `@hono/node-server` to `1.19.13`, and web audit passes after overriding transitive `node-fetch` to `2.7.0` while keeping `face-api.js` for `GridScan` webcam tracking.
+- Latest full-suite run passes: 1917 tests. P0.4 audit triage is closed: backend audit passes after overriding Prisma dev-tooling `@hono/node-server` to `1.19.13`, and web audit passes after overriding transitive `node-fetch` to `2.7.0` while keeping `face-api.js` for `GridScan` webcam tracking.
 - The previous load-sensitive `payment-webhook-ops.service.spec.ts`, `payment-webhook-ingress.service.spec.ts`, and profile-sync queue timeout assertions were made deterministic by using stalled promises instead of wall-clock completion flags; maintained suite now passes under load.
 - React Query cache and sensitive client stores are now cleared on admin login/logout boundaries, closing the short-term shared-browser cross-admin cache exposure. The longer-term HttpOnly-cookie/BFF session migration is still open.
 - Admin JWT is still a bearer token persisted in `localStorage` when available, with a same-tab in-memory fallback when writes fail. OWASP guidance still recommends not storing session identifiers or sensitive auth data there, so this remains a later architecture/security follow-up.
@@ -236,6 +218,8 @@ Historical P0.3 triage notes retained for context:
 
 ## Internet Research Used
 
+- MDN `<script>` reference (checked 2026-07-30): dynamically loaded scripts expose explicit `load` / `error` events; Reiwa's Telegram SDK loader now signals those states instead of treating a fixed timeout as a final web-mode decision. https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/script
+- MDN CSS `<gradient>` reference (checked 2026-07-30): persisted branding image values are limited to linear, radial, conic, and repeating gradient functions; raster assets continue through the dedicated validated asset fields. https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/gradient
 - GitHub Actions docs: workflows are discovered only from repository-root `.github/workflows`.
 - OWASP HTML5 Security Cheat Sheet: localStorage is not appropriate for session identifiers/sensitive auth; CORS should use explicit trusted origins.
 - Docker Compose secrets docs: secrets avoid exposing passwords/API keys through environment variables.

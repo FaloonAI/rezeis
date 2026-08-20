@@ -1,6 +1,13 @@
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
-import { Inject, Injectable, BadRequestException, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  BadRequestException,
+  Logger,
+  Optional,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { Prisma, Settings } from '@prisma/client';
 import { ConfigType } from '@nestjs/config';
 import * as webpush from 'web-push';
@@ -9,9 +16,7 @@ import { appConfig } from '../../../common/config/app.config';
 import { paymentsConfig } from '../../../common/config/payments.config';
 import { decryptTotpSecret, encryptTotpSecret } from '../../two-factor/utils/secret-cipher';
 import { ReiwaCacheInvalidatorService } from '../../bot-config/services/reiwa-cache-invalidator.service';
-import {
-  PaymentOpsAlertSettingsInterface,
-} from '../../../common/interfaces/payment-ops-alert-settings.interface';
+import { PaymentOpsAlertSettingsInterface } from '../../../common/interfaces/payment-ops-alert-settings.interface';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import {
   SystemEventCategory,
@@ -31,23 +36,14 @@ import {
   UpdatePaymentOpsAlertSettingsDto,
 } from '../dto/update-payment-ops-alert-settings.dto';
 import { UpdatePlatformSettingsDto } from '../dto/update-platform-settings.dto';
-import {
-  BrandingSettingsInterface,
-} from '../interfaces/branding-settings.interface';
+import { BrandingSettingsInterface } from '../interfaces/branding-settings.interface';
 import { CustomIconInterface } from '../interfaces/custom-icon.interface';
-import { InternalPlatformPolicyInterface } from '../interfaces/internal-platform-policy.interface';import { PlatformSettingsInterface } from '../interfaces/platform-settings.interface';
+import { InternalPlatformPolicyInterface } from '../interfaces/internal-platform-policy.interface';
+import { PlatformSettingsInterface } from '../interfaces/platform-settings.interface';
 import { resolveAddOnRolloutFlags } from '../../add-on-entitlements/add-on-rollout.config';
-import {
-  mergeBrandingSettings,
-  readBrandingSettings,
-} from '../utils/branding-settings.util';
-import {
-  PlatformBrandingInterface,
-} from '../interfaces/platform-branding.interface';
-import {
-  mergePlatformBranding,
-  readPlatformBranding,
-} from '../utils/platform-branding.util';
+import { mergeBrandingSettings, readBrandingSettings } from '../utils/branding-settings.util';
+import { PlatformBrandingInterface } from '../interfaces/platform-branding.interface';
+import { mergePlatformBranding, readPlatformBranding } from '../utils/platform-branding.util';
 import { readCustomIcons } from '../utils/custom-icons.util';
 import {
   mergeSupportSettings,
@@ -65,6 +61,16 @@ import {
   type StoredRemnawaveCleanupSettings,
 } from '../utils/remnawave-cleanup-settings.util';
 import { UpdateRemnawaveCleanupSettingsDto } from '../dto/update-remnawave-cleanup-settings.dto';
+import {
+  mergeAntiFraudSettings,
+  readStoredAntiFraudSettings,
+  resolveAntiFraudTunables,
+  toAntiFraudSettingsView,
+  type AntiFraudSettingsView,
+  type AntiFraudTunables,
+  type StoredAntiFraudSettings,
+} from '../utils/anti-fraud-settings.util';
+import { UpdateAntiFraudSettingsDto } from '../dto/update-anti-fraud-settings.dto';
 import {
   decryptQuestPartnerSecrets,
   mergeQuestPartnerSecrets,
@@ -179,7 +185,7 @@ const DEFAULT_INTERNAL_PLATFORM_POLICY: InternalPlatformPolicyInterface = {
   channelId: null,
   channelUsername: null,
   channelRecheck: true,
-  requireTelegramWebCredentials: true,
+  requireTelegramWebCredentials: false,
   accessMode: 'PUBLIC',
   inviteModeStartedAt: null,
   defaultCurrency: 'USD',
@@ -253,9 +259,7 @@ export class SettingsService {
             requestMetadata: input.requestMetadata,
             metadata: buildAuditMetadata({
               requestId: input.requestMetadata.requestId,
-              updatedFields: extractUpdatedPaymentOpsFields(
-                input.updatePaymentOpsAlertSettingsDto,
-              ),
+              updatedFields: extractUpdatedPaymentOpsFields(input.updatePaymentOpsAlertSettingsDto),
             }),
           }),
         });
@@ -265,9 +269,7 @@ export class SettingsService {
     return readPaymentOpsAlertSettings(settings.systemNotifications);
   }
 
-  public async sendPaymentOpsAlertTest(
-    input: SendPaymentOpsAlertTestInput,
-  ): Promise<void> {
+  public async sendPaymentOpsAlertTest(input: SendPaymentOpsAlertTestInput): Promise<void> {
     const settings = await this.getPaymentOpsAlertSettings();
     if (settings.chatId === null) {
       throw new BadRequestException('PAYMENT_OPS_ALERT_CHAT_NOT_CONFIGURED');
@@ -293,10 +295,7 @@ export class SettingsService {
       payload.message_thread_id = Number(settings.threadId);
     }
     await firstValueFrom(
-      this.httpService.post(
-        `https://api.telegram.org/bot${botToken}/sendMessage`,
-        payload,
-      ),
+      this.httpService.post(`https://api.telegram.org/bot${botToken}/sendMessage`, payload),
     );
     await this.prismaService.adminAuditLog.create({
       data: buildAdminAuditLogData({
@@ -386,9 +385,7 @@ export class SettingsService {
     // picks up the new theme without waiting for the HTTP cache TTL. Never
     // blocks / fails the save (Property 2).
     if (this.reiwaCacheInvalidator !== undefined) {
-      void this.reiwaCacheInvalidator.invalidateBranding(
-        `branding.${updatedFields.join(',')}`,
-      );
+      void this.reiwaCacheInvalidator.invalidateBranding(`branding.${updatedFields.join(',')}`);
     }
     return readBrandingSettings(settings.brandingSettings);
   }
@@ -461,7 +458,15 @@ export class SettingsService {
     if (
       this.reiwaCacheInvalidator !== undefined &&
       updateChanges.updatedFields.some((f) =>
-        ['accessMode', 'rulesRequired', 'rulesLink', 'channelRequired', 'channelLink', 'defaultCurrency', 'platformBranding'].includes(f),
+        [
+          'accessMode',
+          'rulesRequired',
+          'rulesLink',
+          'channelRequired',
+          'channelLink',
+          'defaultCurrency',
+          'platformBranding',
+        ].includes(f),
       )
     ) {
       void this.reiwaCacheInvalidator.invalidatePolicy(
@@ -495,7 +500,11 @@ export class SettingsService {
     readonly referralSettings: Record<string, unknown>;
     readonly partnerSettings: Record<string, unknown>;
     readonly botTokenConfigured: boolean;
-    readonly webPush: { readonly configured: boolean; readonly publicKey: string; readonly source: 'settings' | 'env' | null };
+    readonly webPush: {
+      readonly configured: boolean;
+      readonly publicKey: string;
+      readonly source: 'settings' | 'env' | null;
+    };
   }> {
     const settings = await this.getOrCreateSettingsRecord(this.prismaService);
     const platform = mapPlatformSettings(settings);
@@ -523,8 +532,9 @@ export class SettingsService {
       referralSettings: readJsonObject(settings.referralSettings),
       partnerSettings: readJsonObject(settings.partnerSettings),
       // Only a presence flag — the encrypted token is never sent to the SPA.
-      botTokenConfigured: typeof systemNotifications.botTokenEnc === 'string'
-        && systemNotifications.botTokenEnc.length > 0,
+      botTokenConfigured:
+        typeof systemNotifications.botTokenEnc === 'string' &&
+        systemNotifications.botTokenEnc.length > 0,
       // Web-push VAPID status (public key is safe to expose; private never is).
       webPush: await this.getWebPushStatus(),
     };
@@ -569,10 +579,12 @@ export class SettingsService {
     readonly source: 'settings' | 'env';
   } | null> {
     const settings = await this.getSettingsRecord(this.prismaService);
-    const webPush = settings !== null ? readJsonObject(readJsonObject(settings.systemNotifications).webPush) : {};
+    const webPush =
+      settings !== null ? readJsonObject(readJsonObject(settings.systemNotifications).webPush) : {};
     const publicKey = typeof webPush.publicKey === 'string' ? webPush.publicKey.trim() : '';
     const privateKeyEnc = typeof webPush.privateKeyEnc === 'string' ? webPush.privateKeyEnc : '';
-    const contactEmail = typeof webPush.contactEmail === 'string' ? webPush.contactEmail.trim() : '';
+    const contactEmail =
+      typeof webPush.contactEmail === 'string' ? webPush.contactEmail.trim() : '';
     const cryptKey = this.applicationConfiguration.cryptKey;
     if (publicKey.length > 0 && privateKeyEnc.length > 0 && cryptKey) {
       try {
@@ -590,7 +602,12 @@ export class SettingsService {
     const envPrivate = (process.env.VAPID_PRIVATE_KEY ?? '').trim();
     const envContact = (process.env.VAPID_CONTACT_EMAIL ?? '').trim();
     if (envPublic.length > 0 && envPrivate.length > 0) {
-      return { publicKey: envPublic, privateKey: envPrivate, subject: toMailto(envContact), source: 'env' };
+      return {
+        publicKey: envPublic,
+        privateKey: envPrivate,
+        subject: toMailto(envContact),
+        source: 'env',
+      };
     }
     return null;
   }
@@ -623,11 +640,17 @@ export class SettingsService {
     }
     const contactEmail = input.contactEmail.trim();
     if (contactEmail.length === 0 || !contactEmail.includes('@')) {
-      throw new BadRequestException('A valid contact email is required for VAPID (RFC 8292 subject)');
+      throw new BadRequestException(
+        'A valid contact email is required for VAPID (RFC 8292 subject)',
+      );
     }
     const keys = webpush.generateVAPIDKeys();
     const publicKey = await this.persistWebPush(
-      { publicKey: keys.publicKey, privateKeyEnc: encryptTotpSecret(keys.privateKey, cryptKey), contactEmail },
+      {
+        publicKey: keys.publicKey,
+        privateKeyEnc: encryptTotpSecret(keys.privateKey, cryptKey),
+        contactEmail,
+      },
       input.currentAdmin,
       input.requestMetadata,
       'settings.webpush.generated',
@@ -640,7 +663,12 @@ export class SettingsService {
     readonly currentAdmin: CurrentAdminInterface;
     readonly requestMetadata: RequestMetadataInterface;
   }): Promise<void> {
-    await this.persistWebPush(null, input.currentAdmin, input.requestMetadata, 'settings.webpush.cleared');
+    await this.persistWebPush(
+      null,
+      input.currentAdmin,
+      input.requestMetadata,
+      'settings.webpush.cleared',
+    );
   }
 
   private async persistWebPush(
@@ -666,7 +694,10 @@ export class SettingsService {
           action,
           actorId: currentAdmin.id,
           requestMetadata,
-          metadata: buildAuditMetadata({ requestId: requestMetadata.requestId, updatedFields: ['webPush'] }),
+          metadata: buildAuditMetadata({
+            requestId: requestMetadata.requestId,
+            updatedFields: ['webPush'],
+          }),
         }),
       });
       return webPush?.publicKey ?? '';
@@ -678,9 +709,7 @@ export class SettingsService {
    * notifications. Either branch may be partially supplied — keys absent
    * from the patch keep their previous values.
    */
-  public async updateNotificationToggles(
-    input: UpdateNotificationsTogglesInput,
-  ): Promise<{
+  public async updateNotificationToggles(input: UpdateNotificationsTogglesInput): Promise<{
     readonly userNotifications: Record<string, unknown>;
     readonly systemNotifications: Record<string, unknown>;
   }> {
@@ -815,7 +844,10 @@ export class SettingsService {
           nextTelegram.errorReports = nextErrorReports;
         }
 
-        if (nextTelegram.enabled === true && (nextTelegram.chatId === null || nextTelegram.chatId === undefined)) {
+        if (
+          nextTelegram.enabled === true &&
+          (nextTelegram.chatId === null || nextTelegram.chatId === undefined)
+        ) {
           throw new BadRequestException('TELEGRAM_DELIVERY_CHAT_REQUIRED');
         }
 
@@ -920,10 +952,7 @@ export class SettingsService {
       payload.message_thread_id = config.topicId;
     }
     await firstValueFrom(
-      this.httpService.post(
-        `https://api.telegram.org/bot${botToken}/sendMessage`,
-        payload,
-      ),
+      this.httpService.post(`https://api.telegram.org/bot${botToken}/sendMessage`, payload),
     );
     await this.prismaService.adminAuditLog.create({
       data: buildAdminAuditLogData({
@@ -1073,7 +1102,11 @@ export class SettingsService {
         );
       }
     }
-    return { enabled: view.enabled, turnstileSiteKey: view.turnstileSiteKey, turnstileSecret: secret };
+    return {
+      enabled: view.enabled,
+      turnstileSiteKey: view.turnstileSiteKey,
+      turnstileSecret: secret,
+    };
   }
 
   /** Partial-update the `supportSettings` JSON column (panel-managed). */
@@ -1095,7 +1128,9 @@ export class SettingsService {
         } else {
           const cryptKey = this.applicationConfiguration.cryptKey;
           if (!cryptKey) {
-            throw new BadRequestException('REZEIS_CRYPT_KEY is required to store a Turnstile secret');
+            throw new BadRequestException(
+              'REZEIS_CRYPT_KEY is required to store a Turnstile secret',
+            );
           }
           secretEnc = encryptTotpSecret(raw, cryptKey);
         }
@@ -1185,6 +1220,79 @@ export class SettingsService {
     );
   }
 
+  // ── Anti-fraud detector tunables (panel-managed, env fallback) ──────────
+
+  private async readStoredAntiFraud(): Promise<StoredAntiFraudSettings> {
+    const settings = await this.getSettingsRecord(this.prismaService);
+    if (!settings) return {};
+    return readStoredAntiFraudSettings(settings.antiFraudSettings);
+  }
+
+  /**
+   * Admin-form view: the effective tunables, the env/built-in fallback they sit
+   * on, the raw stored patch, and which fields the panel currently owns.
+   */
+  public async getAntiFraudSettings(): Promise<AntiFraudSettingsView> {
+    return toAntiFraudSettingsView(await this.readStoredAntiFraud());
+  }
+
+  /**
+   * Effective detector tunables — a stored panel value wins, the `ANTIFRAUD_*`
+   * environment variable is the fallback, the built-in constant is the
+   * fallback's fallback.
+   *
+   * Read by `AntiFraudTunablesService` at the top of every detector run. It is
+   * a plain settings read, so it is served by the same short-TTL row cache
+   * (`SETTINGS_CACHE_TTL_MS`, 5 s) as branding/policy/cleanup: no second cache
+   * layer, no second staleness budget, and the API process and the worker can
+   * therefore only disagree for the 5 s it takes either one's cache to expire —
+   * two orders of magnitude below the detectors' 5-minute cadence.
+   *
+   * This method DOES NOT swallow failures. If the row cannot be read the caller
+   * must fail loudly: falling back to the env layer here would quietly re-enable
+   * a detector an operator had switched off in the panel.
+   */
+  public async getAntiFraudTunablesRuntime(): Promise<AntiFraudTunables> {
+    return resolveAntiFraudTunables(await this.readStoredAntiFraud());
+  }
+
+  /**
+   * Partial-update the `antiFraudSettings` JSON column (panel-managed).
+   * `null` on a field clears the panel value and restores the env fallback.
+   * Out-of-range numbers are rejected by `mergeAntiFraudSettings`, never clamped.
+   */
+  public async updateAntiFraudSettings(input: {
+    readonly currentAdmin: CurrentAdminInterface;
+    readonly requestMetadata: RequestMetadataInterface;
+    readonly patch: UpdateAntiFraudSettingsDto;
+  }): Promise<AntiFraudSettingsView> {
+    const settings = await this.prismaService.$transaction(async (tx) => {
+      const existing = await this.getOrCreateSettingsRecord(tx);
+      const previous = readStoredAntiFraudSettings(existing.antiFraudSettings);
+      const next = mergeAntiFraudSettings(previous, input.patch);
+      const updated = await tx.settings.update({
+        where: { id: existing.id },
+        data: { antiFraudSettings: next as unknown as Prisma.InputJsonValue },
+      });
+      await tx.adminAuditLog.create({
+        data: buildAdminAuditLogData({
+          action: 'settings.antiFraudSettings.update',
+          actorId: input.currentAdmin.id,
+          requestMetadata: input.requestMetadata,
+          metadata: {
+            requestId: input.requestMetadata.requestId,
+            patchKeys: [
+              ...Object.keys(input.patch.sharing ?? {}).map((k) => `sharing.${k}`),
+              ...Object.keys(input.patch.trafficAbuse ?? {}).map((k) => `trafficAbuse.${k}`),
+            ],
+          },
+        }),
+      });
+      return updated;
+    });
+    return toAntiFraudSettingsView(readStoredAntiFraudSettings(settings.antiFraudSettings));
+  }
+
   // ── Quest partner HMAC secrets (panel-managed, env fallback) ────────────
 
   private async readStoredQuestPartners() {
@@ -1264,9 +1372,7 @@ export class SettingsService {
    * file that is no longer referenced after the save is deleted from disk so
    * the upload dir doesn't accumulate orphans (best-effort).
    */
-  public async updateCustomIcons(
-    input: UpdateCustomIconsInput,
-  ): Promise<CustomIconInterface[]> {
+  public async updateCustomIcons(input: UpdateCustomIconsInput): Promise<CustomIconInterface[]> {
     const next: CustomIconInterface[] = input.icons.map((icon) => ({
       id: icon.id,
       name: icon.name,
@@ -1363,7 +1469,9 @@ function buildSettingsUpdateChanges(
     updatedFields.push('accessMode');
   }
   if (hasOwnField(updatePlatformSettingsDto, 'inviteModeStartedAt')) {
-    data.inviteModeStartedAt = parseInviteModeStartedAt(updatePlatformSettingsDto.inviteModeStartedAt);
+    data.inviteModeStartedAt = parseInviteModeStartedAt(
+      updatePlatformSettingsDto.inviteModeStartedAt,
+    );
     updatedFields.push('inviteModeStartedAt');
   }
   if (hasOwnField(updatePlatformSettingsDto, 'defaultCurrency')) {
@@ -1461,17 +1569,13 @@ function parseInviteModeStartedAt(inviteModeStartedAt: string | null | undefined
   return new Date(inviteModeStartedAt);
 }
 
-function validatePaymentOpsAlertSettings(
-  settings: PaymentOpsAlertSettingsInterface,
-): void {
+function validatePaymentOpsAlertSettings(settings: PaymentOpsAlertSettingsInterface): void {
   if (settings.enabled && settings.chatId === null) {
     throw new BadRequestException('PAYMENT_OPS_ALERT_CHAT_REQUIRED');
   }
 }
 
-function extractUpdatedPaymentOpsFields(
-  dto: UpdatePaymentOpsAlertSettingsDto,
-): readonly string[] {
+function extractUpdatedPaymentOpsFields(dto: UpdatePaymentOpsAlertSettingsDto): readonly string[] {
   const fields: string[] = [];
   if (hasOwnField(dto, 'enabled')) {
     fields.push('enabled');
@@ -1488,23 +1592,38 @@ function extractUpdatedPaymentOpsFields(
   return fields;
 }
 
-function extractUpdatedBrandingFields(
-  dto: UpdateBrandingSettingsDto,
-): readonly string[] {
+function extractUpdatedBrandingFields(dto: UpdateBrandingSettingsDto): readonly string[] {
   const fields: Array<keyof UpdateBrandingSettingsDto> = [
+    'themePresetId',
+    'themePresetVersion',
+    'themeModePolicy',
+    'themeDefaultMode',
+    'themeVariants',
     'brandName',
     'tagline',
     'logoUrl',
     'pwaIconUrl',
+    'brandLogo',
     'adminPwaIconUrl',
     'primary',
     'primaryFg',
     'bgPrimary',
     'bgSecondary',
+    // The two ownership discriminators belong in this list even though no
+    // control shows them: it is both the audit record AND the gate that turns
+    // an update into a no-op when nothing here matched. Re-applying the concept
+    // an operator had detached from changes the source and nothing else, and
+    // without these entries that save would be silently discarded, leaving the
+    // cabinet on the detached colours.
+    'brandPaletteSource',
     'cardGradient',
+    'cardGradientSource',
     'cardPattern',
+    'subscriptionCardText',
+    'subscriptionCardGlass',
     'cardLogo',
     'cardLogoUrl',
+    'cardLogoStyle',
     'cardEffect',
     'cardEffectProps',
     'cardEffectOpacity',
@@ -1514,7 +1633,9 @@ function extractUpdatedBrandingFields(
     'iconColorMode',
     'iconColors',
     'borderRadius',
+    'cornerRadii',
     'fontFamily',
+    'surfaceTheme',
     'planCardStyles',
     'navItems',
     'navGap',
@@ -1541,7 +1662,6 @@ function buildPaymentOpsAlertTestMessage(input: {
   ].filter((line): line is string => line !== null);
   return lines.join('\n');
 }
-
 
 // ── Helpers exposed for the notifications routes ────────────────────────────
 
@@ -1646,7 +1766,9 @@ function readTelegramDeliveryConfig(systemNotifications: unknown): TelegramDeliv
       telegramTxt: errorReports.telegramTxt !== false,
     },
     eventsMode: tg.eventsMode === 'selected' ? 'selected' : 'all',
-    events: Array.isArray(tg.events) ? tg.events.filter((e): e is string => typeof e === 'string') : [],
+    events: Array.isArray(tg.events)
+      ? tg.events.filter((e): e is string => typeof e === 'string')
+      : [],
   };
 }
 

@@ -9,7 +9,7 @@ export const ru = {
   appearancePage: {
     title: 'Внешний вид',
     subtitle:
-      'Выберите пресет, настройте отдельные цвета, вставьте тему из shadcnthemer или tweakcn и измените радиус скруглений. Изменения применяются мгновенно и сохраняются в этом браузере.',
+      'Выберите пресет, настройте отдельные цвета, вставьте тему из shadcnthemer или tweakcn и измените радиус скруглений. Изменения применяются мгновенно и следуют за этим администратором между браузерами и устройствами.',
     reset: 'Сбросить',
     resetSuccess: 'Тема сброшена до значений по умолчанию',
     tabs: {
@@ -63,8 +63,12 @@ export const ru = {
     presets: {
       title: 'Пресеты',
       description:
-        'Курируемые блоки, совместимые с shadcn. При выборе пресета сбрасываются собственные правки цветов.',
+        '104 утверждённых концепта и прежние темы shadcn. При выборе сбрасываются собственные правки цветов.',
       applied: 'Пресет «{{id}}» применён',
+      searchPlaceholder: 'Поиск по коду, названию или стилю…',
+      searchLabel: 'Поиск тем',
+      count: '{{visible}} из {{total}} тем',
+      empty: 'По этому запросу тем нет.',
     },
     radius: {
       title: 'Радиус скруглений',
@@ -77,7 +81,7 @@ export const ru = {
     customize: {
       title: 'Свои цвета',
       description:
-        'Подберите цвет для любого токена. Правки применяются поверх активного пресета и сохраняются в этом браузере.',
+        'Подберите цвет для любого токена. Правки применяются поверх активного пресета и следуют за этим администратором между браузерами и устройствами.',
       modeLight: 'Светлая',
       modeDark: 'Тёмная',
       modeBadge: '{{mode}} режим',
@@ -95,7 +99,7 @@ export const ru = {
       clipboardEmpty: 'Буфер пуст',
       clipboardError: 'Не удалось прочитать буфер обмена',
       footer:
-        'Темы сохраняются только в этом браузере. Очистка данных сайта сбросит правки.',
+        'Настройки темы хранятся локально для мгновенной отрисовки и синхронизируются с этим администратором при подключении. После очистки данных сайта сохранённый вид восстановится после входа.',
     },
     layout: {
       density: {
@@ -310,12 +314,27 @@ export const ru = {
       rippleGrid: 'Ripple Grid',
       lightning: 'Lightning',
       radar: 'Radar',
+      colorBends: 'Color Bends',
+      pixelBlast: 'Pixel Blast',
+      plasmaWave: 'Plasma Wave',
+      evilEye: 'Evil Eye',
+      lightPillar: 'Light Pillar',
+      prismaticBurst: 'Prismatic Burst',
+      faultyTerminal: 'Faulty Terminal',
+      letterGlitch: 'Letter Glitch',
+      shapeGrid: 'Shape Grid',
+      magicRings: 'Magic Rings',
+      laserFlow: 'Laser Flow',
+      antigravity: 'Antigravity',
     },
     controls: {
       speed: 'Скорость',
       scale: 'Масштаб',
       color: 'Цвет',
       colors: 'Цвета',
+      // Собственное имя пропа Aurora. Ключа не было вовсе — русский оператор
+      // видел английский fallback из реестра, и никто об этом не сообщал.
+      colorStops: 'Цвета',
       noiseIntensity: 'Интенсивность шума',
       rotation: 'Поворот',
       amplitude: 'Амплитуда',
@@ -374,6 +393,65 @@ export const ru = {
       ringCount: 'Кольца',
       spokeCount: 'Спицы',
       sweepSpeed: 'Скорость развёртки',
+      // Добавлено вместе с двенадцатью фонами ниже. Подпись контрола
+      // резолвится по ИМЕНИ ПРОПА без привязки к фону, поэтому один ключ
+      // обслуживает все фоны, у которых есть такой проп.
+      frequency: 'Частота',
+      bandWidth: 'Ширина полос',
+      patternScale: 'Масштаб узора',
+      patternDensity: 'Плотность узора',
+      edgeFade: 'Затухание краёв',
+      pixelSizeJitter: 'Разброс размера',
+      speed1: 'Скорость 1',
+      speed2: 'Скорость 2',
+      bend1: 'Изгиб 1',
+      bend2: 'Изгиб 2',
+      focalLength: 'Фокусное расстояние',
+      rotationDeg: 'Поворот',
+      eyeColor: 'Цвет глаза',
+      flameSpeed: 'Скорость пламени',
+      irisWidth: 'Ширина радужки',
+      topColor: 'Цвет сверху',
+      bottomColor: 'Цвет снизу',
+      rotationSpeed: 'Скорость вращения',
+      glowAmount: 'Свечение',
+      pillarWidth: 'Ширина столба',
+      pillarHeight: 'Высота столба',
+      distort: 'Искажение',
+      rayCount: 'Лучи',
+      tint: 'Тонировка',
+      timeScale: 'Скорость',
+      digitSize: 'Размер символов',
+      scanlineIntensity: 'Строки развёртки',
+      glitchAmount: 'Глитч',
+      flickerAmount: 'Мерцание',
+      mouseReact: 'Реакция на курсор',
+      glitchColors: 'Цвета',
+      glitchSpeed: 'Интервал глитча',
+      smooth: 'Плавное затухание',
+      outerVignette: 'Внешняя виньетка',
+      centerVignette: 'Центральная виньетка',
+      borderColor: 'Цвет границ',
+      squareSize: 'Размер ячейки',
+      vignetteColor: 'Цвет виньетки',
+      vignetteStrength: 'Виньетка',
+      colorTwo: 'Второй цвет',
+      lineThickness: 'Толщина линий',
+      opacity: 'Непрозрачность',
+      noiseAmount: 'Шум',
+      flowSpeed: 'Скорость потока',
+      verticalSizing: 'Вертикальный размер',
+      horizontalSizing: 'Горизонтальный размер',
+      decay: 'Затухание луча',
+      falloffStart: 'Начало спада',
+      fogIntensity: 'Туман',
+      wispIntensity: 'Всполохи',
+      count: 'Количество',
+      particleSize: 'Размер частиц',
+      lerpSpeed: 'Скорость следования',
+      ringRadius: 'Радиус кольца',
+      magnetRadius: 'Радиус притяжения',
+      autoAnimate: 'Автодвижение',
     },
   },
   effectsSettings: {
@@ -402,6 +480,9 @@ export const ru = {
         fuzzy: 'Нечёткий текст',
         rotating: 'Вращающийся текст',
         trueFocus: 'Фокус',
+        shuffle: 'Перетасовка текста',
+        typewriter: 'Печатная машинка',
+        proximity: 'Вариативная близость',
       },
       cursorEffect: {
         none: 'Нет',
@@ -410,18 +491,17 @@ export const ru = {
         ghost: 'Призрачный курсор',
         crosshair: 'Прицел',
         pixelTrail: 'Пиксельный след',
+        target: 'Курсор-мишень',
+        textTrail: 'Текстовый след',
       },
       clickEffect: {
         none: 'Нет',
         spark: 'Искры при клике',
-        starBorder: 'Звёздная рамка',
       },
       hoverEffect: {
         none: 'Нет',
         spotlight: 'Прожектор',
         glare: 'Блик при наведении',
-        electricBorder: 'Электрическая рамка',
-        magnet: 'Магнит',
       },
       contentAnimation: {
         none: 'Нет',
@@ -442,6 +522,10 @@ export const ru = {
       select: 'Эффект курсора',
       previewHint: 'Проведите курсором здесь',
       previewAction: 'Предпросмотр эффекта курсора',
+      // Drawn onto the canvas, one glyph per trail point, for the Text Trail
+      // preview only. Keep it short and uppercase — the marks are 14px and a
+      // long word simply repeats less often, it does not read better.
+      previewGlyphs: 'ТЕКСТ',
     },
     clickEffect: {
       title: 'Эффект клика',

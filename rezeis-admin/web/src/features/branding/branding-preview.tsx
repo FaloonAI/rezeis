@@ -8,7 +8,7 @@
  * the operator is editing, so changes are visible instantly.
  */
 
-import { Suspense, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion, type PanInfo } from 'motion/react'
 import {
@@ -23,30 +23,68 @@ import {
   TicketPercent,
   LifeBuoy,
   CircleHelp,
+  Copy,
+  Info,
+  RefreshCw,
+  Trash2,
+  EyeOff,
   type LucideIcon,
 } from 'lucide-react'
 
 import { ReiwaMark } from './reiwa-mark'
 import { CardLogoMark, type CardLogoPreset } from './card-logo-mark'
+
+/**
+ * The watermark boxes the preview drew before the operator could size them:
+ * `h-28 w-28` on the subscription card, `h-20 w-20` on a tariff card. They are
+ * the preview's own numbers, not the cabinet's — the phone frame is a scaled
+ * mock, and its two surfaces sit at 112/80 = 1.4 where the cabinet's sit at
+ * 160/128 = 1.25. `scale` multiplies each in place, so each surface keeps the
+ * proportion it already had; it does not make the mock proportional to the
+ * cabinet, and nothing here claims it does.
+ */
+const PREVIEW_CARD_WATERMARK_BASE_PX = 112
+const PREVIEW_TARIFF_WATERMARK_BASE_PX = 80
 import {
-  CARD_EFFECT_COMPONENTS,
   getCardEffectDefaults,
-  type CardEffectId,
 } from './card-effect-registry'
+import {
+  CardEffectPreviewLayer,
+} from './card-effect-preview-runtime'
+import {
+  hasFullOutputGamut,
+  isPreviewCardEffect,
+  resolveCardEffectPreviewOpacity,
+} from './card-effect-preview-utils'
+import { usePreviewCardEffectSlot } from './card-effect-preview-budget'
 import { usePlans, type Plan } from '@/features/plans/plans-api'
-import { autoPlanGradient } from './plan-card-styles-section'
+import {
+  autoPlanGradient,
+  isHiddenFromCabinetCatalog,
+  resolvePlanCardText,
+} from './plan-card-style-utils'
 import { buildTextureCss } from './app-texture'
+import { AppBackgroundBuiltin } from './app-background-builtin'
+import { resolveAppBackgroundReadability } from './app-background-contrast'
 import { PlanIconView } from '@/features/plans/plan-icon-view'
 import {
+  DEFAULT_SUBSCRIPTION_CARD_GLASS_DRAFT,
+  DEFAULT_CARD_LOGO_STYLE_DRAFT,
+  type BrandingCardLogoStyleDraft,
   DEFAULT_NAV_ITEMS,
   type PlanCardStyleDraft,
   type BrandingAppBackgroundDraft,
+  type BrandingCornerRadiiDraft,
+  type BrandingSubscriptionCardGlassDraft,
+  type BrandingSubscriptionCardTextDraft,
+  type BrandingSurfaceThemeDraft,
   type NavItemDraft,
   type NavDestinationId,
 } from './branding-form-schema'
 
 interface BrandingPreviewProps {
   values: {
+    themePresetId?: string | null
     brandName?: string
     tagline?: string | null
     logoUrl?: string | null
@@ -56,19 +94,25 @@ interface BrandingPreviewProps {
     bgSecondary?: string
     cardGradient?: string
     cardPattern?: string | null
+    subscriptionCardText?: BrandingSubscriptionCardTextDraft
+    subscriptionCardGlass?: BrandingSubscriptionCardGlassDraft
     cardLogo?: CardLogoPreset
     cardLogoUrl?: string | null
+    cardLogoStyle?: BrandingCardLogoStyleDraft
     cardEffect?: string
     cardEffectProps?: Record<string, unknown>
     cardEffectOpacity?: number
     cardEffectsByIndex?: readonly {
-      cardEffect: string
-      cardEffectProps: Record<string, unknown>
-      cardEffectOpacity: number
+      mode?: 'inherit' | 'override'
+      cardEffect?: string
+      cardEffectProps?: Record<string, unknown>
+      cardEffectOpacity?: number
       cardGradient?: string | null
     }[]
     fontFamily?: string
     borderRadius?: string
+    cornerRadii?: BrandingCornerRadiiDraft
+    surfaceTheme?: BrandingSurfaceThemeDraft
     planCardStyles?: Record<string, PlanCardStyleDraft>
     appBackground?: BrandingAppBackgroundDraft
     navItems?: readonly NavItemDraft[]
@@ -100,6 +144,24 @@ function shadeHex(hex: string, amount: number): string {
   return `#${toHex(mix(r))}${toHex(mix(g))}${toHex(mix(b))}`
 }
 
+function toRgba(hex: string, opacity: number): string {
+  const raw = hex.trim().replace(/^#/, '')
+  const normalized =
+    raw.length === 3 || raw.length === 4
+      ? raw
+          .slice(0, 3)
+          .split('')
+          .map((character) => character + character)
+          .join('')
+      : raw.slice(0, 6)
+  if (!/^[0-9a-f]{6}$/i.test(normalized)) return hex
+  const alpha = Math.min(1, Math.max(0, opacity))
+  return `rgba(${Number.parseInt(normalized.slice(0, 2), 16)}, ${Number.parseInt(
+    normalized.slice(2, 4),
+    16,
+  )}, ${Number.parseInt(normalized.slice(4, 6), 16)}, ${alpha})`
+}
+
 const RADIUS_MAP: Record<string, string> = {
   'rounded-none': '0',
   'rounded-lg': '0.5rem',
@@ -122,105 +184,616 @@ const NAV_ICONS: Record<NavDestinationId, LucideIcon> = {
   settings: Settings,
 }
 
+/**
+ * Which subscriptions a preview page stands for.
+ *
+ * `slot` is the Nth configured per-position card. `fallback` is the global
+ * card background, which the section's own description promises to every
+ * subscription BEYOND the configured slots — a design that always exists and
+ * that the operator could previously never see next to their slot artwork.
+ */
+type PreviewCardRole = 'slot' | 'fallback'
+
 interface PreviewCardVisual {
+  readonly role: PreviewCardRole
   readonly gradient: string
   readonly effect: string
   readonly effectProps: Record<string, unknown>
   readonly opacity: number
+  readonly subscriptionCardText: BrandingSubscriptionCardTextDraft
+  readonly subscriptionCardGlass: BrandingSubscriptionCardGlassDraft
+}
+
+/**
+ * How many per-position slots the strip will page through. Slots beyond this
+ * stay unpreviewable (the cabinet still renders them); the cap only bounds the
+ * dot row. It counts SLOTS, not pages: the trailing fallback page describes
+ * every subscription past the last slot, i.e. usually most of them, so it is
+ * the one page that must never be squeezed out by the cap.
+ */
+const MAX_PREVIEW_SLOT_PAGES = 6
+
+type PreviewRgb = readonly [number, number, number]
+
+interface PreviewCardContrast {
+  readonly foreground: string
+  readonly foundation: string
+  readonly veilChannels: string
+  readonly veilOpacity: number
+  readonly weakManualContrast: boolean
+}
+
+const PREVIEW_BLACK: PreviewRgb = [0, 0, 0]
+const PREVIEW_WHITE: PreviewRgb = [255, 255, 255]
+
+// Which effects amplify, add or post-process their uniforms into display
+// extremes now comes from the catalog, beside the effect it describes. It used
+// to be a hand-written set here, and it went stale the moment the catalogue
+// grew: ten effects that widen their gamut were missing from it, so the
+// operator tuned against a preview that judged text readable on evidence the
+// cabinet did not accept. That divergence is the exact failure the catalog
+// exists to end — see `hasFullOutputGamut`.
+
+/**
+ * The colour forms an effect prop may be written in.
+ *
+ * This is the THIRD reader of effect props, and until now the only one still
+ * testing `/^#[\da-f]{3,8}$/`: `card-effect-preview-utils.isSafeHexColor` (the
+ * tile preview) and the cabinet's `card-effect-runtime.asColor` (the live card)
+ * were both widened to `rgb()`, `rgba()`, `hsl()` and `transparent` when the
+ * catalogue started shipping `rgba()` defaults and the colour codec began
+ * writing `rgba()` back to keep an operator's alpha. Hex-only here meant Pixel
+ * Card — three `rgba(255,255,255,…)` marks over `#000000` — read as an entirely
+ * black card, so the phone preview promised light text while the cabinet, which
+ * saw the three whites, shipped dark. `pixelCard` carries no `fullOutputGamut`,
+ * so nothing papered over the disagreement.
+ *
+ * Kept as a local pattern rather than hoisted into `card-effect-preview-utils`:
+ * that module is being edited alongside this change, and the two agree by test
+ * (`branding-preview-effect-colors.test.tsx` runs one table of values through
+ * both and fails on the first value they disagree about) rather than by hope.
+ * Hoisting it is the right follow-up once both files are still again.
+ *
+ * Anchored for a prop value, unanchored for scanning artwork; one source so the
+ * two cannot drift. Bare keywords beyond `transparent` are deliberately absent,
+ * exactly as in the other two: telling `white` from `checks` needs the full
+ * keyword table, and no effect default uses one.
+ */
+const PREVIEW_COLOR_SOURCE =
+  '#(?:[\\da-f]{3,4}|[\\da-f]{6}|[\\da-f]{8})(?![\\da-f])|(?:rgb|hsl)a?\\([^()]*\\)|transparent'
+const PREVIEW_COLOR_VALUE = new RegExp(`^(?:${PREVIEW_COLOR_SOURCE})$`, 'i')
+const PREVIEW_COLOR_TOKEN = new RegExp(PREVIEW_COLOR_SOURCE, 'gi')
+
+function isPreviewColorValue(value: unknown): value is string {
+  return typeof value === 'string' && PREVIEW_COLOR_VALUE.test(value.trim())
+}
+
+/** `50%` and bare numbers both appear in the wild; both resolve to 0–255. */
+function parsePreviewChannel(raw: string, full: number): number | null {
+  const text = raw.trim()
+  const percent = text.endsWith('%')
+  const value = Number.parseFloat(percent ? text.slice(0, -1) : text)
+  if (!Number.isFinite(value)) return null
+  return percent ? (value / 100) * full : value
+}
+
+function previewHslChannel(hue: number, saturation: number, lightness: number, offset: number): number {
+  const k = (offset + hue / 30) % 12
+  const a = saturation * Math.min(lightness, 1 - lightness)
+  return Math.round(
+    (lightness - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1)))) * 255,
+  )
+}
+
+/**
+ * Any form `PREVIEW_COLOR_VALUE` accepts, flattened onto `backdrop`.
+ *
+ * `transparent` yields `null` on purpose: it is a colour form the props may
+ * legitimately carry, and it contributes nothing to contrast. Compositing it
+ * would silently add the backdrop as a sample and tilt the verdict toward
+ * whatever is behind the card.
+ */
+function parsePreviewCssColor(
+  value: string,
+  backdrop: PreviewRgb = PREVIEW_BLACK,
+): PreviewRgb | null {
+  const text = value.trim()
+  if (text.startsWith('#')) return parsePreviewHex(text, backdrop)
+  const fn = /^(rgb|hsl)a?\(([^()]*)\)$/i.exec(text)
+  if (!fn) return null
+  const [channelsPart, slashAlpha] = fn[2].split('/').map((part) => part.trim())
+  const parts = channelsPart
+    .replace(/,/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+  if (parts.length < 3) return null
+  const alphaRaw = slashAlpha ?? parts[3]
+  const alpha =
+    alphaRaw === undefined
+      ? 1
+      : Math.min(1, Math.max(0, parsePreviewChannel(alphaRaw, 1) ?? 1))
+  let rgb: PreviewRgb
+  if (fn[1].toLowerCase() === 'rgb') {
+    const channels = parts.slice(0, 3).map((part) => parsePreviewChannel(part, 255))
+    if (channels.some((channel) => channel === null)) return null
+    rgb = channels.map((channel) =>
+      Math.round(Math.min(255, Math.max(0, channel ?? 0))),
+    ) as unknown as PreviewRgb
+  } else {
+    const hue = Number.parseFloat(parts[0].replace(/deg$/i, ''))
+    const saturation = parsePreviewChannel(parts[1], 1)
+    const lightness = parsePreviewChannel(parts[2], 1)
+    if (!Number.isFinite(hue) || saturation === null || lightness === null) return null
+    const s = Math.min(1, Math.max(0, saturation))
+    const l = Math.min(1, Math.max(0, lightness))
+    const h = ((hue % 360) + 360) % 360
+    rgb = [
+      previewHslChannel(h, s, l, 0),
+      previewHslChannel(h, s, l, 8),
+      previewHslChannel(h, s, l, 4),
+    ]
+  }
+  return alpha >= 1 ? rgb : previewComposite(rgb, backdrop, alpha)
+}
+
+function previewRgbVectorColor(value: unknown): string | null {
+  if (
+    !Array.isArray(value) ||
+    value.length !== 3 ||
+    value.some(
+      (channel) => typeof channel !== 'number' || !Number.isFinite(channel),
+    )
+  ) {
+    return null
+  }
+  const scale = value.every((channel) => channel >= 0 && channel <= 1)
+    ? 255
+    : 1
+  return `#${value
+    .map((channel) =>
+      Math.round(Math.min(255, Math.max(0, channel * scale)))
+        .toString(16)
+        .padStart(2, '0'),
+    )
+    .join('')}`
+}
+
+function resolvePreviewEffectInputColors(
+  effect: string,
+  props: Readonly<Record<string, unknown>>,
+): readonly string[] {
+  const colors: string[] = []
+  for (const value of Object.values(props)) {
+    if (isPreviewColorValue(value)) {
+      colors.push(value)
+      continue
+    }
+    if (!Array.isArray(value)) continue
+    colors.push(...value.filter((entry): entry is string => isPreviewColorValue(entry)))
+    const vector = previewRgbVectorColor(value)
+    if (vector) colors.push(vector)
+  }
+  if (effect === 'rippleGrid' && props['enableRainbow'] === true) {
+    colors.push(
+      '#ff0000',
+      '#ffff00',
+      '#00ff00',
+      '#00ffff',
+      '#0000ff',
+      '#ff00ff',
+    )
+  }
+  if (['dither', 'radar', 'plasma', 'beams', 'galaxy'].includes(effect)) {
+    colors.push('#000000')
+  }
+  if (['liquidChrome', 'galaxy'].includes(effect)) {
+    colors.push('#ffffff')
+  }
+  return [...new Set(colors)]
+}
+
+function resolvePreviewEffectColors(
+  effect: string,
+  props: Readonly<Record<string, unknown>>,
+): string {
+  const colors = [...resolvePreviewEffectInputColors(effect, props)]
+  if (hasFullOutputGamut(effect)) {
+    colors.push('#000000', '#ffffff')
+  }
+  return [...new Set(colors)].join(' ')
+}
+
+/**
+ * Lightweight mirror of reiwa's artwork contrast resolver. Branding gradients
+ * are produced by colour inputs and the concept catalogue, so sampling their
+ * hex stops keeps the live preview aligned without mounting another renderer.
+ */
+function resolvePreviewCardContrast(
+  gradient: string,
+  foundation: string,
+  preferredForeground: string,
+  effectArtwork = '',
+  effectOpacity = 0,
+  subscriptionCardText: BrandingSubscriptionCardTextDraft = {
+    mode: 'auto',
+    color: null,
+  },
+): PreviewCardContrast {
+  const foundationRgb = parsePreviewHex(foundation)
+  const baseSamples = Array.from(gradient.matchAll(/#[\da-f]{3,8}(?![\da-f])/gi))
+    .map((match) => parsePreviewHex(match[0], foundationRgb ?? PREVIEW_BLACK))
+    .filter((sample): sample is PreviewRgb => sample !== null)
+  // The effect artwork is OUR string — the extractor's output, joined — so it
+  // is scanned for every form the extractor accepts. Widening the extractor
+  // without widening this would have changed nothing: an `rgba()` mark would be
+  // recognised as a colour and then dropped on the floor one line later. The
+  // operator gradient above stays hex-only; it is authored by colour inputs.
+  const effectSamples = Array.from(effectArtwork.matchAll(PREVIEW_COLOR_TOKEN))
+    .map((match) => parsePreviewCssColor(match[0]))
+    .filter((sample): sample is PreviewRgb => sample !== null)
+  const clampedEffectOpacity = Math.min(1, Math.max(0, effectOpacity))
+  const samples =
+    effectSamples.length > 0 && clampedEffectOpacity > 0
+      ? [
+          ...baseSamples,
+          ...baseSamples.flatMap((base) =>
+            effectSamples.map((effect) =>
+              previewComposite(effect, base, clampedEffectOpacity),
+            ),
+          ),
+        ]
+      : baseSamples
+  const resolvedSamples =
+    samples.length > 0
+      ? samples
+      : [foundationRgb ?? (isPreviewLight(preferredForeground) ? PREVIEW_BLACK : PREVIEW_WHITE)]
+  const manualForeground = resolvePreviewManualCardForeground(subscriptionCardText)
+  if (manualForeground) {
+    const foregroundRgb = parsePreviewHex(manualForeground)
+    if (foregroundRgb) {
+      // Reiwa evaluates both support veils for a forced foreground and takes
+      // the weaker safe candidate. Keeping that policy here makes a custom
+      // text colour render identically in the preview and real cabinet.
+      const darkRequirement = previewRequiredVeil(
+        resolvedSamples,
+        foregroundRgb,
+        PREVIEW_BLACK,
+      )
+      const lightRequirement = previewRequiredVeil(
+        resolvedSamples,
+        foregroundRgb,
+        PREVIEW_WHITE,
+      )
+      const useLightVeil = lightRequirement < darkRequirement
+      const rawRequirement = useLightVeil ? lightRequirement : darkRequirement
+      const veil = useLightVeil ? PREVIEW_WHITE : PREVIEW_BLACK
+      return {
+        foreground: manualForeground,
+        foundation,
+        veilChannels: veil.join(' '),
+        veilOpacity:
+          Math.round(Math.min(0.75, Math.max(0.12, rawRequirement + 0.025)) * 1000) /
+          1000,
+        weakManualContrast: resolvedSamples.some(
+          (sample) => previewContrast(foregroundRgb, sample) < 4.5,
+        ),
+      }
+    }
+  }
+  const darkRequirement = previewRequiredVeil(resolvedSamples, PREVIEW_BLACK, PREVIEW_WHITE)
+  const lightRequirement = previewRequiredVeil(resolvedSamples, PREVIEW_WHITE, PREVIEW_BLACK)
+  const prefersLight = isPreviewLight(preferredForeground)
+  const useLight =
+    Math.abs(darkRequirement - lightRequirement) <= 0.015
+      ? prefersLight
+      : lightRequirement < darkRequirement
+  const rawRequirement = useLight ? lightRequirement : darkRequirement
+  const veil = useLight ? PREVIEW_BLACK : PREVIEW_WHITE
+
+  return {
+    foreground: useLight ? '#ffffff' : '#0a0a0a',
+    foundation,
+    veilChannels: veil.join(' '),
+    veilOpacity:
+      Math.round(Math.min(0.75, Math.max(0.12, rawRequirement + 0.025)) * 1000) / 1000,
+    weakManualContrast: false,
+  }
+}
+
+function resolvePreviewManualCardForeground(
+  value: BrandingSubscriptionCardTextDraft,
+): string | null {
+  if (value.mode === 'light') return '#ffffff'
+  if (value.mode === 'dark') return '#0a0a0a'
+  if (
+    value.mode === 'custom' &&
+    value.color &&
+    isOpaquePreviewHex(value.color) &&
+    parsePreviewHex(value.color)
+  ) {
+    return value.color
+  }
+  return null
+}
+
+function isOpaquePreviewHex(value: string): boolean {
+  return /^#(?:[\da-f]{3}|[\da-f]{6})$/i.test(value.trim())
+}
+
+function parsePreviewHex(value: string, backdrop: PreviewRgb = PREVIEW_BLACK): PreviewRgb | null {
+  let raw = value.trim().replace(/^#/, '')
+  if (![3, 4, 6, 8].includes(raw.length) || !/^[\da-f]+$/i.test(raw)) return null
+  if (raw.length === 3 || raw.length === 4) {
+    raw = raw
+      .split('')
+      .map((channel) => `${channel}${channel}`)
+      .join('')
+  }
+  const rgb = [0, 2, 4].map((offset) =>
+    Number.parseInt(raw.slice(offset, offset + 2), 16),
+  ) as unknown as PreviewRgb
+  if (raw.length !== 8) return rgb
+  const alpha = Number.parseInt(raw.slice(6, 8), 16) / 255
+  return previewComposite(rgb, backdrop, alpha)
+}
+
+function previewRequiredVeil(
+  samples: readonly PreviewRgb[],
+  foreground: PreviewRgb,
+  veil: PreviewRgb,
+): number {
+  let required = 0
+  for (const sample of samples) {
+    if (previewContrast(foreground, sample) >= 4.5) continue
+    let low = 0
+    let high = 1
+    for (let iteration = 0; iteration < 18; iteration += 1) {
+      const midpoint = (low + high) / 2
+      if (previewContrast(foreground, previewComposite(veil, sample, midpoint)) >= 4.5) {
+        high = midpoint
+      } else {
+        low = midpoint
+      }
+    }
+    required = Math.max(required, high)
+  }
+  return required
+}
+
+function previewComposite(
+  foreground: PreviewRgb,
+  background: PreviewRgb,
+  alpha: number,
+): PreviewRgb {
+  return foreground.map(
+    (channel, index) => channel * alpha + background[index] * (1 - alpha),
+  ) as unknown as PreviewRgb
+}
+
+function previewContrast(left: PreviewRgb, right: PreviewRgb): number {
+  const leftLuminance = previewLuminance(left)
+  const rightLuminance = previewLuminance(right)
+  return (
+    (Math.max(leftLuminance, rightLuminance) + 0.05) /
+    (Math.min(leftLuminance, rightLuminance) + 0.05)
+  )
+}
+
+function previewLuminance(rgb: PreviewRgb): number {
+  const [red, green, blue] = rgb.map((channel) => {
+    const normalized = channel / 255
+    return normalized <= 0.04045
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+}
+
+function isPreviewLight(value: string): boolean {
+  const color = parsePreviewHex(value)
+  return color ? previewLuminance(color) >= 0.5 : true
 }
 
 /** One subscription-card mock in the preview, with its own effect + gradient. */
 function PreviewSubscriptionCard({
   visual,
   primary,
+  primaryFg,
+  foundation,
   brandName,
   cardPattern,
   cardLogo,
   cardLogoUrl,
+  cardLogoStyle,
   radius,
 }: {
   visual: PreviewCardVisual
   primary: string
+  primaryFg: string
+  foundation: string
   brandName: string
   cardPattern?: string | null
   cardLogo: CardLogoPreset
   cardLogoUrl?: string | null
+  cardLogoStyle: BrandingCardLogoStyleDraft
   radius: string
 }) {
   const { t } = useTranslation()
-  const Effect =
-    visual.effect !== 'NONE' && visual.effect in CARD_EFFECT_COMPONENTS
-      ? CARD_EFFECT_COMPONENTS[visual.effect as CardEffectId]
-      : null
+  const hasEffect = isPreviewCardEffect(visual.effect)
   const effectProps = useMemo<Record<string, unknown>>(() => {
-    if (!Effect) return {}
+    if (!hasEffect) return {}
     const base = { ...getCardEffectDefaults(visual.effect), ...visual.effectProps }
     if (visual.effect === 'aurora' && base['colorStops'] === undefined) {
       return { colorStops: brandAuroraStops(primary), amplitude: 1.1, blend: 0.55, speed: 0.8, ...base }
     }
     return base
-  }, [Effect, visual.effect, visual.effectProps, primary])
-
+  }, [hasEffect, visual.effect, visual.effectProps, primary])
+  const effectOpacity = resolveCardEffectPreviewOpacity(visual.opacity)
+  const contrast = useMemo(
+    () =>
+      resolvePreviewCardContrast(
+        visual.gradient,
+        foundation,
+        primaryFg,
+        resolvePreviewEffectColors(visual.effect, effectProps),
+        hasEffect ? effectOpacity : 0,
+        visual.subscriptionCardText,
+      ),
+    [
+      effectProps,
+      effectOpacity,
+      foundation,
+      hasEffect,
+      primaryFg,
+      visual.effect,
+      visual.gradient,
+      visual.subscriptionCardText,
+    ],
+  )
   return (
     <div
-      className="relative h-[160px] overflow-hidden p-4 ring-1 ring-white/10"
-      style={{ borderRadius: radius }}
+      data-preview-subscription-card
+      data-preview-card-foreground={
+        contrast.foreground === '#0a0a0a' ? 'dark' : 'light'
+      }
+      data-preview-card-text-mode={visual.subscriptionCardText.mode}
+      data-preview-card-artwork={hasEffect ? 'animated' : 'static'}
+      className="relative isolate h-[160px] overflow-hidden p-4 [contain:paint]"
+      style={{
+        borderRadius: radius,
+        color: contrast.foreground,
+        boxShadow: `inset 0 0 0 1px ${toRgba(contrast.foreground, 0.1)}`,
+      }}
     >
-      {/* Static foundation / fallback: dark base + operator gradient */}
-      <div className="absolute inset-0" style={{ backgroundColor: '#0b0b0d' }} />
-      <div className="absolute inset-0" style={{ backgroundImage: visual.gradient, opacity: 0.85 }} />
-      {/* Live animated effect layer (the REAL ReactBits effect) */}
-      {Effect && (
-        <Suspense fallback={null}>
-          <div className="absolute inset-0" style={{ opacity: visual.opacity }}>
-            <Effect {...effectProps} />
-          </div>
-        </Suspense>
-      )}
-      <div className="absolute inset-0 bg-linear-to-b from-black/40 via-transparent to-black/60" />
+      {/* Layer order mirrors the normal reiwa card frame. */}
+      <div
+        data-preview-card-layer="foundation"
+        className="absolute inset-0"
+        style={{ backgroundColor: contrast.foundation }}
+      />
+      <div
+        data-preview-card-layer="gradient"
+        className="absolute inset-0"
+        style={{ backgroundImage: visual.gradient }}
+      />
       {cardPattern && cardPattern !== 'none' && (
-        <div className="absolute inset-0 opacity-40" style={{ backgroundImage: cardPattern }} />
+        <div
+          data-preview-card-layer="pattern"
+          className="pointer-events-none absolute inset-0 opacity-40"
+          style={{
+            backgroundImage: cardPattern,
+            backgroundSize: cardPattern.includes('gradient(')
+              ? '24px 24px'
+              : undefined,
+          }}
+        />
+      )}
+      {/* Subscription-card effects intentionally stay live in the preview.
+          Reiwa treats an explicitly configured card effect as branded artwork
+          rather than decorative motion, so this must mirror the live card. */}
+      {hasEffect && (
+        <CardEffectPreviewLayer
+          effect={visual.effect}
+          props={effectProps}
+          opacity={visual.opacity}
+        />
+      )}
+      {/* Choosing a text tone must not repaint the operator's gradient. The
+          contrast calculation is retained for the foreground and warning,
+          while any visual film is an explicit glass setting below. */}
+      {visual.subscriptionCardGlass.enabled && (
+        <div
+          data-preview-card-layer="glass"
+          className="pointer-events-none absolute inset-0 z-0"
+          style={{
+            backgroundColor: toRgba(
+              visual.subscriptionCardGlass.tint,
+              visual.subscriptionCardGlass.opacity,
+            ),
+            border: `1px solid ${toRgba(
+              visual.subscriptionCardGlass.tint,
+              visual.subscriptionCardGlass.borderOpacity,
+            )}`,
+            backdropFilter:
+              visual.subscriptionCardGlass.blurPx > 0
+                ? `blur(${visual.subscriptionCardGlass.blurPx}px)`
+                : undefined,
+            WebkitBackdropFilter:
+              visual.subscriptionCardGlass.blurPx > 0
+                ? `blur(${visual.subscriptionCardGlass.blurPx}px)`
+                : undefined,
+          }}
+        />
       )}
       {/* Watermark — operator-configurable glyph or custom image */}
       <CardLogoMark
         preset={cardLogo}
         customUrl={cardLogoUrl}
-        className="pointer-events-none absolute -right-4 -bottom-6 h-28 w-28"
-        style={{ color: '#ffffff', opacity: 0.12 }}
+        className="pointer-events-none absolute -right-4 -bottom-6"
+        style={{
+          color: contrast.foreground,
+          opacity: cardLogoStyle.opacity,
+          // 112 px is the `h-28 w-28` this used to carry; the operator's scale
+          // multiplies it, exactly as it multiplies the cabinet's own box.
+          width: `${PREVIEW_CARD_WATERMARK_BASE_PX * cardLogoStyle.scale}px`,
+          height: `${PREVIEW_CARD_WATERMARK_BASE_PX * cardLogoStyle.scale}px`,
+        }}
       />
+      {contrast.weakManualContrast && (
+        <span
+          data-preview-card-contrast-warning
+          role="status"
+          className="absolute bottom-1 left-2 z-10 rounded bg-black/55 px-1.5 py-0.5 text-[8px] font-medium text-white"
+        >
+          {t('brandingPage.sections.preview.cardTextContrastWarning')}
+        </span>
+      )}
 
       {/* Card content */}
-      <div className="relative flex h-full flex-col justify-between text-white">
+      <div className="relative flex h-full flex-col justify-between">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <Wifi className="h-3.5 w-3.5 opacity-90" />
-            <span className="text-[11px] font-semibold opacity-95">{brandName}</span>
+            <span className="text-[11px] font-semibold">{brandName}</span>
           </div>
-          <span className="rounded-full bg-white/25 px-2 py-0.5 text-[8px] font-bold uppercase backdrop-blur-md">
+          <span
+            className="rounded-full px-2 py-0.5 text-[8px] font-bold uppercase backdrop-blur-md"
+            style={{
+              backgroundColor: toRgba(contrast.foreground, 0.16),
+            }}
+          >
             {t('brandingPage.sections.preview.statusLabel')}
           </span>
         </div>
 
-        <p className="font-mono text-sm tracking-[0.18em] opacity-90">usr_a1b2c3d4e5f6</p>
+        <p className="w-fit max-w-full truncate font-mono text-sm tracking-[0.18em]">
+          usr_a1b2c3d4e5f6
+        </p>
 
         <div>
-          <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-black/35">
-            <div className="h-full w-2/3 rounded-full bg-white/85" />
+          <div
+            className="mb-2 h-1.5 w-full overflow-hidden rounded-full"
+            style={{ backgroundColor: toRgba(contrast.foreground, 0.18) }}
+          >
+            <div
+              className="h-full w-2/3 rounded-full"
+              style={{ backgroundColor: toRgba(contrast.foreground, 0.82) }}
+            />
           </div>
           <div className="flex items-end justify-between">
             <div>
-              <p className="text-[8px] uppercase opacity-60">
+              <p className="text-[10px] font-medium uppercase">
                 {t('brandingPage.sections.preview.remaining')}
               </p>
               <p className="text-[13px] font-bold leading-none">
                 {t('brandingPage.sections.preview.daysMock')}
               </p>
-              <p className="mt-0.5 text-[8px] opacity-55">
+              <p className="mt-0.5 text-[10px]">
                 {t('brandingPage.sections.preview.until', { date: '03/2026' })}
               </p>
             </div>
             <div className="text-right">
-              <p className="text-[8px] uppercase opacity-60">
+              <p className="text-[10px] font-medium uppercase">
                 {t('brandingPage.sections.preview.device')}
               </p>
               <p className="text-[11px] font-medium">iPhone 15</p>
@@ -236,19 +809,27 @@ function PreviewSubscriptionCard({
 function SubscriptionCardsPreview({
   cards,
   primary,
+  primaryFg,
+  foundation,
   brandName,
   cardPattern,
   cardLogo,
   cardLogoUrl,
+  cardLogoStyle,
   radius,
+  captionColor,
 }: {
   cards: readonly PreviewCardVisual[]
   primary: string
+  primaryFg: string
+  foundation: string
   brandName: string
   cardPattern?: string | null
   cardLogo: CardLogoPreset
   cardLogoUrl?: string | null
+  cardLogoStyle: BrandingCardLogoStyleDraft
   radius: string
+  captionColor: string
 }) {
   const { t } = useTranslation()
   const [page, setPage] = useState(0)
@@ -261,10 +842,25 @@ function SubscriptionCardsPreview({
     else if (info.offset.x > 40) setPage((p) => Math.max(p - 1, 0))
   }
 
+  /**
+   * A page name the operator can act on. "Card 7" would say nothing about the
+   * one page that is not a slot — the global card background every
+   * subscription past the last slot gets — so that page is named for what it
+   * covers instead of for its position in the strip.
+   */
+  function pageLabel(index: number): string {
+    return cards[index]?.role === 'fallback'
+      ? t('brandingPage.sections.preview.cardPageRest')
+      : t('brandingPage.sections.preview.cardDot', { index: index + 1 })
+  }
+
+  const activeCard = cards[active] ?? cards[0]!
+
   return (
     <div className="relative">
       <motion.div
         key={active}
+        data-preview-card-page={activeCard.role}
         drag={multi ? 'x' : false}
         dragConstraints={{ left: 0, right: 0 }}
         dragElastic={0.18}
@@ -272,62 +868,168 @@ function SubscriptionCardsPreview({
         className={multi ? 'cursor-grab active:cursor-grabbing' : ''}
       >
         <PreviewSubscriptionCard
-          visual={cards[active] ?? cards[0]!}
+          visual={activeCard}
           primary={primary}
+          primaryFg={primaryFg}
+          foundation={foundation}
           brandName={brandName}
           cardPattern={cardPattern}
           cardLogo={cardLogo}
           cardLogoUrl={cardLogoUrl}
+          cardLogoStyle={cardLogoStyle}
           radius={radius}
         />
       </motion.div>
       {multi && (
-        <div className="mt-2 flex items-center justify-center gap-1.5">
-          {cards.map((_, i) => (
-            <button
-              key={i}
-              type="button"
-              aria-label={t('brandingPage.sections.preview.cardDot', { index: i + 1 })}
-              aria-current={i === active}
-              onClick={() => setPage(i)}
-              className={`h-1.5 rounded-full transition-all ${
-                i === active ? 'w-4 bg-white/80' : 'w-1.5 bg-white/30'
-              }`}
-            />
-          ))}
+        <div className="mt-2 flex flex-col items-center gap-1">
+          <p
+            data-preview-card-page-label={activeCard.role}
+            className="text-[9px] font-medium"
+            style={{ color: captionColor }}
+          >
+            {pageLabel(active)}
+          </p>
+          <div className="flex items-center justify-center gap-1.5">
+            {cards.map((card, i) => (
+              <button
+                key={i}
+                type="button"
+                data-preview-card-dot={card.role}
+                aria-label={pageLabel(i)}
+                aria-current={i === active}
+                onClick={() => setPage(i)}
+                className="flex h-6 w-6 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black/70"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`h-1.5 rounded-full transition-all ${
+                    i === active ? 'w-4 bg-white/80' : 'w-1.5 bg-white/30'
+                  }`}
+                />
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>
   )
 }
 
+/**
+ * A compact, non-interactive copy of the dashboard device area.  The live
+ * preview previously jumped straight from the action buttons to an icon-only
+ * nav, which made its rhythm noticeably different from the real cabinet.
+ * This uses the same hierarchy as Reiwa: title/actions, device rows, then the
+ * bottom navigation as the final fixed visual anchor.
+ */
+function DashboardDevicesPreview({
+  primary,
+  surfaceTheme,
+  itemRadius,
+}: {
+  primary: string
+  surfaceTheme: BrandingSurfaceThemeDraft
+  itemRadius: string
+}) {
+  const { t } = useTranslation()
+  const devices = ['iPhone 12 Pro Max', 'Windows 11 Pro', 'Windows 11 amd64']
+
+  return (
+    <section
+      data-preview-devices
+      className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold" style={{ color: surfaceTheme.foreground }}>
+          {t('brandingPage.sections.preview.devicesTitle')}
+        </p>
+        <div className="flex items-center gap-2 text-[8px]" style={{ color: surfaceTheme.mutedForeground }}>
+          <Info className="h-3 w-3" />
+          <span className="flex items-center gap-1"><Copy className="h-3 w-3" />{t('brandingPage.sections.preview.copyLink')}</span>
+          <span className="flex items-center gap-1"><RefreshCw className="h-3 w-3" />{t('brandingPage.sections.preview.regenerate')}</span>
+        </div>
+      </div>
+      <div className="mt-2 space-y-1.5">
+        {devices.map((name) => (
+          <div
+            key={name}
+            className="flex items-center gap-2 border px-2 py-1.5"
+            style={{
+              borderRadius: itemRadius,
+              backgroundColor: toRgba(surfaceTheme.surface, surfaceTheme.surfaceOpacity),
+              borderColor: toRgba(surfaceTheme.borderSoft, surfaceTheme.borderSoftOpacity),
+              backdropFilter: `blur(${surfaceTheme.glassBlurPx}px)`,
+            }}
+          >
+            <div
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
+              style={{ backgroundColor: toRgba(surfaceTheme.surfaceHigh, surfaceTheme.surfaceHighOpacity) }}
+            >
+              <MonitorSmartphone className="h-3.5 w-3.5" style={{ color: primary }} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[9px] font-medium" style={{ color: surfaceTheme.foreground }}>{name}</p>
+              <p className="truncate text-[7px]" style={{ color: surfaceTheme.mutedForeground }}>
+                {t('brandingPage.sections.preview.lastSeen')}
+              </p>
+            </div>
+            <Trash2 className="h-3 w-3 shrink-0" style={{ color: surfaceTheme.mutedForeground }} />
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
   const { t } = useTranslation()
   const {
+    themePresetId,
     brandName = 'Reiwa',
     tagline,
     logoUrl,
     primary = '#22c55e',
     primaryFg = '#0a0a0a',
     bgPrimary = '#0a0a0a',
-    bgSecondary = '#171717',
+    bgSecondary = '#18181b',
     cardGradient = 'linear-gradient(135deg, #064e3b 0%, #22c55e 100%)',
     cardPattern,
+    subscriptionCardText = { mode: 'auto', color: null },
+    subscriptionCardGlass = DEFAULT_SUBSCRIPTION_CARD_GLASS_DRAFT,
     cardLogo = 'DEFAULT',
     cardLogoUrl,
+    cardLogoStyle = DEFAULT_CARD_LOGO_STYLE_DRAFT,
     cardEffect = 'aurora',
     cardEffectProps = {},
     cardEffectOpacity = 1,
     cardEffectsByIndex = [],
     fontFamily = 'Geist Variable, system-ui, sans-serif',
     borderRadius = 'rounded-2xl',
+    cornerRadii,
+    surfaceTheme = {
+      foreground: '#fafafa',
+      mutedForeground: '#a1a1a1',
+      surface: '#18181b',
+      surfaceHigh: '#27272a',
+      borderSoft: '#ffffff',
+      borderStrong: '#ffffff',
+      surfaceOpacity: 0.7,
+      surfaceHighOpacity: 0.8,
+      borderSoftOpacity: 0.06,
+      borderStrongOpacity: 0.12,
+      glassBlurPx: 16,
+    },
     planCardStyles = {},
     appBackground,
     navItems,
     navGap = 2,
   } = values
 
-  const radius = RADIUS_MAP[borderRadius] ?? '1rem'
+  const radius = cornerRadii
+    ? `${cornerRadii.cardPx}px`
+    : RADIUS_MAP[borderRadius] ?? '1rem'
+  const itemRadius = `${cornerRadii?.itemPx ?? 14}px`
+  const pillRadius = `${cornerRadii?.pillPx ?? 9999}px`
 
   // Plans power the context-aware tariff preview (planCards tab). Shared,
   // react-query-cached fetch — free when the section already loaded it.
@@ -335,94 +1037,207 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
 
   // Live site-wide app background (App background tab). Mirrors the cabinet
   // shell: gradient / tiled texture / animated effect / plain colour.
-  const AppBgEffect =
-    appBackground?.kind === 'effect' &&
-    appBackground.effect !== 'NONE' &&
-    appBackground.effect in CARD_EFFECT_COMPONENTS
-      ? CARD_EFFECT_COMPONENTS[appBackground.effect as CardEffectId]
-      : null
   const appBgEffectProps = useMemo<Record<string, unknown>>(() => {
-    if (!AppBgEffect || !appBackground) return {}
+    if (appBackground?.kind !== 'effect' || !isPreviewCardEffect(appBackground.effect)) {
+      return {}
+    }
     const base = { ...getCardEffectDefaults(appBackground.effect), ...appBackground.props }
     if (appBackground.effect === 'aurora' && base['colorStops'] === undefined) {
       return { colorStops: brandAuroraStops(primary), amplitude: 1.1, blend: 0.55, speed: 0.8, ...base }
     }
     return base
-  }, [AppBgEffect, appBackground, primary])
+  }, [appBackground, primary])
+  // Which of the cabinet's two background renderers this preview mirrors.
+  //
+  // `StealthLayout` mounts `<NetworkBg>` — the built-in pattern — whenever the
+  // resolved kind is `none`, INCLUDING when the branding carries no
+  // `appBackground` block at all, which is every installation older than the
+  // field. It mounts `<AppBackground>` for every other kind, and that component
+  // paints nothing for `plain`. So the preview has three cases, not two, and
+  // `none` is the one that draws the most rather than the least.
+  //
+  // The draft's `kind` is already narrowed to a known value by
+  // `normalizeAppBackgroundDraft`, so there is no unknown-kind case to resolve
+  // here; the cabinet resolves those with `resolveAppBackgroundKind`.
+  const builtinBackground = !appBackground || appBackground.kind === 'none'
+  const overlaysConceptTexture =
+    appBackground?.kind === 'gradient' &&
+    typeof themePresetId === 'string' &&
+    themePresetId.startsWith('concept-')
   const appBgTextureCss =
-    appBackground?.kind === 'texture' ? buildTextureCss(appBackground.texture) : null
+    appBackground?.kind === 'texture' || overlaysConceptTexture
+      ? buildTextureCss(appBackground.texture)
+      : null
+  // The readability veil is NOT computed here. `app-background-contrast.ts` is
+  // the cabinet's own resolver, vendored verbatim, and it is handed the same
+  // four branding fields the cabinet reads — including `themePresetId`, which
+  // is what decides whether the concept texture is blended in. Deciding the
+  // `kind === 'none' | 'effect'` exclusion, the sample set and the overlay CSS
+  // all belong to it: every one of those was a place the preview's own version
+  // answered differently from the cabinet.
+  const appReadability = useMemo(
+    () =>
+      resolveAppBackgroundReadability({
+        appBackground,
+        bgPrimary,
+        surfaceTheme,
+        themePresetId,
+      }),
+    [appBackground, bgPrimary, surfaceTheme, themePresetId],
+  )
+  // The resolver only ever picks pure black or pure white for the veil (it
+  // considers no other candidate), so this is a total mapping and not a guess.
+  const appReadabilityVeil =
+    appReadability?.veilRgb === '0 0 0' ? 'dark' : 'light'
 
   // Configured bottom navigation (Навигация tab) → live preview pill.
   const navSource = navItems && navItems.length > 0 ? navItems : DEFAULT_NAV_ITEMS
   const visibleNav = navSource.filter((i) => i.visible).slice(0, 5)
 
   // Build the list of subscription cards to preview. Each configured
-  // per-position slot (cardEffectsByIndex) becomes its own card with its own
-  // effect + gradient (falling back to the global values); with no slots we
-  // show a single card driven by the global gradient/effect. Capped for the
-  // preview strip. Swipe/dots switch between them.
+  // per-position slot (cardEffectsByIndex) becomes its own page with its own
+  // effect + gradient (falling back to the global values), and ONE trailing
+  // page always shows the global card background.
+  //
+  // That trailing page is not decoration. The slots section states its own
+  // contract — "slot 1 → the first subscription, slot 2 → the second, and so
+  // on; subscriptions beyond the configured slots use the global card
+  // background above" — so the moment a single slot exists the operator has
+  // TWO designs in production and could previously see only the first. Passing
+  // `undefined` for the slot resolves every field to the global value, which is
+  // exactly what the cabinet renders past the last slot.
+  //
+  // With zero slots this collapses to the single global card it always was
+  // (no dots, no drag: only one design exists).
   const previewCards = useMemo<PreviewCardVisual[]>(() => {
     const slots = cardEffectsByIndex ?? []
-    const count = Math.min(Math.max(slots.length, 1), 6)
-    return Array.from({ length: count }, (_, i) => {
-      const slot = slots[i]
+    const toVisual = (
+      slot: (typeof slots)[number] | undefined,
+      role: PreviewCardRole,
+    ): PreviewCardVisual => {
       const slotGradient = (slot?.cardGradient ?? '').trim()
+      const slotOverridesEffect = slot?.mode === 'override'
       return {
+        role,
         gradient: slotGradient.length > 0 ? slotGradient : cardGradient,
-        effect: slot?.cardEffect ?? cardEffect,
-        effectProps: slot?.cardEffectProps ?? cardEffectProps,
-        opacity: slot?.cardEffectOpacity ?? cardEffectOpacity,
+        effect: slotOverridesEffect ? slot?.cardEffect ?? cardEffect : cardEffect,
+        effectProps: slotOverridesEffect ? slot?.cardEffectProps ?? cardEffectProps : cardEffectProps,
+        opacity: slotOverridesEffect ? slot?.cardEffectOpacity ?? cardEffectOpacity : cardEffectOpacity,
+        subscriptionCardText,
+        subscriptionCardGlass,
       }
-    })
-  }, [cardEffectsByIndex, cardGradient, cardEffect, cardEffectProps, cardEffectOpacity])
+    }
+    return [
+      ...slots
+        .slice(0, MAX_PREVIEW_SLOT_PAGES)
+        .map((slot) => toVisual(slot, 'slot')),
+      toVisual(undefined, 'fallback'),
+    ]
+  }, [
+    cardEffectsByIndex,
+    cardGradient,
+    cardEffect,
+    cardEffectProps,
+    cardEffectOpacity,
+    subscriptionCardText,
+    subscriptionCardGlass,
+  ])
 
   return (
     <div className="flex flex-col items-center">
       {/* Phone frame */}
       <div
-        className="relative w-[300px] overflow-hidden rounded-[2.5rem] border-4 border-zinc-800 shadow-2xl"
-        style={{ backgroundColor: bgPrimary, fontFamily }}
+        data-preview-phone-frame
+        className="relative flex h-[560px] w-[300px] flex-col overflow-hidden rounded-[2.5rem] border-4 shadow-2xl"
+        style={{
+          backgroundColor: bgPrimary,
+          borderColor: toRgba(surfaceTheme.borderStrong, surfaceTheme.borderStrongOpacity),
+          color: surfaceTheme.foreground,
+          fontFamily,
+        }}
       >
-        {/* Ambient brand glow */}
-        <div
-          className="pointer-events-none absolute -top-16 -left-16 h-48 w-48 rounded-full blur-3xl"
-          style={{ background: primary, opacity: 0.18 }}
-        />
+        {/* The cabinet's BUILT-IN background (`kind === 'none'`, the default).
+            This slot used to hold a preview-only "ambient brand glow" — one
+            blurred disc in the top-left corner that the cabinet does not draw
+            in any mode. It was there because the preview had nothing to show
+            for `none`, and it was actively misleading twice over: it made the
+            state the operator selects to turn the background OFF look like a
+            faint wash instead of the full `<NetworkBg>` pattern the cabinet
+            actually renders, and it would have leaked through the new `plain`
+            mode, whose entire promise is that nothing is drawn. */}
+        {builtinBackground && <AppBackgroundBuiltin primary={primary} />}
 
         {/* Live site-wide app background layer (App background tab). */}
-        {appBackground && appBackground.kind !== 'none' && (
-          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        {appBackground && !builtinBackground && appBackground.kind !== 'plain' && (
+          <div
+            aria-hidden="true"
+            data-preview-app-background={appBackground.kind}
+            className="pointer-events-none absolute inset-0 overflow-hidden"
+          >
             {appBackground.kind === 'gradient' && (
               <div className="absolute inset-0" style={{ backgroundImage: appBackground.gradient }} />
             )}
             {appBgTextureCss && (
               <div
+                data-preview-app-background-texture={appBackground.texture.pattern}
                 className="absolute inset-0"
                 style={{
-                  backgroundColor: appBgTextureCss.backgroundColor,
+                  backgroundColor:
+                    appBackground.kind === 'texture'
+                      ? appBgTextureCss.backgroundColor
+                      : undefined,
                   backgroundImage: appBgTextureCss.backgroundImage,
                   backgroundSize: appBgTextureCss.backgroundSize,
+                  backgroundRepeat: 'repeat',
+                  mixBlendMode: overlaysConceptTexture
+                    ? 'soft-light'
+                    : undefined,
                 }}
               />
             )}
-            {AppBgEffect && (
-              <Suspense fallback={null}>
-                <div className="absolute inset-0" style={{ opacity: appBackground.opacity }}>
-                  <AppBgEffect {...appBgEffectProps} />
-                </div>
-              </Suspense>
+            {appReadability && appReadability.veilOpacity > 0 && (
+              <div
+                data-preview-app-readability="wcag-direct-copy-zones"
+                data-preview-app-readability-veil={appReadabilityVeil}
+                data-preview-app-readability-opacity={
+                  appReadability.veilOpacity
+                }
+                className="absolute inset-0"
+                style={{
+                  background: appReadability.overlayBackground,
+                }}
+              />
+            )}
+            {appBackground.kind === 'effect' && appBackground.effect !== 'NONE' && (
+              <div
+                data-preview-app-background-layer="foundation"
+                className="absolute inset-0"
+                style={{ backgroundImage: appBackground.gradient }}
+              />
+            )}
+            {appBackground.kind === 'effect' && isPreviewCardEffect(appBackground.effect) && (
+              <div
+                data-preview-app-background-layer="effect"
+                className="absolute inset-0"
+              >
+                <CardEffectPreviewLayer
+                  effect={appBackground.effect}
+                  props={appBgEffectProps}
+                  opacity={appBackground.opacity}
+                />
+              </div>
             )}
           </div>
         )}
 
         {/* Status bar */}
         <div className="relative flex items-center justify-between px-6 pt-3 pb-1">
-          <span className="text-[10px] font-medium text-white/50">9:41</span>
-          <span className="text-[10px] text-white/50">●●● ▮</span>
+          <span className="text-[10px] font-medium" style={{ color: surfaceTheme.mutedForeground }}>9:41</span>
+          <span className="text-[10px]" style={{ color: surfaceTheme.mutedForeground }}>●●● ▮</span>
         </div>
 
         {/* Content area */}
-        <div className="relative px-4 pb-4">
+        <div className="relative flex min-h-0 flex-1 flex-col px-4 pb-0">
           {/* Header: logo + brand + actions */}
           <div className="flex items-center justify-between py-3">
             <div className="flex items-center gap-2">
@@ -432,30 +1247,68 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
                 <ReiwaMark className="h-7 w-7" style={{ color: primary }} />
               )}
               <div className="leading-tight">
-                <p className="text-xs font-semibold text-white">{brandName}</p>
-                <p className="truncate text-[9px] text-white/40">
+                <p className="text-xs font-semibold" style={{ color: surfaceTheme.foreground }}>{brandName}</p>
+                <p className="truncate text-[9px]" style={{ color: surfaceTheme.mutedForeground }}>
                   {tagline?.trim() || t('brandingPage.sections.preview.welcome')}
                 </p>
               </div>
             </div>
             <div className="flex gap-1.5">
-              <span className="h-6 w-6 rounded-full border border-white/10 bg-white/5" />
-              <span className="h-6 w-6 rounded-full border border-white/10 bg-white/5" />
+              <span
+                className="h-6 w-6 rounded-full border"
+                style={{
+                  backgroundColor: toRgba(surfaceTheme.surface, surfaceTheme.surfaceOpacity),
+                  borderColor: toRgba(surfaceTheme.borderSoft, surfaceTheme.borderSoftOpacity),
+                  backdropFilter: `blur(${surfaceTheme.glassBlurPx}px)`,
+                }}
+              />
+              <span
+                className="h-6 w-6 rounded-full border"
+                style={{
+                  backgroundColor: toRgba(surfaceTheme.surface, surfaceTheme.surfaceOpacity),
+                  borderColor: toRgba(surfaceTheme.borderSoft, surfaceTheme.borderSoftOpacity),
+                  backdropFilter: `blur(${surfaceTheme.glassBlurPx}px)`,
+                }}
+              />
             </div>
           </div>
 
           {/* Context-aware body: tariff cards on the planCards tab, else the
               dashboard mock (subscription card + actions + nav). */}
           {focus === 'planCards' ? (
+            /* EVERY plan, unfiltered — and that is the decision, not an
+               oversight waiting for a one-line `.filter()`.
+
+               The cabinet's catalogue shows a strict subset of this list (see
+               `isHiddenFromCabinetCatalog`), so filtering to match it is the
+               obvious "make the preview honest" change. It is the wrong one.
+               This list is what the operator STYLES, and the settings section
+               beside it deliberately offers every plan including archived ones
+               — that is a decision with its own guard,
+               `plan-card-styles-archived.test.tsx`. Hiding a plan here would
+               leave a row in that section whose result cannot be seen, which is
+               the defect this preview was just fixed for, reintroduced from the
+               other end.
+
+               The honest answer is to show every card and MARK the ones no
+               subscriber reaches, which is what `TariffPreviewCard` does. If
+               you are here to add the filter: the marker is the feature. */
             <TariffListPreview
-              plans={(plans ?? []).slice(0, 3)}
+              plans={plans ?? []}
               planCardStyles={planCardStyles}
               primary={primary}
+              primaryFg={primaryFg}
+              foundation={bgSecondary}
+              surfaceTheme={surfaceTheme}
+              subscriptionCardText={subscriptionCardText}
               cardLogo={cardLogo}
               cardLogoUrl={cardLogoUrl}
+              cardLogoStyle={cardLogoStyle}
               radius={radius}
               unlimitedLabel={t('brandingPage.sections.planCards.unlimited')}
               emptyLabel={t('brandingPage.sections.planCards.empty')}
+              catalogHiddenLabel={t('brandingPage.sections.planCards.catalogHidden')}
+              catalogHiddenHint={t('brandingPage.sections.planCards.catalogHiddenHint')}
             />
           ) : (
             <>
@@ -464,11 +1317,15 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
           <SubscriptionCardsPreview
             cards={previewCards}
             primary={primary}
+            primaryFg={primaryFg}
+            foundation={bgSecondary}
             brandName={brandName}
             cardPattern={cardPattern}
             cardLogo={cardLogo}
             cardLogoUrl={cardLogoUrl}
+            cardLogoStyle={cardLogoStyle}
             radius={radius}
+            captionColor={surfaceTheme.mutedForeground}
           />
 
           {/* Action buttons */}
@@ -483,8 +1340,19 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
                 className="flex flex-col items-center gap-1 rounded-2xl py-2.5"
                 style={
                   i === 1
-                    ? { backgroundColor: primary }
-                    : { backgroundColor: `${bgSecondary}cc`, border: '1px solid rgba(255,255,255,0.08)' }
+                    ? { borderRadius: itemRadius, backgroundColor: primary }
+                    : {
+                        borderRadius: itemRadius,
+                        backgroundColor: toRgba(
+                          surfaceTheme.surface,
+                          surfaceTheme.surfaceOpacity,
+                        ),
+                        border: `1px solid ${toRgba(
+                          surfaceTheme.borderSoft,
+                          surfaceTheme.borderSoftOpacity,
+                        )}`,
+                        backdropFilter: `blur(${surfaceTheme.glassBlurPx}px)`,
+                      }
                 }
               >
                 <div
@@ -493,7 +1361,7 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
                 />
                 <span
                   className="text-[9px] font-medium"
-                  style={{ color: i === 1 ? primaryFg : 'rgba(255,255,255,0.6)' }}
+                  style={{ color: i === 1 ? primaryFg : surfaceTheme.mutedForeground }}
                 >
                   {label}
                 </span>
@@ -502,28 +1370,66 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
           </div>
 
           {/* Bottom nav pill — reflects the configured navItems + navGap (Навигация tab) */}
+          <DashboardDevicesPreview
+            primary={primary}
+            surfaceTheme={surfaceTheme}
+            itemRadius={itemRadius}
+          />
+
           <div
-            className="mt-4 flex w-fit items-center justify-center rounded-full border border-white/10 px-1.5 py-1.5"
-            style={{ backgroundColor: `${bgSecondary}e6`, gap: `${navGap}px` }}
+            data-preview-bottom-nav
+            data-preview-nav-gap={navGap}
+            className="mt-auto -mx-1 pb-3 pt-2"
           >
-            {visibleNav.map((item, i) => {
-              const Icon = NAV_ICONS[item.id];
-              const active = i === 0;
-              return active ? (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-1.5 rounded-full px-3 py-1.5"
-                  style={{ backgroundColor: primary }}
-                >
-                  <Icon className="h-3.5 w-3.5" style={{ color: primaryFg }} />
-                  <span className="text-[9px] font-medium" style={{ color: primaryFg }}>
-                    {t(`brandingPage.sections.nav.dest.${item.id}`)}
-                  </span>
-                </div>
-              ) : (
-                <Icon key={item.id} className="h-3.5 w-3.5 text-white/40" />
-              );
-            })}
+            <div
+              className="mx-auto w-fit max-w-full rounded-3xl border px-1 py-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.18)]"
+              style={{
+                backgroundColor: toRgba(
+                  surfaceTheme.surfaceHigh,
+                  surfaceTheme.surfaceHighOpacity,
+                ),
+                borderColor: toRgba(
+                  surfaceTheme.borderSoft,
+                  surfaceTheme.borderSoftOpacity,
+                ),
+                backdropFilter: `blur(${surfaceTheme.glassBlurPx}px)`,
+                borderRadius: pillRadius,
+              }}
+            >
+              <div
+                data-preview-nav-items
+                className="relative flex"
+                style={{ gap: `${navGap}px` }}
+              >
+                {visibleNav.map((item, i) => {
+                  const Icon = NAV_ICONS[item.id];
+                  const active = i === 0;
+                  return (
+                    <div
+                      key={item.id}
+                      data-preview-nav-tab={item.id}
+                      className="relative z-10 flex min-h-[44px] w-[50px] flex-col items-center justify-center gap-1 px-1 py-1.5"
+                      style={{
+                        borderRadius: itemRadius,
+                        color: active ? primaryFg : surfaceTheme.mutedForeground,
+                      }}
+                    >
+                      {active && (
+                        <span
+                          aria-hidden="true"
+                          className="absolute inset-0 -z-10"
+                          style={{ backgroundColor: primary, borderRadius: itemRadius }}
+                        />
+                      )}
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
+                      <span className="max-w-full truncate text-[7px] font-medium leading-none tracking-tight">
+                        {t(`brandingPage.sections.nav.dest.${item.id}`)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
             </>
           )}
@@ -538,31 +1444,65 @@ export function BrandingPreview({ values, focus }: BrandingPreviewProps) {
 }
 
 /**
- * Context-aware tariff preview shown on the "Тарифные карточки" tab. Renders up
- * to three plans as cabinet-style cards (gradient + texture + accent + clean
- * icon) using the SAME resolution rules as the reiwa `/plans` page, so the
- * operator sees per-plan edits live in the phone frame.
+ * Context-aware tariff preview shown on the "Тарифные карточки" tab. Renders
+ * EVERY plan as a cabinet-style card (gradient + texture + accent + clean icon)
+ * using the SAME resolution rules as the reiwa `/plans` page, so the operator
+ * sees per-plan edits live in the phone frame.
+ *
+ * ── why this scrolls, and why it used to show three ─────────────────────────
+ * This component was introduced rendering `plans.slice(0, 3)`. Nothing about
+ * the cabinet justified the three: `/plans` is a plain vertical list with no
+ * cap and no pagination (`reiwa/web/src/features/plans/plans-page.tsx`), so the
+ * fourth plan onward was invisible to the operator and perfectly visible to the
+ * subscriber. Worse, the cut was POSITIONAL, which made it look like a rule
+ * about the cards themselves — an operator who had styled the top three read it
+ * as "only configured plans preview", when a plan on an auto gradient is
+ * exactly the case that most needs looking at, because the subscriber sees that
+ * auto gradient too.
+ *
+ * So the list is the whole catalogue and it scrolls inside the phone frame,
+ * which is the interaction the subscriber has. What the operator is scrolling
+ * through is also honest about motion: the animated cards are rationed against
+ * the same six-context ceiling the cabinet rations against, so a card that
+ * would sit still on a phone sits still here. See `card-effect-preview-budget`.
  */
 interface TariffListPreviewProps {
   readonly plans: ReadonlyArray<Plan>
   readonly planCardStyles: Record<string, PlanCardStyleDraft>
   readonly primary: string
+  readonly primaryFg: string
+  /** Colour behind the card, used when the gradient carries no sampleable stops. */
+  readonly foundation: string
+  /** The global decision an unconfigured tariff card inherits. */
+  readonly subscriptionCardText: BrandingSubscriptionCardTextDraft
   readonly cardLogo: CardLogoPreset
   readonly cardLogoUrl?: string | null
+  readonly cardLogoStyle: BrandingCardLogoStyleDraft
   readonly radius: string
   readonly unlimitedLabel: string
   readonly emptyLabel: string
+  /** Chrome the marker is drawn from — never the card's own artwork. */
+  readonly surfaceTheme: BrandingSurfaceThemeDraft
+  readonly catalogHiddenLabel: string
+  readonly catalogHiddenHint: string
 }
 
 function TariffListPreview({
   plans,
   planCardStyles,
   primary,
+  primaryFg,
+  foundation,
+  surfaceTheme,
+  subscriptionCardText,
   cardLogo,
   cardLogoUrl,
+  cardLogoStyle,
   radius,
   unlimitedLabel,
   emptyLabel,
+  catalogHiddenLabel,
+  catalogHiddenHint,
 }: TariffListPreviewProps) {
   if (plans.length === 0) {
     return (
@@ -573,17 +1513,32 @@ function TariffListPreview({
     )
   }
   return (
-    <div className="mt-2 space-y-2.5">
+    // `min-h-0` is load-bearing next to `flex-1`: without it a flex child sizes
+    // to its content instead of to the space left in the phone frame, so the
+    // list would grow past the frame and never scroll.
+    <div
+      data-preview-tariff-list
+      data-preview-tariff-count={plans.length}
+      className="mt-2 min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain pb-3"
+    >
       {plans.map((plan) => (
         <TariffPreviewCard
           key={plan.id}
           plan={plan}
           style={planCardStyles[plan.id]}
           primary={primary}
+          primaryFg={primaryFg}
+          foundation={foundation}
+          subscriptionCardText={subscriptionCardText}
           cardLogo={cardLogo}
           cardLogoUrl={cardLogoUrl}
+          cardLogoStyle={cardLogoStyle}
           radius={radius}
           unlimitedLabel={unlimitedLabel}
+          surfaceTheme={surfaceTheme}
+          hiddenFromCatalog={isHiddenFromCabinetCatalog(plan)}
+          catalogHiddenLabel={catalogHiddenLabel}
+          catalogHiddenHint={catalogHiddenHint}
         />
       ))}
     </div>
@@ -594,18 +1549,34 @@ function TariffPreviewCard({
   plan,
   style,
   primary,
+  primaryFg,
+  foundation,
+  subscriptionCardText,
   cardLogo,
   cardLogoUrl,
+  cardLogoStyle,
   radius,
   unlimitedLabel,
+  surfaceTheme,
+  hiddenFromCatalog,
+  catalogHiddenLabel,
+  catalogHiddenHint,
 }: {
   readonly plan: Plan
   readonly style: PlanCardStyleDraft | undefined
   readonly primary: string
+  readonly primaryFg: string
+  readonly foundation: string
+  readonly subscriptionCardText: BrandingSubscriptionCardTextDraft
   readonly cardLogo: CardLogoPreset
   readonly cardLogoUrl?: string | null
+  readonly cardLogoStyle: BrandingCardLogoStyleDraft
   readonly radius: string
   readonly unlimitedLabel: string
+  readonly surfaceTheme: BrandingSurfaceThemeDraft
+  readonly hiddenFromCatalog: boolean
+  readonly catalogHiddenLabel: string
+  readonly catalogHiddenHint: string
 }) {
   const gradient = style?.gradient && style.gradient.length > 0 ? style.gradient : autoPlanGradient(plan.id)
   const accent = style?.accent && style.accent.length > 0 ? style.accent : primary
@@ -622,65 +1593,192 @@ function TariffPreviewCard({
       : null
   // Per-plan animated effect (opt-in) — mirrors the cabinet tariff card.
   const effect = style?.cardEffect && style.cardEffect !== 'NONE' ? style.cardEffect : 'NONE'
-  const EffectComp =
-    effect !== 'NONE' && effect in CARD_EFFECT_COMPONENTS
-      ? CARD_EFFECT_COMPONENTS[effect as CardEffectId]
-      : null
   const effectProps = useMemo<Record<string, unknown>>(() => {
-    if (!EffectComp) return {}
+    if (!isPreviewCardEffect(effect)) return {}
     const base = { ...getCardEffectDefaults(effect), ...(style?.cardEffectProps ?? {}) }
     if (effect === 'aurora' && base['colorStops'] === undefined) {
       return { colorStops: brandAuroraStops(primary), amplitude: 1.1, blend: 0.55, speed: 0.8, ...base }
     }
     return base
-  }, [EffectComp, effect, style?.cardEffectProps, primary])
+  }, [effect, style?.cardEffectProps, primary])
   const effectOpacity = typeof style?.cardEffectOpacity === 'number' ? style.cardEffectOpacity : 1
   // Icon resolves exactly like the cabinet tariff card: lucide preset →
   // glyph, `custom:<id>` → uploaded icon, `:slug:`/unicode → emoji, else
   // a Sparkles fallback. Centralised in PlanIconView (no local regex).
 
+  /**
+   * Card copy colour, resolved exactly as the cabinet resolves it: the per-plan
+   * override if there is one, otherwise the global subscription-card policy,
+   * and `auto` runs the same contrast computation the subscription-card mock
+   * above uses. Without this the operator picks a text colour and the preview
+   * goes on drawing white — which is choosing blind, and the only place the
+   * mistake would surface is a subscriber's screen.
+   *
+   * The effect artwork is fed in for the same reason the cabinet feeds it in:
+   * an opaque animation over a dark gradient changes what is readable. It is
+   * suppressed when a `textureUrl` is set, because the image wins and the
+   * effect layer is not mounted (the condition above renders it identically).
+   */
+  const drawsOverlay = isPreviewCardEffect(effect) && !textureUrl
+  /**
+   * This card's claim on the shared GPU-context budget.
+   *
+   * The tariff list is a LIST, not the swipeable subscription strip above it:
+   * several cards are on screen at once and every WebGL effect is its own
+   * context. Before the list scrolled, three cards was its own ceiling; now the
+   * ceiling has to be stated. The slot mirrors the cabinet's `useCardEffectSlot`
+   * exactly — same six, same `threshold: 0.01`, same first-come-first-served
+   * with no revocation — so the set of cards that animate here is the set that
+   * animates there.
+   *
+   * Note what is NOT rationed by this, deliberately: `contrast` above is
+   * computed from `drawsOverlay`, i.e. from the effect the operator CONFIGURED,
+   * not from whether this card won a slot. The cabinet does the same
+   * (`resolvePlanCardStyle` runs before its slot is asked), and it is the right
+   * way round — the operator is choosing a text colour for the card's designed
+   * appearance, and that choice must not flicker as cards scroll in and out.
+   */
+  const { attach: attachEffectSlot, active: effectActive } =
+    usePreviewCardEffectSlot(drawsOverlay ? effect : 'NONE')
+  const contrast = useMemo(
+    () =>
+      resolvePreviewCardContrast(
+        gradient,
+        foundation,
+        primaryFg,
+        drawsOverlay ? resolvePreviewEffectColors(effect, effectProps) : '',
+        drawsOverlay ? effectOpacity : 0,
+        resolvePlanCardText(style, subscriptionCardText),
+      ),
+    [
+      gradient,
+      foundation,
+      primaryFg,
+      drawsOverlay,
+      effect,
+      effectProps,
+      effectOpacity,
+      style,
+      subscriptionCardText,
+    ],
+  )
+
   return (
-    <div
-      className="relative overflow-hidden p-3 ring-1 ring-white/10"
-      style={{ borderRadius: radius, backgroundImage: gradient }}
-    >
-      {EffectComp && !textureUrl && (
-        <Suspense fallback={null}>
-          <div className="absolute inset-0" style={{ opacity: effectOpacity }}>
-            <EffectComp {...effectProps} />
-          </div>
-        </Suspense>
-      )}
-      {textureUrl ? (
-        <div
-          className="absolute inset-0 opacity-25"
-          style={{ backgroundImage: `url("${textureUrl}")`, backgroundSize: 'cover', backgroundPosition: 'center' }}
-        />
-      ) : textureCss ? (
+    <div data-preview-tariff-item>
+      <div
+        ref={attachEffectSlot}
+        data-preview-tariff-card
+        data-preview-tariff-card-foreground={contrast.foreground}
+        data-preview-tariff-card-animated={
+          drawsOverlay ? (effectActive === false ? 'false' : 'true') : undefined
+        }
+        className="relative overflow-hidden p-3 ring-1 ring-white/10"
+        style={{ borderRadius: radius, backgroundImage: gradient, color: contrast.foreground }}
+      >
+        {drawsOverlay && (
+          <CardEffectPreviewLayer
+            effect={effect}
+            props={effectProps}
+            opacity={effectOpacity}
+            active={effectActive}
+          />
+        )}
+        {textureUrl ? (
+          <div
+            className="absolute inset-0 opacity-25"
+            style={{ backgroundImage: `url("${textureUrl}")`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+          />
+        ) : textureCss ? (
+          <div
+            className="absolute inset-0"
+            style={{ backgroundImage: textureCss.backgroundImage, backgroundSize: textureCss.backgroundSize }}
+          />
+        ) : null}
+        {/* Same diagonal veil at the same two opacities as before; only its TONE
+            now follows the contrast result. On every card that resolves to light
+            copy the channels are `0 0 0` and this is byte-identical to the
+            `from-black/30 … to-black/55` classes it replaces — but a card the
+            operator switched to dark text used to get dark copy over a black
+            veil, which is the one combination nobody can read. */}
         <div
           className="absolute inset-0"
-          style={{ backgroundImage: textureCss.backgroundImage, backgroundSize: textureCss.backgroundSize }}
+          style={{
+            backgroundImage: `linear-gradient(to bottom right, rgb(${contrast.veilChannels} / 0.3) 0%, transparent 50%, rgb(${contrast.veilChannels} / 0.55) 100%)`,
+          }}
         />
-      ) : null}
-      <div className="absolute inset-0 bg-linear-to-br from-black/30 via-transparent to-black/55" />
-      <CardLogoMark
-        preset={cardLogo}
-        customUrl={cardLogoUrl}
-        className="pointer-events-none absolute -right-3 -bottom-4 h-20 w-20"
-        style={{ color: '#ffffff', opacity: 0.12 }}
-      />
-      <div className="relative flex items-center gap-2.5 text-white">
-        <span className="shrink-0 leading-none drop-shadow" style={{ color: accent }}>
-          <PlanIconView value={plan.icon} className="h-5 w-5 text-xl" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[12px] font-semibold drop-shadow">{plan.name}</p>
-          <p className="text-[9px] font-medium text-white/80">
-            {plan.trafficLimit > 0 ? `${plan.trafficLimit} GB` : unlimitedLabel}
-            {plan.deviceLimit > 0 ? ` · ${plan.deviceLimit}` : ''}
-          </p>
+        <CardLogoMark
+          preset={cardLogo}
+          customUrl={cardLogoUrl}
+          className="pointer-events-none absolute -right-3 -bottom-4"
+          style={{
+            color: contrast.foreground,
+            opacity: cardLogoStyle.opacity,
+            width: `${PREVIEW_TARIFF_WATERMARK_BASE_PX * cardLogoStyle.scale}px`,
+            height: `${PREVIEW_TARIFF_WATERMARK_BASE_PX * cardLogoStyle.scale}px`,
+          }}
+        />
+        <div className="relative flex items-center gap-2.5">
+          <span className="shrink-0 leading-none drop-shadow" style={{ color: accent }}>
+            <PlanIconView value={plan.icon} className="h-5 w-5 text-xl" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[12px] font-semibold drop-shadow">{plan.name}</p>
+            <p className="text-[9px] font-medium opacity-80">
+              {plan.trafficLimit > 0 ? `${plan.trafficLimit} GB` : unlimitedLabel}
+              {plan.deviceLimit > 0 ? ` · ${plan.deviceLimit}` : ''}
+            </p>
+          </div>
         </div>
       </div>
+      {/* The "no subscriber reaches this" marker.
+       *
+       * OUTSIDE the card element, deliberately. The card above is the artwork
+       * the operator is judging, and every honest-looking alternative — a tint,
+       * a reduced opacity, a badge drawn into the corner — changes the thing
+       * being previewed, so the operator would be styling against a card the
+       * subscriber never gets. This annotates; it does not participate.
+       *
+       * ── why it grounds itself instead of trusting the app background ───────
+       * The obvious colour source is `resolveAppBackgroundReadability`, which is
+       * what keeps the preview's other chrome legible over the operator's
+       * background. It cannot serve here: it returns `null` outright for
+       * `kind === 'none' | 'plain' | 'effect'`, so it offers no guarantee in
+       * exactly the case that worries most — an animated shader in an arbitrary
+       * colour, which is the one background this label can end up sitting on top
+       * of. Relying on it would mean an unreadable marker precisely where the
+       * background is busiest.
+       *
+       * So the chip supplies its own ground, from the pair the surface theme
+       * exists to guarantee: `surfaceHigh` behind `foreground`, at the
+       * operator's own opacity and blur. That is the same construction the
+       * floating nav pill and the action buttons in this preview already use,
+       * and it is legible over a gradient, a texture and a shader alike because
+       * what is behind it stops deciding.
+       */}
+      {hiddenFromCatalog && (
+        <div className="mt-1 flex justify-end">
+          <span
+            data-preview-tariff-card-catalog-hidden
+            title={catalogHiddenHint}
+            className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[8px] font-medium leading-none"
+            style={{
+              color: surfaceTheme.foreground,
+              backgroundColor: toRgba(
+                surfaceTheme.surfaceHigh,
+                surfaceTheme.surfaceHighOpacity,
+              ),
+              borderColor: toRgba(
+                surfaceTheme.borderStrong,
+                surfaceTheme.borderStrongOpacity,
+              ),
+              backdropFilter: `blur(${surfaceTheme.glassBlurPx}px)`,
+            }}
+          >
+            <EyeOff className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+            {catalogHiddenLabel}
+          </span>
+        </div>
+      )}
     </div>
   )
 }

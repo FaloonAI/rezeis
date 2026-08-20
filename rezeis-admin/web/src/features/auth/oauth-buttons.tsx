@@ -1,12 +1,13 @@
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Loader2, KeyRound } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { consumeReturnTo } from '@/lib/return-to'
 
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { api } from '@/lib/api'
+import { expectArray } from '@/lib/api-utils'
 
 import {
   type AuthProviderIconType,
@@ -33,8 +34,8 @@ export function OAuthButtons() {
   const { data: providers, isLoading } = useQuery({
     queryKey: ['oauth', 'providers'],
     queryFn: async () => {
-      const res = await api.get<PublicProvider[]>('/admin/oauth/providers')
-      return res.data
+      const res = await api.get('/admin/oauth/providers')
+      return expectArray<PublicProvider>(res.data)
     },
     staleTime: 60_000,
   })

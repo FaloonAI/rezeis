@@ -50,7 +50,9 @@ RUN addgroup -g 1001 -S rezeis && adduser -u 1001 -S rezeis -G rezeis
 WORKDIR /app
 ENV NODE_ENV=production
 # App metadata baked into the image so health endpoint reports the release.
-ARG APP_VERSION=0.7.5
+# A local image is a development build, not an older release. The release
+# workflow always supplies the exact package version as this build argument.
+ARG APP_VERSION=dev
 ARG GIT_SHA=unknown
 ARG GIT_BRANCH=unknown
 ENV APP_VERSION=${APP_VERSION} \
@@ -63,6 +65,12 @@ ENV APP_VERSION=${APP_VERSION} \
 # su-exec lets the root entrypoint repair data-volume ownership, then drop
 # privileges to the unprivileged `rezeis` user before running the app.
 RUN apk add --no-cache postgresql17-client su-exec
+
+# The official Node image includes npm for build-time use. The runtime only
+# executes Node and the app-local Prisma CLI, so remove npm and npx (plus their
+# bundled dependency tree) to keep unrelated npm CVEs out of this final image.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+ && rm -f /usr/local/bin/npm /usr/local/bin/npx
 
 COPY package.json ./
 COPY prisma.config.ts ./

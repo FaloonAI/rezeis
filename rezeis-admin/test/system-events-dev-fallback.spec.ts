@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { SystemEventsService } from '../src/common/services/system-events.service';
 import { BotNotifierClient } from '../src/modules/notifications/services/bot-notifier.client';
+import { ReiwaRelayQueueService } from '../src/modules/notifications/services/reiwa-relay-queue.service';
 
 /**
  * Dev-fallback delivery guarantee
@@ -16,13 +17,28 @@ import { BotNotifierClient } from '../src/modules/notifications/services/bot-not
  *
  * These tests pin that contract for the screenshot scenario (delivery off +
  * a manual Dev chat ID set) and for the fully-unconfigured case.
+ *
+ * They also pin WHICH relay carries it. Since the durable-delivery change the
+ * firehose goes through `ReiwaRelayQueueService` (retried, and recorded when it
+ * gives up) rather than the one-shot `BotNotifierClient` — with one deliberate
+ * exception, `reiwa.relay_undelivered`, which must stay on the direct client or
+ * a cabinet outage makes the alert about the outage generate another relay job
+ * forever. Counting deliveries alone cannot tell those apart, so the stubs
+ * below record the route as well as the payload.
  */
 
 interface NotifierCalls {
   notifyDev: number;
   notifyDevDocument: number;
+  notifyBroadcast: number;
+  notifyBroadcastDocument: number;
   lastCaption: string | null;
   lastFilename: string | null;
+  lastBroadcastTopicId: number | null;
+  /** Relay events handed to the durable queue, in order. */
+  queued: string[];
+  /** Relay events sent straight down the one-shot client, in order. */
+  direct: string[];
 }
 
 function buildService(opts: {
@@ -31,18 +47,44 @@ function buildService(opts: {
   const calls: NotifierCalls = {
     notifyDev: 0,
     notifyDevDocument: 0,
+    notifyBroadcast: 0,
+    notifyBroadcastDocument: 0,
     lastCaption: null,
     lastFilename: null,
+    lastBroadcastTopicId: null,
+    queued: [],
+    direct: [],
+  };
+
+  // Both routes land in the same counters on purpose: the counters answer
+  // "did the operator get it", `queued`/`direct` answer "by which road".
+  const record = (event: string, meta: Record<string, unknown>): void => {
+    if (event === 'reiwa.dev.notify') calls.notifyDev += 1;
+    else if (event === 'reiwa.dev.notify.document') {
+      calls.notifyDevDocument += 1;
+      calls.lastCaption = (meta['caption'] as string | undefined) ?? null;
+      calls.lastFilename = (meta['filename'] as string | undefined) ?? null;
+    } else if (event === 'reiwa.channel.broadcast') calls.notifyBroadcast += 1;
+    else if (event === 'reiwa.channel.broadcast.document') {
+      calls.notifyBroadcastDocument += 1;
+      calls.lastCaption = (meta['caption'] as string | undefined) ?? null;
+      calls.lastFilename = (meta['filename'] as string | undefined) ?? null;
+      calls.lastBroadcastTopicId = (meta['topicThreadId'] as number | undefined) ?? null;
+    }
   };
 
   const notifier = {
-    notifyDev: async () => {
-      calls.notifyDev += 1;
+    deliverRelayEvent: async (event: string, meta: Record<string, unknown>) => {
+      calls.direct.push(event);
+      record(event, meta);
+      return { status: 'unconfirmed', messageId: null, httpStatus: 204, detail: null };
     },
-    notifyDevDocument: async (input: { caption?: string; filename: string }) => {
-      calls.notifyDevDocument += 1;
-      calls.lastCaption = input.caption ?? null;
-      calls.lastFilename = input.filename;
+  };
+  const relayQueue = {
+    enqueue: async (event: string, meta: Record<string, unknown>) => {
+      calls.queued.push(event);
+      record(event, meta);
+      return true;
     },
   };
 
@@ -66,6 +108,7 @@ function buildService(opts: {
   const moduleRef = {
     get: (token: unknown) => {
       if (token === BotNotifierClient) return notifier;
+      if (token === ReiwaRelayQueueService) return relayQueue;
       throw new Error('not registered');
     },
   };
@@ -116,6 +159,9 @@ describe('SystemEventsService dev-fallback (no bot token)', () => {
     assert.equal(calls.notifyDev, 0);
     assert.ok(calls.lastCaption?.includes('#EventError'));
     assert.ok(calls.lastFilename?.startsWith('error_'));
+    // Durable road: retried, and recorded if it ever gives up.
+    assert.deepStrictEqual(calls.queued, ['reiwa.dev.notify.document']);
+    assert.deepStrictEqual(calls.direct, []);
   });
 
   it('delivers a non-error event via reiwa as an inline card (no document)', async () => {
@@ -133,6 +179,34 @@ describe('SystemEventsService dev-fallback (no bot token)', () => {
 
     assert.equal(calls.notifyDev, 1);
     assert.equal(calls.notifyDevDocument, 0);
+    assert.deepStrictEqual(calls.queued, ['reiwa.dev.notify']);
+    assert.deepStrictEqual(calls.direct, []);
+  });
+
+  it('sends the relay-failure alert down the DIRECT client, never the queue', async () => {
+    // The loop that would otherwise close: the relay processor reports an
+    // exhausted job by emitting `reiwa.relay_undelivered`, `emit()` fans every
+    // event out to Telegram, and a queued firehose turns that into a new relay
+    // job — which exhausts, and alerts again, for as long as the cabinet is
+    // down. One direct attempt terminates the chain after a single hop.
+    const { service, calls } = buildService({
+      telegram: {
+        enabled: false,
+        chatId: null,
+        devChatId: '813364774',
+        errorReports: { mode: 'manual', telegramTxt: false },
+      },
+    });
+
+    service.warn('reiwa.relay_undelivered', 'SYSTEM', 'Reiwa relay did not deliver', {
+      relayEvent: 'reiwa.user.notify',
+      relayStatus: 'timeout',
+    });
+    await flush();
+
+    assert.equal(calls.notifyDev, 1, 'the operator is still told');
+    assert.deepStrictEqual(calls.queued, [], 'but not by a road that can re-enter itself');
+    assert.deepStrictEqual(calls.direct, ['reiwa.dev.notify']);
   });
 
   it('still reaches the dev when NOTHING is configured (no chat, no Dev chat ID)', async () => {
@@ -150,6 +224,26 @@ describe('SystemEventsService dev-fallback (no bot token)', () => {
 
     assert.equal(calls.notifyDevDocument, 1);
     assert.equal(calls.notifyDev, 0);
+  });
+
+  it('relays an ERROR document to the configured group topic without a local bot token', async () => {
+    const { service, calls } = buildService({
+      telegram: {
+        enabled: true,
+        chatId: '-1001234567890',
+        errorTopicId: 77,
+        errorReports: { mode: 'manual', telegramTxt: true },
+      },
+    });
+
+    service.error('reiwa.error', 'SYSTEM', '[reiwa:web] boom', { source: 'web', stack: 'at x' });
+    await flush();
+
+    assert.equal(calls.notifyBroadcastDocument, 1);
+    assert.equal(calls.notifyBroadcast, 0);
+    assert.equal(calls.lastBroadcastTopicId, 77);
+    assert.ok(calls.lastFilename?.startsWith('error_'));
+    assert.ok(calls.lastCaption?.includes('#EventError'));
   });
 
   it('in "selected" mode does NOT deliver an unselected event — not even to the dev DM', async () => {

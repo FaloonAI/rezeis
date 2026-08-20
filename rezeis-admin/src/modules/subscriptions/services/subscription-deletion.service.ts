@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import {
   DeviceReductionPlanState,
   EffectiveProjectionState,
@@ -9,6 +9,7 @@ import {
 } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { EVENT_TYPES, SystemEventsService } from '../../../common/services/system-events.service';
 import { AddOnEntitlementService } from '../../add-on-entitlements/services/add-on-entitlement.service';
 import { SubscriptionTermService } from '../../add-on-entitlements/services/subscription-term.service';
 import { ProfileSyncQueueService } from '../../profile-sync/profile-sync-queue.service';
@@ -36,6 +37,56 @@ type DeletableSubscription = {
   readonly expiresAt: Date | null;
 };
 
+/**
+ * The row as read under `FOR UPDATE`, which carries two columns the callers'
+ * own snapshots do not.
+ *
+ * They are read here, in the same locked read that decides whether a DELETE job
+ * is created at all, because this is the last moment they can be trusted — see
+ * the payload note in {@link SubscriptionDeletionService.deleteSubscription}.
+ */
+type LockedSubscription = DeletableSubscription & {
+  readonly remnawavePanelId: number | null;
+  readonly remnawavePanelUsername: string | null;
+  /**
+   * Read for one reason: together with a null `remnawaveId` it is half the
+   * signature of a row whose panel profile is LIVE but whose link was lost —
+   * see {@link orphanRiskOf}.
+   */
+  readonly configUrl: string | null;
+};
+
+/**
+ * True when retiring this row leaves a panel profile behind that nothing will
+ * ever come back for.
+ *
+ * THE ROW HAS NO ID TO DELETE BY, AND THAT IS NOT THE SAME AS HAVING NO
+ * PROFILE. The create/update decoder used to CAST an undecoded panel body into
+ * the typed shape; on 3.x that yielded `uuid === undefined` and
+ * `id === undefined`, both of which Prisma reads as "leave the column alone",
+ * while `remnawavePanelUsername` and `configUrl` came from arguments and DID
+ * land. The write succeeded, the sync job reported COMPLETED, and the row was
+ * left owning a live profile it cannot name. `PanelLinkReconciliationService`
+ * selects on exactly this signature, and it is the only thing that can repair
+ * such a row — and it skips `DELETED` rows, so the retirement below closes the
+ * repair window for good.
+ *
+ * Narrow on purpose. A row that was never provisioned has neither column, and
+ * every path that detaches a profile (`reprovisionMissingProfile`, the DELETE
+ * worker's retirement, the manual re-link) clears all of them in one statement.
+ * So this asks a question only the damaged rows answer yes to, which is what
+ * keeps the alert worth reading.
+ */
+function orphanRiskOf(current: LockedSubscription): boolean {
+  return (
+    current.remnawaveId === null &&
+    typeof current.remnawavePanelUsername === 'string' &&
+    current.remnawavePanelUsername.length > 0 &&
+    typeof current.configUrl === 'string' &&
+    current.configUrl.length > 0
+  );
+}
+
 export interface ExpiredSubscriptionDeleteInput {
   readonly subscriptionId: string;
   readonly expectedExpiresAt: Date;
@@ -53,6 +104,20 @@ interface LifecycleDeleteOptions {
   readonly correlationId: string;
 }
 
+interface LifecycleDeleteOutcome {
+  readonly committed: boolean;
+  readonly syncJobId: string | null;
+  readonly userId: string | null;
+  /**
+   * Set only when the row was retired WITHOUT a revocation job while still
+   * carrying the fingerprint of a live panel profile. Carried out of the
+   * transaction rather than reported inside it: the event write must not be
+   * able to roll the deletion back, and must not fire for a transaction that
+   * later aborts.
+   */
+  readonly orphanedPanelUsername?: string | null;
+}
+
 /**
  * SubscriptionDeletionService
  * ───────────────────────────
@@ -66,7 +131,9 @@ interface LifecycleDeleteOptions {
  *   4. In one transaction: close commercial lifecycle, supersede narrower
  *      projection/device/sync work, enqueue a Remnawave revocation job
  *      (`ProfileSyncJob` with `SyncAction.DELETE`) and flip the subscription to
- *      `DELETED`. The job is then pushed to BullMQ. The revocation job reads
+ *      `DELETED`. After commit the job is pushed to BullMQ on a best-effort
+ *      basis; a durable PENDING row is recovered by the queue sweep if that
+ *      immediate push fails. The revocation job reads
  *      `subscription.remnawaveId` (left intact), so revoking after the status
  *      flip is safe — there is never a `DELETED` row with a live profile that
  *      isn't already queued for removal.
@@ -80,6 +147,8 @@ export class SubscriptionDeletionService {
     private readonly profileSyncQueueService: ProfileSyncQueueService,
     private readonly addOnEntitlementService: AddOnEntitlementService,
     private readonly subscriptionTermService: SubscriptionTermService,
+    @Optional()
+    private readonly systemEventsService?: SystemEventsService,
   ) {}
 
   public async delete(input: SubscriptionDeleteInput): Promise<SubscriptionDeleteResult> {
@@ -90,12 +159,14 @@ export class SubscriptionDeletionService {
     if (subscription.userId !== userId) {
       throw new NotFoundException('Subscription not found');
     }
-    await this.deleteSubscription(subscription, {
+    const outcome = await this.deleteSubscription(subscription, {
       source: 'SELF_SERVICE_DELETE',
       correlationId: `subscription-delete:${subscription.id}`,
     });
 
-    this.logger.log(`Subscription ${subscription.id} deleted by owner ${userId}`);
+    if (outcome.committed) {
+      this.logger.log(`Subscription ${subscription.id} deleted by owner ${userId}`);
+    }
     return { deleted: true };
   }
 
@@ -133,30 +204,41 @@ export class SubscriptionDeletionService {
       remnawaveId: input.expectedRemnawaveId,
       expiresAt: input.expectedExpiresAt,
     };
-    const syncJobId = await this.deleteSubscription(subscription, {
-      source: 'EXPIRED_PROFILE_CLEANUP',
-      correlationId: `expired-profile-cleanup:${input.subscriptionId}:${input.expectedExpiresAt.toISOString()}`,
-    }, input);
-    return { deleted: syncJobId !== undefined, syncJobId: syncJobId ?? null };
+    const outcome = await this.deleteSubscription(
+      subscription,
+      {
+        source: 'EXPIRED_PROFILE_CLEANUP',
+        correlationId: `expired-profile-cleanup:${input.subscriptionId}:${input.expectedExpiresAt.toISOString()}`,
+      },
+      input,
+    );
+    return { deleted: outcome.committed, syncJobId: outcome.syncJobId };
   }
 
   private async deleteSubscription(
     subscription: DeletableSubscription,
     options: LifecycleDeleteOptions,
     expiryGuard?: ExpiredSubscriptionDeleteInput,
-  ): Promise<string | null | undefined> {
+  ): Promise<LifecycleDeleteOutcome> {
     // Idempotent: deleting an already-deleted subscription is a no-op.
     if (subscription.status === SubscriptionStatus.DELETED) {
-      return;
+      return {
+        committed: false,
+        syncJobId: null,
+        userId: subscription.userId || null,
+      };
     }
 
-    const syncJobId = await this.prismaService.$transaction(async (tx) => {
-      const locked = await tx.$queryRaw<DeletableSubscription[]>(Prisma.sql`
+    const outcome = await this.prismaService.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<LockedSubscription[]>(Prisma.sql`
         SELECT
           "id",
           "user_id" AS "userId",
           "status"::text AS "status",
           "remnawave_id" AS "remnawaveId",
+          "remnawave_panel_id" AS "remnawavePanelId",
+          "remnawave_panel_username" AS "remnawavePanelUsername",
+          "config_url" AS "configUrl",
           "expires_at" AS "expiresAt"
         FROM "subscriptions"
         WHERE "id" = ${subscription.id}
@@ -167,18 +249,24 @@ export class SubscriptionDeletionService {
         throw new NotFoundException('Subscription not found');
       }
       if (current.status === SubscriptionStatus.DELETED) {
-        return null;
+        return {
+          committed: false,
+          syncJobId: null,
+          userId: current.userId,
+        };
       }
       if (
         expiryGuard !== undefined &&
-        (
-          current.expiresAt === null ||
+        (current.expiresAt === null ||
           current.expiresAt.getTime() !== expiryGuard.expectedExpiresAt.getTime() ||
           current.expiresAt.getTime() >= expiryGuard.cutoff.getTime() ||
-          current.remnawaveId !== expiryGuard.expectedRemnawaveId
-        )
+          current.remnawaveId !== expiryGuard.expectedRemnawaveId)
       ) {
-        return undefined;
+        return {
+          committed: false,
+          syncJobId: null,
+          userId: current.userId,
+        };
       }
       await this.addOnEntitlementService.terminateForSubscriptionDeletion(tx, {
         subscriptionId: subscription.id,
@@ -218,15 +306,32 @@ export class SubscriptionDeletionService {
       });
 
       let createdJobId: string | null = null;
+      // NOT a bare `else`. Most rows that reach here with a null id never had a
+      // profile, and warning about those would bury the ones that did — so the
+      // question asked is the narrow one {@link orphanRiskOf} defines.
+      const orphanedPanelUsername = orphanRiskOf(current) ? current.remnawavePanelUsername : null;
       if (current.remnawaveId !== null) {
         const job = await tx.profileSyncJob.create({
           data: {
             subscriptionId: subscription.id,
             action: SyncAction.DELETE,
             status: SyncJobStatus.PENDING,
+            // The WHOLE panel identity travels in the payload, not just the id.
+            //
+            // This job outlives the row it was built from. By the time the
+            // worker runs, the subscription may have been retired and its
+            // identity columns cleared, or re-provisioned onto a DIFFERENT
+            // panel profile — so a worker that re-read the row would either
+            // find nothing to address the doomed profile with, or address the
+            // live replacement and delete that instead. The three fields are
+            // captured together, under the same `FOR UPDATE`, so they can only
+            // ever describe one profile: the one that existed when the operator
+            // (or the sweep) asked for it to go.
             payload: {
               source: options.source,
               targetRemnawaveId: current.remnawaveId,
+              targetRemnawavePanelId: current.remnawavePanelId ?? null,
+              targetRemnawavePanelUsername: current.remnawavePanelUsername ?? null,
             } as Prisma.InputJsonObject,
           },
           select: { id: true },
@@ -237,13 +342,111 @@ export class SubscriptionDeletionService {
         where: { id: subscription.id },
         data: { status: SubscriptionStatus.DELETED },
       });
-      return createdJobId;
+      return {
+        committed: true,
+        syncJobId: createdJobId,
+        userId: current.userId,
+        orphanedPanelUsername,
+      };
     });
 
-    if (syncJobId !== null && syncJobId !== undefined) {
-      await this.profileSyncQueueService.enqueue(syncJobId);
+    if (!outcome.committed) {
+      return outcome;
     }
-    return syncJobId;
+
+    this.publishDeletedEvent(subscription.id, outcome.userId, options.source);
+    this.publishOrphanRiskEvent(subscription.id, outcome, options.source);
+
+    if (outcome.syncJobId !== null) {
+      try {
+        await this.profileSyncQueueService.enqueue(outcome.syncJobId);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(
+          `Profile sync DELETE job ${outcome.syncJobId} was committed but could not be enqueued; ` +
+            `the pending-job sweep will retry it: ${message}`,
+        );
+      }
+    }
+    return outcome;
+  }
+
+  /**
+   * Says out loud that a subscription was retired with a live panel profile
+   * still behind it.
+   *
+   * This is the one outcome of the `remnawaveId !== null` branch above that
+   * nothing downstream can notice on its own. The row is now `DELETED`, so it
+   * is out of the cabinet, out of every sweep, and — because
+   * `PanelLinkReconciliationService` skips `DELETED` rows — out of reach of the
+   * only repair that could have named the profile again. The profile keeps
+   * serving traffic for a customer who is no longer being billed, and the
+   * previous behaviour was to say nothing at all: `deleteSubscription` simply
+   * did not enter the branch, and returned `syncJobId: null` exactly as it does
+   * for the ordinary never-provisioned row.
+   *
+   * WARNING, not ERROR: nothing is broken in rezeis and the deletion itself is
+   * correct and final. What is needed is a human going to the panel with the
+   * username below.
+   */
+  private publishOrphanRiskEvent(
+    subscriptionId: string,
+    outcome: LifecycleDeleteOutcome,
+    source: LifecycleDeleteOptions['source'],
+  ): void {
+    const panelUsername = outcome.orphanedPanelUsername ?? null;
+    if (panelUsername === null) {
+      return;
+    }
+    const message =
+      `Subscription ${subscriptionId} was retired without a Remnawave revocation: its panel ` +
+      `link was lost, so the profile '${panelUsername}' is still live on the panel and nothing ` +
+      'points at it any more. Delete it by hand.';
+    this.logger.warn(message);
+    if (this.systemEventsService === undefined) {
+      return;
+    }
+    try {
+      this.systemEventsService.warn(
+        EVENT_TYPES.SYSTEM_REMNAWAVE_SYNC,
+        'SYSTEM',
+        'Subscription deleted with an orphaned Remnawave profile',
+        {
+          subscriptionId,
+          userId: outcome.userId,
+          panelUsername,
+          source,
+        },
+      );
+    } catch (error: unknown) {
+      const detail = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Could not publish the orphaned-profile warning for subscription ${subscriptionId}: ${detail}`,
+      );
+    }
+  }
+
+  private publishDeletedEvent(
+    subscriptionId: string,
+    userId: string | null,
+    source: LifecycleDeleteOptions['source'],
+  ): void {
+    if (userId === null || this.systemEventsService === undefined) {
+      return;
+    }
+    try {
+      this.systemEventsService.info(
+        EVENT_TYPES.SUBSCRIPTION_DELETED,
+        'SUBSCRIPTION',
+        'Subscription deleted',
+        { subscriptionId, userId, source },
+      );
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Subscription ${subscriptionId} was deleted but its realtime event could not be published: ${message}`,
+      );
+    }
   }
 
   private async resolveUserId(input: SubscriptionDeleteInput): Promise<string> {

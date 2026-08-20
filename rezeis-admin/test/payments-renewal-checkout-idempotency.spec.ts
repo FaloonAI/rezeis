@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import 'reflect-metadata';
 
 import { BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 
 import { PaymentsRenewalCheckoutService } from '../src/modules/payments/services/payments-renewal-checkout.service';
 import { buildRenewalCheckoutFingerprint, fingerprint } from '../src/modules/payments/utils/checkout-fingerprint.util';
@@ -49,7 +50,52 @@ const EXPECTED_REQUEST_FP = fingerprint({
 });
 
 
-function draftRow(data: Record<string, unknown> = {}) {
+/**
+ * The persisted renewal draft as the service reads it back.
+ *
+ * Spelled out rather than inferred from the seed literal: inferred, `gatewayId`
+ * is typed `null` — the one thing the durable provider-creation claim exists to
+ * change. A double whose claim column cannot hold a claim cannot guard the
+ * claim. `checkoutUrl` and `checkoutFingerprint` are nullable columns for the
+ * same reason.
+ */
+type DraftRow = {
+  [column: string]: unknown;
+  id: string;
+  paymentId: string;
+  userId: string;
+  status: string;
+  purchaseType: string;
+  channel: string;
+  gatewayType: string;
+  gatewayId: string | null;
+  currency: string;
+  amount: { toString(): string };
+  planSnapshot: Record<string, unknown>;
+  gatewayData: Record<string, unknown>;
+  checkoutUrl: string | null;
+  checkoutFingerprint: string | null;
+  items: Array<{
+    subscriptionId: string;
+    planId: string;
+    durationDays: number;
+    addOnLines: unknown;
+  }>;
+  createdAt: Date;
+};
+
+/**
+ * The claim writes a payment-id-bound token into `gatewayId`; the column is
+ * `string | null` in Postgres. Checking it here keeps the double from storing
+ * something the real column could not hold and then comparing against it.
+ */
+function claimedGatewayId(data: Record<string, unknown>): string {
+  const claim = data.gatewayId;
+  assert.ok(typeof claim === 'string', 'a provider-creation claim must write a string gatewayId');
+  return claim;
+}
+
+function draftRow(data: Record<string, unknown> = {}): DraftRow {
   return {
     id: 'tx-1',
     paymentId: 'pay-1',
@@ -82,10 +128,20 @@ function build(options: {
   existing?: Record<string, unknown> | null;
   candidates?: Array<Record<string, unknown>>;
   priceRenewalItems?: () => Promise<typeof PRICED>;
+  assertRenewalPolicy?: (input: {
+    readonly subscriptionIds: readonly string[];
+    readonly targetPlanIds?: readonly string[];
+  }) => Promise<void>;
   paymentGatewayFindUnique?: () => Promise<Record<string, unknown> | null>;
   userFindUnique?: () => Promise<{ id: string } | null>;
   getInternalPlatformPolicy?: () => Promise<{ accessMode: string }>;
-  providerCreateCheckout?: () => Promise<Record<string, unknown>>;
+  // Nullable on purpose: one test simulates a gateway that answered with no
+  // checkout at all, and the service must fail closed rather than pass the
+  // absence downstream. Declaring that here is what lets the test say `null`
+  // plainly instead of casting one through `unknown`.
+  providerCreateCheckout?: () => Promise<Record<string, unknown> | null>;
+  findFirst?: () => Promise<Record<string, unknown> | null>;
+  transactionError?: unknown;
   updateMany?: (args: { where: Record<string, unknown>; data: Record<string, unknown> }) => Promise<{ count: number }>;
   findUnique?: (args: { where: Record<string, unknown> }) => Promise<Record<string, unknown> | null>;
   update?: (args: { where: Record<string, unknown>; data: Record<string, unknown> }) => Promise<Record<string, unknown>>;
@@ -98,7 +154,7 @@ function build(options: {
     },
     user: { findUnique: options.userFindUnique ?? (async () => ({ id: 'user-1' })) },
     transaction: {
-      findFirst: async () => options.existing ?? null,
+      findFirst: options.findFirst ?? (async () => options.existing ?? null),
       findMany: async () => options.candidates ?? [],
       findUnique: options.findUnique ?? (async () => null),
       create: async (args: { data: Record<string, unknown> }) => {
@@ -113,8 +169,11 @@ function build(options: {
       })),
     },
     transactionItem: { createMany: async () => ({ count: 1 }) },
-    $transaction: async (cb: (tx: unknown) => Promise<unknown>) =>
-      cb({
+    $transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
+      if (options.transactionError !== undefined) {
+        throw options.transactionError;
+      }
+      return cb({
         transaction: {
           create: async (args: { data: Record<string, unknown> }) => {
             created.push(args.data);
@@ -122,9 +181,13 @@ function build(options: {
           },
         },
         transactionItem: { createMany: async () => ({ count: 1 }) },
-      }),
+      });
+    },
   };
-  const renewal = { priceRenewalItems: options.priceRenewalItems ?? (async () => PRICED) };
+  const renewal = {
+    priceRenewalItems: options.priceRenewalItems ?? (async () => PRICED),
+    assertRenewalPolicy: options.assertRenewalPolicy ?? (async () => undefined),
+  };
   const provider = {
     createCheckout: async () => {
       providerCalls += 1;
@@ -150,6 +213,7 @@ function build(options: {
     settings as never,
     guard as never,
     savedMethods as never,
+    { runPostFulfillmentHooksBestEffort: async () => undefined } as never,
   );
   return { service, created, providerCalls: () => providerCalls };
 }
@@ -169,15 +233,16 @@ describe('PaymentsRenewalCheckoutService idempotency (T-007)', () => {
     const result = await service.renewalCheckout(baseInput);
     assert.equal(result.checkoutUrl, 'https://pay/1');
     const draft = created.find((d) => d.idempotencyKey === 'renew-key-1');
-    assert.notEqual(draft, undefined);
-    assert.equal(draft!.checkoutFingerprint, EXPECTED_FP);
+    assert.ok(draft, 'the keyed renewal persisted no draft carrying idempotencyKey "renew-key-1"');
+    assert.equal(draft.checkoutFingerprint, EXPECTED_FP);
     assert.equal(
-      (draft!.planSnapshot as { renewalRequestFingerprint?: string }).renewalRequestFingerprint,
+      (draft.planSnapshot as { renewalRequestFingerprint?: string }).renewalRequestFingerprint,
       EXPECTED_REQUEST_FP,
     );
   });
 
-  it('replays a keyed draft before mutable gateway validation and repricing', async () => {
+  it('replays a keyed draft after source policy validation but before gateway validation and repricing', async () => {
+    let policyChecks = 0;
     const { service, created, providerCalls } = build({
       existing: draftRow({
         checkoutFingerprint: EXPECTED_FP,
@@ -187,6 +252,11 @@ describe('PaymentsRenewalCheckoutService idempotency (T-007)', () => {
       getInternalPlatformPolicy: async () => { throw new Error('policy lookup must not run'); },
       paymentGatewayFindUnique: async () => { throw new Error('gateway lookup must not run'); },
       priceRenewalItems: async () => { throw new Error('pricing must not run'); },
+      assertRenewalPolicy: async (input) => {
+        policyChecks += 1;
+        assert.deepStrictEqual(input.subscriptionIds, ['sub-1']);
+        assert.deepStrictEqual(input.targetPlanIds, ['plan-1']);
+      },
     });
 
     const result = await service.renewalCheckout(baseInput);
@@ -194,7 +264,76 @@ describe('PaymentsRenewalCheckoutService idempotency (T-007)', () => {
     assert.equal(result.checkoutUrl, 'https://pay/existing');
     assert.equal(created.length, 0);
     assert.equal(providerCalls(), 0);
+    assert.equal(policyChecks, 1);
   });
+
+  it('rejects an old idempotent checkout when the source is no longer renewable', async () => {
+    const { service, created, providerCalls } = build({
+      existing: draftRow({
+        checkoutFingerprint: EXPECTED_FP,
+        checkoutUrl: 'https://pay/existing',
+        planSnapshot: { renewalRequestFingerprint: EXPECTED_REQUEST_FP },
+      }),
+      assertRenewalPolicy: async () => {
+        throw new BadRequestException('TRIAL_NOT_RENEWABLE');
+      },
+      paymentGatewayFindUnique: async () => {
+        throw new Error('gateway lookup must not run');
+      },
+      priceRenewalItems: async () => {
+        throw new Error('pricing must not run');
+      },
+    });
+
+    await assert.rejects(
+      () => service.renewalCheckout(baseInput),
+      (error: unknown) =>
+        error instanceof BadRequestException && error.message === 'TRIAL_NOT_RENEWABLE',
+    );
+    assert.equal(created.length, 0);
+    assert.equal(providerCalls(), 0);
+  });
+
+  for (const policyFailure of [
+    { name: 'trial source', code: 'TRIAL_NOT_RENEWABLE' },
+    { name: 'trial target', code: 'TRIAL_PLAN_NOT_RENEWAL_TARGET' },
+  ]) {
+    it(`revalidates the P2002 winner and rejects replay for its ${policyFailure.name}`, async () => {
+      let lookups = 0;
+      let policyChecks = 0;
+      const winner = draftRow({
+        checkoutFingerprint: EXPECTED_FP,
+        checkoutUrl: 'https://pay/winner',
+        planSnapshot: { renewalRequestFingerprint: EXPECTED_REQUEST_FP },
+      });
+      const { service, created, providerCalls } = build({
+        findFirst: async () => {
+          lookups += 1;
+          return lookups === 3 ? winner : null;
+        },
+        transactionError: new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+        assertRenewalPolicy: async (input) => {
+          policyChecks += 1;
+          assert.deepStrictEqual(input.subscriptionIds, ['sub-1']);
+          assert.deepStrictEqual(input.targetPlanIds, ['plan-1']);
+          throw new BadRequestException(policyFailure.code);
+        },
+      });
+
+      await assert.rejects(
+        () => service.renewalCheckout(baseInput),
+        (error: unknown) =>
+          error instanceof BadRequestException && error.message === policyFailure.code,
+      );
+      assert.equal(lookups, 3, 'the P2002 path reloads the concurrent winner');
+      assert.equal(policyChecks, 1, 'the concurrent winner must pass persisted renewal policy');
+      assert.equal(created.length, 0);
+      assert.equal(providerCalls(), 0);
+    });
+  }
 
   it('rejects a changed raw command under the same key before gateway lookup or repricing', async () => {
     const { service } = build({
@@ -295,16 +434,17 @@ describe('PaymentsRenewalCheckoutService idempotency (T-007)', () => {
 
   it('atomically claims provider creation so concurrent requests for one PENDING draft call the provider once', async () => {
     const pending = draftRow({ checkoutFingerprint: EXPECTED_FP });
-    let releaseFirstProvider!: () => void;
+    let releaseFirstProvider: (() => void) | undefined;
     const firstProviderMayFinish = new Promise<void>((resolve) => {
       releaseFirstProvider = resolve;
     });
+    assert.ok(releaseFirstProvider, 'the promise executor did not publish its resolver synchronously');
     let providerAttempt = 0;
     const { service, providerCalls } = build({
       candidates: [pending],
       updateMany: async (args) => {
         if (args.where.gatewayId === null && pending.gatewayId === null) {
-          pending.gatewayId = args.data.gatewayId;
+          pending.gatewayId = claimedGatewayId(args.data);
           return { count: 1 };
         }
         if (args.where.gatewayId === pending.gatewayId) {
@@ -343,10 +483,14 @@ describe('PaymentsRenewalCheckoutService idempotency (T-007)', () => {
     const firstOutcome = await Promise.allSettled([first]);
 
     assert.equal(providerCalls(), 1, 'only the durable claim owner may call createCheckout');
-    assert.equal(firstOutcome[0]!.status, 'fulfilled');
-    assert.equal(secondOutcome[0]!.status, 'rejected');
-    if (secondOutcome[0]!.status === 'rejected') {
-      assert.equal(secondOutcome[0]!.reason instanceof ServiceUnavailableException, true);
+    const firstSettled = firstOutcome[0];
+    const secondSettled = secondOutcome[0];
+    assert.ok(firstSettled, 'the claim owner\'s renewalCheckout never settled');
+    assert.ok(secondSettled, 'the concurrent renewalCheckout never settled');
+    assert.equal(firstSettled.status, 'fulfilled');
+    assert.equal(secondSettled.status, 'rejected');
+    if (secondSettled.status === 'rejected') {
+      assert.equal(secondSettled.reason instanceof ServiceUnavailableException, true);
     }
   });
 
@@ -356,7 +500,7 @@ describe('PaymentsRenewalCheckoutService idempotency (T-007)', () => {
       candidates: [pending],
       updateMany: async (args) => {
         if (pending.gatewayId !== null) return { count: 0 };
-        pending.gatewayId = args.data.gatewayId;
+        pending.gatewayId = claimedGatewayId(args.data);
         return { count: 1 };
       },
       findUnique: async () => pending,
@@ -382,7 +526,8 @@ describe('PaymentsRenewalCheckoutService idempotency (T-007)', () => {
     const { service, created } = build({ existing: null });
     const result = await service.renewalCheckout({ userId: 'user-1', subscriptionIds: ['sub-1'], gatewayType: 'YOOKASSA' as never });
     assert.equal(result.checkoutUrl, 'https://pay/1');
-    const draft = created[0]!;
+    const draft = created[0];
+    assert.ok(draft, 'a keyless renewal created no draft to persist the checkout fingerprint on');
     assert.equal(draft.idempotencyKey, null);
     assert.equal(draft.checkoutFingerprint, EXPECTED_FP);
   });
@@ -424,7 +569,7 @@ describe('PaymentsRenewalCheckoutService idempotency (T-007)', () => {
   it('fails closed when the provider returns a nullable checkout result', async () => {
     const { service } = build({
       existing: null,
-      providerCreateCheckout: async () => null as unknown as Record<string, unknown>,
+      providerCreateCheckout: async () => null,
     });
 
     await assert.rejects(

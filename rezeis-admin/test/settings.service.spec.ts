@@ -59,7 +59,7 @@ function createService(prismaService: unknown, iconUploadService: Partial<IconUp
   return new SettingsService(
     prismaService as never,
     iconUploadService as unknown as IconUploadService,
-    { cryptKey: 'test-crypt-key-0123456789abcdef0123456789' } as never,
+    { cryptKey: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' } as never,
   );
 }
 
@@ -122,7 +122,7 @@ describe('SettingsService', () => {
       channelId: null,
       channelUsername: null,
       channelRecheck: true,
-      requireTelegramWebCredentials: true,
+      requireTelegramWebCredentials: false,
       accessMode: AccessMode.PUBLIC,
       inviteModeStartedAt: null,
       defaultCurrency: Currency.USD,

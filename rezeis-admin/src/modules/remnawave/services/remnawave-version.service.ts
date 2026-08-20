@@ -1,62 +1,126 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import {
+  CAPABILITIES_CACHE_TTL_MS,
+  CAPABILITIES_NEGATIVE_CACHE_TTL_MS,
+  connectionsApiFor,
+  parseSemver,
+  readPanelVersionFrom,
+  userAddressingFor,
+  type RemnawaveConnectionsApi,
+  type RemnawaveUserAddressing,
+} from './panel-version.util';
 import { RemnawaveApiService } from './remnawave-api.service';
 
+// The two shape unions and the version→shape derivation live in
+// `panel-version.util.ts`, with no dependencies of their own, because
+// `RemnawaveApiService` needs the same answer to build its paths and cannot
+// inject this service back without a cycle. Re-exported here so every existing
+// importer keeps working.
+export type {
+  RemnawaveConnectionsApi,
+  RemnawaveUserAddressing,
+} from './panel-version.util';
+
 /**
- * Detected Remnawave panel version + the capability flags rezeis derives from
- * it. The integration targets a tested range (currently 2.7.x – 2.8.x); the
- * `supported` flag tells the admin SPA whether to show a "compatible" or an
- * "untested version" banner.
- *
- * Capabilities are version-gated so the rest of the app can light up
- * 2.8-only behaviour automatically once a panel upgrades, without a redeploy
- * or manual toggle:
- *   • `liveIpControl`        — ip-control matured enough to drive the Live tab.
- *   • `hostsTagsArray`       — hosts expose `tags[]` instead of a single `tag`.
- *   • `usersStream`          — `GET /api/users/stream`.
- *   • `hostsBulkUpdate`      — `PATCH /api/hosts/bulk/update`.
- *   • `tokenScopes`          — `GET /api/tokens/scopes`.
+ * Direct user-lookup shortcuts (`/api/users/by-telegram-id/{id}`,
+ * `/api/users/by-email/{email}`). Present on 2.7 and 2.8, gone on 3.x, which
+ * keeps only short-uuid / username lookups. `false` means "route through the
+ * generic resolve path", so the unknown case is safe rather than ambiguous.
+ */
+export interface RemnawaveUserLookups {
+  readonly byTelegramId: boolean;
+  readonly byEmail: boolean;
+}
+
+/**
+ * Detected Remnawave panel version + the capability facts rezeis derives from
+ * it. `supported` tells the admin SPA whether to show a "compatible" or an
+ * "untested version" banner; the rest let the app light up (or stand down
+ * from) version-specific behaviour automatically once a panel upgrades,
+ * without a redeploy or a manual toggle:
+ *   • `liveIpControl`        — `/api/ip-control/*` matured enough to drive the
+ *                              Live tab and the IP-sharing detector (2.8.x).
  *   • `bandwidthNodesUsers`  — `POST /api/bandwidth-stats/nodes/users`.
+ *   • `userAddressing`       — uuid- vs id-addressed user paths.
+ *   • `connectionsApi`       — which live-connection family exists.
+ *   • `userLookups`          — which by-telegram-id / by-email shortcuts exist.
+ *
+ * The three latter fields are descriptive only: nothing consumes them yet, and
+ * adding them does not enable any 3.x behaviour. They exist so the eventual
+ * one-build-drives-2.7.4/2.8.0/3.2.x work has a single place to read the panel
+ * shape from, with an explicit "we do not know" state.
  */
 export interface RemnawaveCapabilities {
   readonly version: string | null;
   readonly major: number | null;
   readonly minor: number | null;
   readonly patch: number | null;
-  /** True when the detected version is inside the tested 2.7–2.8 range. */
+  /** True when the detected `major.minor` is in the tested set (see below). */
   readonly supported: boolean;
   /** True when the panel responded at all (version could be read). */
   readonly reachable: boolean;
   readonly liveIpControl: boolean;
-  readonly hostsTagsArray: boolean;
-  readonly usersStream: boolean;
-  readonly hostsBulkUpdate: boolean;
-  readonly tokenScopes: boolean;
   readonly bandwidthNodesUsers: boolean;
+  readonly userAddressing: RemnawaveUserAddressing;
+  readonly connectionsApi: RemnawaveConnectionsApi;
+  readonly userLookups: RemnawaveUserLookups;
 }
 
-/** Lowest panel version rezeis has been tested against. */
-const MIN_TESTED = { major: 2, minor: 7 };
-/** Highest panel minor rezeis has been tested against. */
-const MAX_TESTED_MINOR = 8;
+/**
+ * `major.minor` releases rezeis has actually been tested against — an explicit
+ * set, deliberately not an ordered range. A range (`>= 2.7`) would silently
+ * stop warning the operator on 2.9 / 2.10 / 2.11 / 3.0 / 3.1, none of which
+ * anybody has run; the banner is the only signal an operator gets before an
+ * untested panel starts returning shapes rezeis does not parse.
+ *
+ * All three entries are measured against live panels: 2.7.4 (paying
+ * production), 2.8 (testers) and 3.2.x. Being in this set means "the operator
+ * gets no banner", not "every screen is equally capable" — 2.7.4 still reports
+ * `liveIpControl: false`, because its `ip-control/*` family had not matured
+ * enough to drive the Live tab. 3.x reports true: it replaced that family with
+ * `connections/*`, and the adapter speaks it.
+ *
+ * Membership is keyed on `major.minor`, so this set cannot tell 2.8.0 from
+ * 2.8.1 and never has: both are the single `'2.8'` entry, and a patch-level
+ * difference is not something this gate is able to warn about.
+ *
+ * Whatever this set says has to stay true of the operator-facing prose in
+ * `web/src/i18n/features/remnawave.{en,ru}.ts` →
+ * `remnaWavePage.versionWarning.description`, which spells the range out.
+ */
+const TESTED_VERSIONS: ReadonlySet<string> = new Set(['2.7', '2.8', '3.2']);
 
-const CACHE_TTL_MS = 5 * 60_000;
+// Both windows live in the util so the adapter's own shape cache uses the same
+// two numbers rather than a second opinion about how long a panel blip lasts.
+export {
+  CAPABILITIES_CACHE_TTL_MS,
+  CAPABILITIES_NEGATIVE_CACHE_TTL_MS,
+} from './panel-version.util';
 
 @Injectable()
 export class RemnawaveVersionService {
   private readonly logger = new Logger(RemnawaveVersionService.name);
-  private cache: { value: RemnawaveCapabilities; at: number } | null = null;
+  private cache: { value: RemnawaveCapabilities; at: number; ttlMs: number } | null = null;
 
   public constructor(private readonly api: RemnawaveApiService) {}
 
-  /** Returns cached capabilities, refreshing past the TTL. */
+  /**
+   * Returns cached capabilities, refreshing past the TTL — the short negative
+   * TTL when the last detection failed, the long one when it succeeded.
+   *
+   * `force` skips the cache entirely. It is reachable over HTTP as
+   * `GET /admin/remnawave/version?force=true` so an operator who has just
+   * fixed a token or brought the panel back can clear a bad cached state
+   * without restarting the container.
+   */
   public async getCapabilities(force = false): Promise<RemnawaveCapabilities> {
     const now = Date.now();
-    if (!force && this.cache !== null && now - this.cache.at < CACHE_TTL_MS) {
+    if (!force && this.cache !== null && now - this.cache.at < this.cache.ttlMs) {
       return this.cache.value;
     }
     const value = await this.detect();
-    this.cache = { value, at: now };
+    this.cache = { value, at: now, ttlMs: cacheTtlFor(value) };
     return value;
   }
 
@@ -72,31 +136,46 @@ export class RemnawaveVersionService {
         supported: false,
         reachable: version !== null,
         liveIpControl: false,
-        hostsTagsArray: false,
-        usersStream: false,
-        hostsBulkUpdate: false,
-        tokenScopes: false,
         bandwidthNodesUsers: false,
+        userAddressing: 'unknown',
+        connectionsApi: 'unknown',
+        userLookups: { byTelegramId: false, byEmail: false },
       };
     }
     const { major, minor, patch } = parsed;
-    const atLeast = (mj: number, mn: number): boolean => major > mj || (major === mj && minor >= mn);
-    const supported =
-      major === MIN_TESTED.major && minor >= MIN_TESTED.minor && minor <= MAX_TESTED_MINOR;
-    const is28Plus = atLeast(2, 8);
     return {
       version,
       major,
       minor,
       patch,
-      supported,
+      supported: TESTED_VERSIONS.has(`${major}.${minor}`),
       reachable: true,
-      liveIpControl: is28Plus,
-      hostsTagsArray: is28Plus,
-      usersStream: is28Plus,
-      hostsBulkUpdate: is28Plus,
-      tokenScopes: is28Plus,
-      bandwidthNodesUsers: is28Plus,
+      // "This build can read live connections from this panel" — which is the
+      // question every consumer actually asks, despite the historical name.
+      //
+      // It is NOT `connectionsApi !== 'unknown'`. That would light up on 2.7.4,
+      // which serves `ip-control/*` but not maturely enough to drive the Live
+      // tab or the IP-sharing detector. The two eras qualify for different
+      // reasons and both have to be stated:
+      //   2.x  — only 2.8 and newer, where `ip-control/*` matured;
+      //   3.x  — `connections/*`, now that the adapter speaks it. Before that
+      //          reader existed this had to stay false, or the detector would
+      //          have walked every node for guaranteed 404s and reported a
+      //          clean panel. The two changes were required to land together.
+      // `major === 3`, not `major > 2`: a 4.x or calver build has an UNKNOWN
+      // connections family, and claiming we can read live data from a panel
+      // whose shape we cannot name is the same guess this file refuses to make
+      // everywhere else.
+      liveIpControl: major === 3 || (major === 2 && minor >= 8),
+      // `POST /api/bandwidth-stats/nodes/users` is absent on 2.7.4 and present
+      // on both 2.8.0 and 3.2.1, so this one really is "2.8 or newer".
+      bandwidthNodesUsers: major > 2 || (major === 2 && minor >= 8),
+      userAddressing: userAddressingFor(major),
+      connectionsApi: connectionsApiFor(major),
+      // Both shortcuts exist on 2.7.4 and 2.8.0 and were dropped in 3.x. Any
+      // other major reads false — the generic resolve path always works, so
+      // "unknown" degrades safely here without needing a third value.
+      userLookups: { byTelegramId: major === 2, byEmail: major === 2 },
     };
   }
 
@@ -107,36 +186,22 @@ export class RemnawaveVersionService {
    * unreachable or omits the field.
    */
   private async readVersion(): Promise<string | null> {
-    try {
-      const recap = await this.api.getSystemRecap();
-      if (recap !== null && typeof recap.version === 'string' && recap.version.length > 0) {
-        return recap.version;
-      }
-    } catch (err) {
-      this.logger.debug(`recap version read failed: ${(err as Error).message}`);
-    }
-    try {
-      const metadata = await this.api.getSystemMetadata();
-      if (metadata !== null && typeof metadata.version === 'string' && metadata.version.length > 0) {
-        return metadata.version;
-      }
-    } catch (err) {
-      this.logger.debug(`metadata version read failed: ${(err as Error).message}`);
-    }
-    return null;
+    // The order — recap, then metadata — is shared with the adapter's own shape
+    // cache through `readPanelVersionFrom`, so the two cannot disagree about
+    // which source wins on a build where only one of them carries the field.
+    return readPanelVersionFrom(
+      () => this.api.getSystemRecap(),
+      () => this.api.getSystemMetadata(),
+      (source, error) => this.logger.debug(`${source} version read failed: ${error.message}`),
+    );
   }
 }
 
-/** Parses a `major.minor.patch` prefix from a version string. */
-function parseSemver(
-  value: string | null,
-): { major: number; minor: number; patch: number } | null {
-  if (value === null) return null;
-  const match = /(\d+)\.(\d+)\.(\d+)/.exec(value);
-  if (match === null) return null;
-  return {
-    major: Number.parseInt(match[1], 10),
-    minor: Number.parseInt(match[2], 10),
-    patch: Number.parseInt(match[3], 10),
-  };
+/**
+ * Picks the cache window for a detection result: anything that produced no
+ * parsable version is a failure and gets the short negative TTL.
+ */
+function cacheTtlFor(value: RemnawaveCapabilities): number {
+  return value.major === null ? CAPABILITIES_NEGATIVE_CACHE_TTL_MS : CAPABILITIES_CACHE_TTL_MS;
 }
+

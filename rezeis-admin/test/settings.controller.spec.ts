@@ -71,10 +71,13 @@ function buildRequest(requestId: string): Request {
   return {
     headers: {
       'x-request-id': requestId,
-      'x-forwarded-for': '198.51.100.50, 203.0.113.10',
+      // Spoofed by the client — must be IGNORED. Only `req.ip` (which already
+      // honours `trust proxy`) is trusted for remoteAddress resolution.
+      'x-forwarded-for': '10.0.0.1, 203.0.113.10',
       'user-agent': 'settings-controller-spec',
     },
-    ip: '127.0.0.1',
+    // The address Express resolved (honouring `trust proxy`).
+    ip: '198.51.100.50',
     socket: {
       remoteAddress: '127.0.0.2',
     },
@@ -245,19 +248,36 @@ describe('SettingsController', () => {
   it('forwards current notification, Telegram, referral, partner, branding, and icon settings contracts', async () => {
     const calls: Array<DelegatedCall<unknown>> = [];
     const branding: BrandingSettingsInterface = {
+      themePresetId: null,
+      themePresetVersion: null,
+      themeModePolicy: 'fixed',
+      themeDefaultMode: 'dark',
+      themeVariants: null,
       brandName: 'Rezeis',
       tagline: null,
       logoUrl: null,
       pwaIconUrl: null,
+      brandLogo: { size: 1, fill: 0.58, frame: 'glass', radius: 30, glow: 1 },
       adminPwaIconUrl: null,
       primary: '#ffffff',
       primaryFg: '#000000',
       bgPrimary: '#111111',
       bgSecondary: '#222222',
+      brandPaletteSource: 'concept',
       cardGradient: 'linear-gradient(#000,#111)',
+      cardGradientSource: 'concept',
       cardPattern: null,
+      subscriptionCardText: { mode: 'auto', color: null },
+      subscriptionCardGlass: {
+        enabled: false,
+        tint: '#ffffff',
+        opacity: 0.14,
+        blurPx: 8,
+        borderOpacity: 0.18,
+      },
       cardLogo: 'NONE',
       cardLogoUrl: null,
+      cardLogoStyle: { scale: 1, opacity: 0.1 },
       cardEffect: 'NONE',
       cardEffectProps: {},
       cardEffectOpacity: 0.25,
@@ -274,7 +294,21 @@ describe('SettingsController', () => {
       iconColorMode: 'default',
       iconColors: {},
       borderRadius: '1rem',
+      cornerRadii: { cardPx: 24, itemPx: 14, pillPx: 9999 },
       fontFamily: 'Inter',
+      surfaceTheme: {
+        foreground: '#fafafa',
+        mutedForeground: '#a1a1a1',
+        surface: '#18181b',
+        surfaceHigh: '#27272a',
+        borderSoft: '#ffffff',
+        borderStrong: '#ffffff',
+        surfaceOpacity: 0.7,
+        surfaceHighOpacity: 0.8,
+        borderSoftOpacity: 0.06,
+        borderStrongOpacity: 0.12,
+        glassBlurPx: 16,
+      },
       planCardStyles: {},
       navItems: [
         { id: 'subscriptions', visible: true },

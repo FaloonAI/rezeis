@@ -129,6 +129,7 @@ export const en = {
       webReiwa: 'WEB Reiwa',
       subpageConfig: 'Subscription page',
       landingBuilder: 'Web landing',
+      legalDocuments: 'Legal documents',
       gateways: 'Payment gateways',
       externalAuth: 'External auth',
       panelSettings: 'Panel settings',
@@ -140,6 +141,9 @@ export const en = {
       aiSupport: 'AI-Support',
       admins: 'Admins',
       roles: 'Roles',
+      // Same wording as `panelSettings.tabs.apiTokens` — the Cmd+K row and the
+      // tab it lands on must read as the same thing, not as near-duplicates.
+      apiTokens: 'API tokens',
       twoFactor: 'Two-factor',
       ipAllowlist: 'IP allowlist',
       webhooks: 'Webhooks',
@@ -175,11 +179,12 @@ export const en = {
     learnRunning: 'Analysing tickets…',
     learnResult: 'Done: {{created}} drafts created from {{scanned}} tickets (skipped {{skipped}}).',
     learnError: 'Failed to learn from tickets',
-    pageSubtitle: 'AI assistant settings for user support',
+    pageSubtitle: 'AI assistant settings for user support. The provider key lives only here (not in reiwa .env).',
     apiCardTitle: 'API settings',
-    apiCardDesc: 'Connection to an OpenAI-compatible API',
+    apiCardDesc:
+      'OpenAI-compatible provider. The API key is encrypted at rest (AES-256-GCM via REZEIS_CRYPT_KEY) and never stored in the cabinet .env — reiwa fetches it only over the internal BFF channel.',
     baseUrlLabel: 'Base URL',
-    apiKeyLabel: 'API Key',
+    apiKeyLabel: 'API Key (encrypted on save)',
     modelLabel: 'Model',
     modelsEndpointLabel: 'Models endpoint (optional)',
     loadModels: 'Load models',
@@ -513,6 +518,20 @@ export const en = {
     reorderFailed: 'Failed to change plan order',
     orderHint:
       'The card order here sets how tariffs appear to users in their cabinet. Drag a card by the grip on the left to reorder.',
+    squadPropagation: {
+      queued_one: 'Squad change queued for {{count}} existing subscription',
+      queued_other: 'Squad change queued for {{count}} existing subscriptions',
+      running: 'Applying the squad change on the panel — {{done}} of {{total}} done',
+      remaining_one: '{{count}} subscription still waiting',
+      remaining_other: '{{count}} subscriptions still waiting',
+      finished_one: 'Squad change applied to {{count}} subscription',
+      finished_other: 'Squad change applied to {{count}} subscriptions',
+      finishedWithFailures_one:
+        'Squad change finished, but {{count}} subscription failed — check profile sync',
+      finishedWithFailures_other:
+        'Squad change finished, but {{count}} subscriptions failed — check profile sync',
+      dismiss: 'Dismiss',
+    },
     createTitle: 'Create plan',
     editTitle: 'Edit plan',
     tabs: {
@@ -758,6 +777,12 @@ export const en = {
       save: 'Save emoji',
       saved: 'Emoji saved',
       saveFailed: 'Failed to save',
+      problemIdNotNumeric:
+        'custom_emoji_id must be digits only — anything else is dropped before the message is sent.',
+      problemNothingToDeliver:
+        'No glyph and no custom_emoji_id — the bot sends the raw :shortcode: as text instead of an emoji.',
+      glyphOnlyNote:
+        'No custom_emoji_id — the bot sends the fallback glyph, not this animation. The image stays panel/cabinet-only.',
     },
     tabs: {
       packs: 'Packs',
@@ -792,6 +817,20 @@ export const en = {
     empty: 'Nothing found',
     standard: 'Standard',
     custom: 'Custom',
+    undeliverable:
+      '{{token}} cannot be inserted: this entry has neither a fallback glyph nor a custom_emoji_id, so the bot would send the shortcode as text. Fix it on the "Emoji packs" page.',
+  },
+  emojiField: {
+    buttonIconLabel: 'Button icon — not part of the caption',
+    buttonIconHint:
+      '{{token}} leads the caption, so the bot moves it into the button\'s own icon (icon_custom_emoji_id). Telegram draws it BEFORE the caption, not inside it.',
+    tokenImage: '{{token}} → custom emoji',
+    tokenGlyph: '{{token}} → fallback glyph (this entry has no custom_emoji_id, or the bot owner has no Premium)',
+    tokenGlyphButton:
+      '{{token}} → glyph: an inline button caption cannot carry a custom emoji anywhere but its leading icon',
+    tokenUnknown: '{{token}} → unknown shortcode, sent as raw text',
+    tokenDead:
+      '{{token}} → sent as raw text: this pack entry has neither a glyph nor a custom_emoji_id',
   },
   realtime: {
     categories: {
@@ -815,6 +854,7 @@ export const en = {
       remnawave_user_disabled: 'Profile disabled',
       remnawave_user_enabled: 'Profile enabled',
       remnawave_user_first_connected: 'First connection',
+      user_first_traffic: 'User started using traffic',
       remnawave_user_traffic_reset: 'Traffic reset',
       remnawave_user_expire_soon: 'Subscription expiring soon',
       remnawave_user_bandwidth_threshold: 'Bandwidth threshold reached',
@@ -929,14 +969,24 @@ export const en = {
       rewardType: 'Reward type',
       rewardAmount: 'Reward amount',
       daysFallback: 'How to grant days',
-      rewardPlanId: 'Trial plan ID',
+      rewardPlanId: 'Trial plan',
       rewardPlanIdPlaceholder: 'plan id',
+      rewardPlanPlaceholder: 'Select a plan',
+      rewardPlanLoading: 'Loading plans…',
+      rewardPlanEmpty: 'No plans available',
+      rewardPlanEmptyHint:
+        'Create an active plan with Trial availability (or any active plan) under Plans.',
+      rewardPlanTrialTag: 'trial',
+      rewardPlanArchivedTag: 'archived',
+      rewardPlanInactiveTag: 'off',
       channelIdPlaceholder: '-100…',
+      channelLinkPlaceholder: 'https://t.me/yourchannel',
       icon: 'Icon',
       iconKind: 'Icon kind',
       uploadSvg: 'Upload SVG',
       requiredFriends: 'Friends required',
       channelId: 'Channel ID',
+      channelLink: 'Channel link',
       partnerMethod: 'Verification method',
       partnerSlug: 'Partner slug',
       partnerCode: 'Activation code',
@@ -982,7 +1032,10 @@ export const en = {
       titleRequired: 'Provide a title in both languages',
       rewardAmountRequired: 'Provide a reward amount greater than zero',
       planRequired: 'Provide a plan for the trial grant',
-      channelRequired: 'Provide the channel ID for the subscription',
+      channelLinkRequired: 'Provide the Telegram channel link',
+      channelLinkInvalid: 'Provide a valid Telegram link: https://t.me/…',
+      channelIdInvalid: 'Provide a valid numeric channel ID in the -100… format',
+      channelIdRequiredForInvite: 'A private invite link requires the numeric channel ID',
       windowInvalid: 'End must be later than start',
       partnerRequired: 'Fill in the required partner fields',
     },
@@ -993,6 +1046,8 @@ export const en = {
         'What is granted on completion: points (shared balance), subscription days, a promo code, a discount, or traffic.',
       daysFallback:
         'How to grant days: extend/grant a trial directly, or generate a promo code worth the days.',
+      rewardPlanId:
+        'Plan used when granting/extending the trial. Lists active plans (Trial availability first).',
       audience: 'Who the quest is shown to. E.g. "Link email" — only users without a linked email.',
       repeat:
         'Once — completed a single time. Repeatable — can be completed again after a cooldown.',
@@ -1000,7 +1055,9 @@ export const en = {
         'Maximum successful completions across all users (activity budget). Empty — no limit.',
       icon: 'The quest icon in the cabinet. Pick a preset or upload your own SVG (e.g. an advertiser logo).',
       channelId:
-        'Numeric Telegram channel ID (e.g. -100…). The bot must be added to the channel to verify subscription.',
+        'Required only for a private channel: numeric ID in the -100… format. Add the bot as a channel administrator so it can verify membership.',
+      channelLink:
+        'The link users follow to join the channel. A public channel only needs https://t.me/username; a private channel also needs its numeric channel ID.',
       partnerMethod:
         'How the task is credited: an activation code the user enters, a signed server postback from the partner, or a visit to a link with a minimum dwell time.',
       partnerSlug:
@@ -1054,9 +1111,13 @@ export const en = {
       points: 'Points',
       level1: 'Level 1 reward',
       level2: 'Level 2 reward',
-      level3: 'Level 3 reward',
       unitDays: 'days',
       unitPoints: 'points',
+      eligiblePlans: 'Plans that qualify a referral',
+      eligiblePlansClear: 'Clear',
+      eligiblePlansAllHint:
+        'Nothing selected — buying any plan qualifies the referral. Pick plans to stop paying out for trials or the cheapest tier.',
+      eligiblePlansHint: '{{count}} plan(s) selected. Buying any other plan does not qualify.',
     },
     inviteLimits: {
       title: 'Invite Link Limits',
@@ -1390,6 +1451,7 @@ export const en = {
     clearAria: 'Clear',
     placeholder: 'Search users, transactions, promo codes…',
     typeMore: 'Type at least 2 characters to search',
+    searching: 'Searching…',
     noResults: 'No results for "{{query}}"',
     types: {
       navigation: 'page',
@@ -1419,6 +1481,7 @@ export const en = {
     close: 'Close',
     cancel: 'Cancel',
     error: 'Error',
+    retry: 'Retry',
     pickDate: 'Pick a date',
     authenticatedAdmin: 'Authenticated admin',
     offline: 'No internet connection — some data may be stale.',
@@ -1848,6 +1911,123 @@ export const en = {
       branding: 'Branding',
       icons: 'Icons',
       config: 'Config portability',
+      antiFraud: 'Anti-fraud',
+    },
+  },
+  antiFraudTab: {
+    title: 'Anti-fraud detector tunables',
+    precedence:
+      'A value saved here OVERRIDES the matching ANTIFRAUD_* environment variable. A field you have not saved falls back to the environment variable, and then to the built-in default.',
+    applyTiming:
+      'Changes apply on the next detector run (within 5 minutes) \u2014 no restart needed, in either the API or the worker container.',
+    accuracyLink:
+      'See how often each detector was dismissed as a false positive before changing a threshold \u2192 Fraud signals',
+    panelValue: 'panel',
+    envIs: 'Environment: {{value}}',
+    defaultIs: 'Built-in default: {{value}}',
+    envOn: 'on',
+    envOff: 'off',
+    allowedRange: 'Allowed: {{min}}\u2013{{max}}',
+    resetToEnv: 'Reset to environment',
+    resetToDefault: 'Reset to defaults',
+    save: 'Save',
+    saved: 'Anti-fraud settings saved',
+    saveFailed: 'Failed to save anti-fraud settings',
+    sharing: {
+      title: 'Subscription sharing',
+      description:
+        'Two detectors. Device overage (HWID) is the authoritative signal; concurrent-network detection is advisory and off by default.',
+      fields: {
+        enableHwidOverage: {
+          label: 'Device overage detector',
+          hint: 'Flags a user with more registered devices than their plan allows.',
+        },
+        enableIpSharing: {
+          label: 'Concurrent-network detector',
+          hint: 'Advisory only. Counts distinct networks, never emits HIGH severity.',
+        },
+        ipNetworkGrouping: {
+          label: 'Group IPs into networks',
+          hint: 'Collapses carrier/CGNAT churn and IPv6 privacy-address rotation. Strongly recommended.',
+        },
+        ipWindowMinutes: {
+          label: 'IP lookback window (minutes)',
+          hint: 'Samples older than this are discarded. A staleness bound, not a concurrency test.',
+        },
+        ipConcurrencyWindowSeconds: {
+          label: 'Concurrency window (seconds)',
+          hint: 'How close two sightings must be to count as simultaneous. Lower values make sequential network switching collapse to one network.',
+        },
+        ipOverageMargin: {
+          label: 'Network overage margin',
+          hint: 'Tolerance added to the device limit before flagging. Absorbs a single user on home Wi-Fi plus mobile.',
+        },
+        ipV4PrefixLength: {
+          label: 'IPv4 grouping prefix',
+          hint: 'For example 24 groups addresses by /24.',
+        },
+        ipV6PrefixLength: {
+          label: 'IPv6 grouping prefix',
+          hint: 'For example 48 collapses a delegated site into one network.',
+        },
+        maxNodesPerRun: {
+          label: 'Max nodes probed per run',
+          hint: 'Bounds the load the live-connection probes put on your nodes.',
+        },
+        maxIpsInMetadata: {
+          label: 'Max IP samples stored per signal',
+          hint: 'Caps how many IP samples are kept in a signal\u2019s metadata.',
+        },
+      },
+    },
+    traffic: {
+      title: 'Per-user node traffic abuse',
+      description:
+        'Advisory detector for users whose bandwidth is a clear outlier. Requires Remnawave 2.8 or newer, 3.x included, and activates automatically once the panel reports the capability.',
+      fields: {
+        enabled: {
+          label: 'Traffic abuse detector',
+          // A field hint is read on its own, with the section description
+          // scrolled off or never read, so it cannot point at "that panel
+          // capability" — both halves have to name their own subject.
+          hint: 'Also needs the panel’s per-node bandwidth endpoint, added in 2.8 — on panels older than that the detector stays off whatever this switch says.',
+        },
+        minGb: {
+          label: 'Absolute floor (GB)',
+          hint: 'Anyone below this over the panel window is ignored, however far above the cohort they are.',
+        },
+        medianMultiplier: {
+          label: 'Median multiplier',
+          hint: 'Flag at this multiple of the cohort median.',
+        },
+        sharePercent: {
+          label: 'Share of total (%)',
+          hint: '\u2026or when one user holds at least this share of the top-users total.',
+        },
+        maxNodesPerRun: {
+          label: 'Max nodes aggregated per run',
+          hint: 'Bounds the panel call.',
+        },
+      },
+    },
+    subscriptionUa: {
+      title: 'Subscription re-hosting (User-Agent)',
+      description:
+        'Reads the panel’s subscription-request log and flags a fetch whose User-Agent carries a proxy config URI (vless://, trojan://, ss://). A real client sends a product name, not a node config, so a User-Agent carrying one means the subscription is being pulled through another panel, aggregator or tunnel. Evidence of pass-through, not proof of resale: it files LOW or MEDIUM, never HIGH. OFF by default — turn it on deliberately. These three knobs have no ANTIFRAUD_* environment variable; under a saved value there is only the built-in default.',
+      fields: {
+        enableSubscriptionUaTunnel: {
+          label: 'Subscription re-hosting detector',
+          hint: 'Off by default. Once on, a flagged subscription needs the condition to hold across three consecutive runs (~15 minutes) before a signal opens, and switching this back off never closes the signals it already raised.',
+        },
+        uaEvidenceWindowMinutes: {
+          label: 'Evidence window (minutes)',
+          hint: 'How far back a subscription fetch still counts. Widen it only together with the page size below — the panel log cannot be filtered by time, so a wider window that one page does not reach back over is a window only partly examined.',
+        },
+        uaRequestPageSize: {
+          label: 'Request-log rows read per run',
+          hint: 'The only lever over how much of the window one run actually covers. If signals report an incompletely covered window (or the log warns it can only under-detect), raise this or shorten the window.',
+        },
+      },
     },
   },
   pushNotifications: {
@@ -1861,6 +2041,8 @@ export const en = {
     disabledServer: 'Push is disabled on the server (VAPID keys not configured).',
     subscribeFailed:
       'Could not create the push subscription (check the server VAPID keys and the browser push service).',
+    endpointTaken:
+      'This browser is already registered to another admin account. The local subscription has been cleared — press the toggle again to register it to yours.',
     unsupported: 'This browser does not support push notifications.',
     iosInstall: 'On iOS, add the panel to your Home Screen to enable push.',
     error: 'Failed to change the push setting.',
@@ -1892,6 +2074,7 @@ export const en = {
     save: 'Save',
     saved: 'Icons saved',
     saveFailed: 'Failed to save icons',
+    loadFailed: 'The icon library could not be loaded. Uploading and saving are disabled until it does — saving now would replace every stored icon with an empty library.',
     dropHere: 'Drop icons here or click to select',
     hint: 'SVG, PNG or WebP, up to 2 MB. SVGs are sanitised on upload.',
     uploading: 'Uploading ({{count}})…',
@@ -1910,8 +2093,8 @@ export const en = {
   usersPage: {
     title: 'Users',
     subtitle: 'Search, manage profiles, and run bulk user operations.',
-    searchPlaceholder: 'Reiwa ID, Telegram ID, email, login…',
-    searchHint: 'Enter a Reiwa ID, Telegram ID, email or login to search',
+    searchPlaceholder: 'Reiwa ID, Telegram ID, email, login, subscription ID…',
+    searchHint: 'Reiwa ID, Telegram ID, email, login, or subscription ID (incl. deleted)',
     noResults: 'No user found',
     listEmpty: 'No users yet',
     listError: 'Failed to load the user list',
@@ -1920,6 +2103,11 @@ export const en = {
     selectUser: 'Select a user on the left',
     backToList: 'Back to list',
     createUser: 'Create user',
+    export: {
+      registration: 'Export registration CSV',
+      registrationSuccess: 'Registration export downloaded',
+      registrationError: 'Failed to export registration data',
+    },
     tabs: {
       list: 'List',
       bulk: 'Bulk operations',
@@ -1962,6 +2150,9 @@ export const en = {
     iconNone: 'By plan type',
     iconHint:
       'Shown on the plan card in the cabinet. "Auto" uses an icon derived from the plan type. You can also pick an emoji (including custom animated ones).',
+    cardAppearanceHint:
+      'The card colour is not set here: gradient, accent, texture and animation are configured per plan under WEB Reiwa, on the "Tariff cards" tab.',
+    cardAppearanceLink: 'Open Tariff cards',
     description: 'Description',
     descriptionPlaceholder: 'Best value for heavy users',
     planType: 'Plan type',
@@ -1991,6 +2182,16 @@ export const en = {
       WEEK: 'Weekly',
     },
     unlimitedHint: '0 = unlimited',
+    limitScope: {
+      title: 'Limit changes reach existing subscribers on renewal',
+      unlimited: 'unlimited',
+      trafficValue: '{{value}} GB',
+      trafficChange: 'Traffic limit: {{from}} → {{to}}',
+      deviceChange: 'Device limit: {{from}} → {{to}}',
+      cut: 'Subscribers who already bought this plan keep their current limits — nobody is reduced today. The new limits apply from their next renewal or upgrade.',
+      raise: 'Subscribers who already bought this plan do not get the higher limits today; those apply from their next renewal or upgrade. New purchases get them right away.',
+      mixed: 'Subscribers who already bought this plan keep their current limits until their next renewal or upgrade. New purchases get the new limits right away.',
+    },
     squads: 'Remnawave squads',
     internalSquads: 'Internal squads',
     internalSquadsPlaceholder: 'Select internal squads…',
@@ -1998,6 +2199,7 @@ export const en = {
     internalSquadsCount_other: '{{count}} squads selected',
     externalSquad: 'External squad',
     noSquads: 'No squads available',
+    squadsUnavailable: 'Squad list unavailable — Remnawave did not answer. This does not mean the panel has no squads.',
     none: 'None',
     pricing: 'Pricing (durations & prices)',
     addDuration: 'Add duration',
@@ -2177,7 +2379,7 @@ export const en = {
       warning: 'This action is destructive',
       typeToConfirm: 'Type {{value}} to confirm.',
       deleteScopeNote:
-        'Bulk delete affects the local database only — Remnawave panel profiles are NOT removed.',
+        'Accounts with payment or reward history are not deleted and return an exact reason. Clean local accounts are deleted, followed by best-effort Remnawave cleanup.',
     },
     runOn_one: 'Run on {{count}} user',
     runOn_other: 'Run on {{count}} users',
@@ -2361,12 +2563,12 @@ export const en = {
       detected: 'Panel version: {{version}}',
       unknown: 'Panel version unknown',
       allVersions: 'works on all versions',
-      needs28: 'needs 2.8+',
+      needs28: 'needs 2.8 or newer (3.x included)',
       active: 'active',
       hwid: 'Device over-limit (HWID)',
       ipSharing: 'IP / network sharing',
       perUserTraffic: 'Per-user traffic',
-      note: '2.8+ detectors activate automatically once the panel upgrades.',
+      note: 'Detectors that depend on the panel switch themselves on as soon as it starts serving the API they read.',
     },
     stats: {
       open: 'Open',
@@ -2392,6 +2594,17 @@ export const en = {
       severityPlaceholder: 'Severity',
       allStatuses: 'All statuses',
       allSeverities: 'All severities',
+      codePlaceholder: 'Detector code',
+      allCodes: 'All codes',
+      activeCodes: 'Active detectors',
+      retiredCodes: 'Retired — now operational alerts',
+      customCodeGroup: 'Entered code',
+      otherCode: 'Other code…',
+      customCodeLabel: 'Enter a detector code',
+      customCodePlaceholder: 'e.g. LEGACY_DETECTOR_CODE',
+      customCodeHint:
+        'For a code no longer raised by any detector. Retired codes are already listed above.',
+      customCodeApply: 'Apply code',
     },
     table: {
       title: 'Signals',
@@ -2440,6 +2653,58 @@ export const en = {
       signalUpdated: 'Signal updated',
       updateFailed: 'Update failed: {{message}}',
     },
+    suppression: {
+      held: {
+        title: 'Held back',
+        subtitle:
+          'Conditions the detectors found but did not file — still gathering evidence, or covered by an exemption.',
+        empty: 'Nothing is being held back right now.',
+        byStreak: 'Seen {{seen}}/{{required}} runs',
+        byExemption: 'Exempt',
+        columns: {
+          signal: 'Condition',
+          reason: 'Held because',
+          lastSeen: 'Last seen',
+        },
+      },
+      exemptions: {
+        title: 'Exemptions',
+        subtitle:
+          'Users cleared of specific detectors until a date. Expiry is mandatory — a permanent exemption is a permanent blind spot.',
+        empty: 'No exemptions have been granted.',
+        add: 'New exemption',
+        revoke: 'Revoke',
+        revoked: 'Exemption revoked',
+        revokeFailed: 'Could not revoke: {{message}}',
+        created: 'Exemption granted',
+        createFailed: 'Could not grant the exemption: {{message}}',
+        grantedBy: 'granted by {{login}}',
+        statusRevoked: 'revoked',
+        statusExpired: 'expired',
+        columns: {
+          user: 'User',
+          codes: 'Detectors',
+          expires: 'Expires',
+          actions: 'Actions',
+        },
+        dialog: {
+          title: 'Exempt a user from specific detectors',
+          description:
+            'The detectors keep watching and the findings stay visible under "Held back" — they just stop opening signals for this user, for these codes, until the date you pick.',
+          userLabel: 'User ID',
+          userPlaceholder: 'The rezeis user id from the signal',
+          codesLabel: 'Detector codes',
+          codesHint:
+            'Pick only what you have actually verified. Clearing a high device count does not clear promocode abuse.',
+          expiresLabel: 'Expires on',
+          expiresHint: 'Required. The exemption stops applying at the end of this day (UTC).',
+          reasonLabel: 'Reason',
+          reasonPlaceholder: 'What did you verify, and how? Ticket number, call, manual check…',
+          cancel: 'Cancel',
+          submit: 'Grant exemption',
+        },
+      },
+    },
     enforce: {
       button: 'Drop connections',
       title: 'Drop active connections',
@@ -2476,6 +2741,38 @@ export const en = {
       kindHwid: 'Devices',
       kindIp: 'IP',
     },
+    confidence: {
+      title: 'Why this confidence',
+      formula:
+        '{{confidence}}% = {{ceiling}} (detector ceiling) × {{agreement}} (agreement) × {{quality}} (data quality)',
+      factor: '{{observed}} → {{strength}}',
+      note: 'Agreement is the mean strength of the factors above; data quality is how complete the underlying read was. Confidence never affects whether a signal is raised.',
+    },
+    accuracy: {
+      title: 'Detector accuracy',
+      subtitle:
+        'How often each detector was dismissed as a false positive by an operator. Read-only — check this before changing a threshold.',
+      window: 'Last {{count}} days',
+      empty: 'No detector raised a signal in the last {{count}} days.',
+      loadFailed: 'Could not load the detector accuracy report.',
+      columns: {
+        code: 'Detector',
+        opened: 'Opened',
+        stillOpen: 'Undecided',
+        resolved: 'Resolved',
+        dismissed: 'Dismissed',
+        falsePositiveRate: 'False positives',
+      },
+      resolvedHint:
+        'Resolved by an operator, and in brackets the ones the detector run closed on its own. Only the operator’s count is a verdict, so only it is used in the rate.',
+      rateHint:
+        '{{dismissed}} of {{adjudicated}} signals an operator ruled on were dismissed as false positives. Signals still open, and ones the system closed by itself, are not counted either way.',
+      notEnoughData: 'not enough data',
+      notEnoughDataHint:
+        'Only {{adjudicated}} operator verdict(s) so far; at least {{required}} are needed before a percentage means anything.',
+      footnote:
+        'Rate = operator dismissals ÷ signals an operator ruled on (dismissed + resolved by a person). Shown only from {{count}} verdicts up.',
+    },
     bulk: {
       selected: '{{count}} selected',
       acknowledge: 'Acknowledge selected',
@@ -2487,14 +2784,14 @@ export const en = {
   },
   faqPage: {
     title: 'Frequently asked questions',
-    subtitle: 'Manage the FAQ section shown to users in the bot and web app.',
+    subtitle: 'Manage the Help section shown to users in the web app.',
     addButton: 'Add',
     listTitle: 'All entries',
     listDescription: 'Entries are sorted by "Order". Active entries are visible to users.',
     empty: 'No entries yet',
     createTitle: 'New entry',
     editTitle: 'Edit entry',
-    dialogDescription: 'Create or edit FAQ entries shown to users in the bot and web app.',
+    dialogDescription: 'Create or edit FAQ entries shown to users in the web app.',
     deleteConfirm: 'Delete "{{question}}"?',
     deleteDialogTitle: 'Delete FAQ entry?',
     deleteDialogAction: 'Delete',
@@ -2503,7 +2800,7 @@ export const en = {
     fields: {
       question: 'Question',
       answer: 'Answer',
-      answerHint: 'HTML/markdown is supported — rendered by bot/web clients.',
+      answerHint: 'Plain text. Line breaks are preserved in the web app.',
       media: 'Media',
       orderIndex: 'Order',
       locale: 'Locale',
@@ -2512,7 +2809,7 @@ export const en = {
     },
     media: {
       dropHere: 'Drop photos/videos here or click to pick files',
-      hint: 'Images (PNG/JPEG/WEBP/GIF/AVIF/SVG) and videos (MP4/WEBM/MOV/OGV) are supported. 25 MB per file, up to {{max}} attachments.',
+      hint: 'Images (PNG/JPEG/WEBP/GIF/AVIF) and videos (MP4/WEBM/MOV/OGV) are supported. 25 MB per file, up to {{max}} attachments.',
       uploading: 'Uploading ({{count}})…',
       chooseFile: 'Choose FAQ media files',
       tooMany: 'Up to {{max}} files per entry',
@@ -3059,6 +3356,7 @@ export const en = {
       empty: 'No subscriptions yet. Create one above.',
       newTitle: 'New subscription',
       newDescription: 'Use "*" to subscribe to every event, or namespace wildcards like payment.*',
+      catalogUnavailable: 'The event catalogue could not be loaded. Event names below are not validated against it.',
       fields: {
         name: 'Name',
         namePlaceholder: 'Slack alerts',
@@ -3194,8 +3492,24 @@ export const en = {
       titleApplied: 'Import result',
       summary:
         'Strategy: {{strategy}} · created {{created}} · updated {{updated}} · skipped {{skipped}} · errors {{errors}}',
+      incomplete:
+        '{{total}} section(s) were not imported: {{sections}}. Zero counts below do not mean they succeeded.',
+      integrity: {
+        label: 'File integrity',
+        verified: 'checked against the manifest the export wrote',
+        unverifiable:
+          'no manifest in this file — its sections are taken at face value and an emptied section cannot be detected',
+        violated: 'the file contradicts its own manifest and is damaged',
+      },
+      statuses: {
+        imported: 'Imported',
+        missing: 'Not in file',
+        rejected: 'Refused',
+        failed: 'Failed',
+      },
       columns: {
         section: 'Section',
+        status: 'Status',
         created: 'Created',
         updated: 'Updated',
         skipped: 'Skipped',
@@ -3212,8 +3526,11 @@ export const en = {
     saving: 'Saving…',
     saved: 'Branding saved successfully',
     saveFailed: 'Failed to save branding',
+    validationFailed: 'Check the highlighted setting',
+    noChanges: 'No changes to save',
     invalidHex: 'Must be a valid hex color',
-    invalidImageUrl: 'Enter an HTTP(S) URL or a data:image URL.',
+    invalidImageUrl: 'Enter an HTTPS URL, data:image URL, or a branding upload path.',
+    invalidGradient: 'Use CSS gradient layers only (linear, radial, or conic).',
     tabs: {
       brand: 'Brand',
       colors: 'Colors & layout',
@@ -3251,7 +3568,32 @@ export const en = {
       },
       presets: {
         title: 'Theme Presets',
-        description: 'Apply a full palette in one click, then fine-tune colors if you want.',
+        description:
+          '8 standard themes and 104 concepts. A standard theme changes the palette, the card gradient and the cabinet surfaces, and returns the app background to the built-in one; a concept applies a full visual system. Identity, typography, corner geometry, card artwork and navigation are preserved.',
+        searchPlaceholder: 'Search by code, name, or style…',
+        searchLabel: 'Search WEB Reiwa themes',
+        count: '{{visible}} of {{total}} themes',
+        empty: 'No themes match this search.',
+        standardGroup: 'Standard',
+        conceptGroup: 'Concepts',
+      },
+      themeMode: {
+        title: 'Selected concept mode',
+        description:
+          'You choose the concept. When allowed, a Reiwa user can only switch the light or dark representation of this same concept.',
+        permissionLabel: 'Who can choose the mode',
+        fixed: 'Operator mode only',
+        userSelectable: 'User may choose light or dark',
+        defaultLabel: 'Default mode',
+        light: 'Light',
+        dark: 'Dark',
+        hint:
+          'The theme catalogue is never exposed to the user: this switch changes only the light or dark representation of the concept chosen here.',
+        prepareHint:
+          'This concept was saved in the legacy format. Regenerate both representations to allow a user mode choice.',
+        prepareAction: 'Prepare modes',
+        conceptRequired:
+          'Choose one of the 104 concepts to configure light and dark representations. Standard themes always remain operator-fixed.',
       },
       identity: {
         title: 'Identity',
@@ -3261,14 +3603,41 @@ export const en = {
         tagline: 'Tagline (optional)',
         taglinePlaceholder: 'Your private VPN',
         taglineHint: 'Short subtitle shown on the launch splash and the in-app loader.',
-        logoUrl: 'Logo URL (optional)',
+        logoUrl: 'Logo',
         logoUrlPlaceholder: 'https://… or data:image/…',
-        logoHint: 'Leave empty to use the default Reiwa logo.',
+        logoHint:
+          'SVG, PNG or WebP up to 2 MB. Square, 256 px or larger, and trim the padding around the mark: the cabinet treats space inside the file as part of the image, which makes the mark look smaller.',
         logoPreview: 'Logo',
         logoDefault: 'Default',
-        upload: 'Upload',
+        uploading: 'Uploading…',
+        dropHere: 'Drop a file here or click to choose',
+        remove: 'Remove',
+        measured: 'File: {{width}} × {{height}} px',
+        measuredVector: 'Vector file — scales without loss',
+        warnNotSquare:
+          'The file is not square ({{width}} × {{height}}). A square frame will leave empty margins.',
+        warnTooSmall:
+          'Shortest side is {{actual}} px; for a raster file {{min}} px or more is recommended, otherwise the mark looks soft on dense screens.',
         uploadSuccess: 'File uploaded',
         uploadFailed: 'Failed to upload the file',
+      },
+      brandLogo: {
+        title: 'How the logo is shown',
+        description:
+          "Size and framing of the mark on the cabinet's entry screens. The tile beside the upload field above renders the result at the size the cabinet really draws it.",
+        frame: 'Frame',
+        frameHint:
+          'The tile keeps its place in either case, so turning the frame off does not shift the layout.',
+        size: 'Tile size',
+        fill: 'Fill',
+        fillHint:
+          'Fill sets how much of the tile the mark occupies. If it still looks small at 100% size, the margin is inside the file itself — it scales up along with the mark, and only the fill or a trimmed file recovers that space.',
+        radius: 'Corner rounding',
+        radiusCircle: 'circle',
+        radiusInherit: 'from theme',
+        radiusFromTheme: 'theme',
+        glow: 'Glow',
+        reset: 'Restore defaults',
       },
       pwaIcon: {
         title: 'App icon (PWA)',
@@ -3277,7 +3646,6 @@ export const en = {
         urlPlaceholder: 'URL or upload a file',
         hint: 'Square PNG 512×512 (1024 ok), opaque background, logo with ~10% safe padding from the edges. Used as the home-screen icon (Android/iOS) and launch splash. If empty, the brand logo is used, otherwise the Reiwa icon.',
         previewEmpty: 'No icon',
-        remove: 'Remove icon',
       },
       colors: {
         title: 'Colors',
@@ -3291,16 +3659,56 @@ export const en = {
       card: {
         title: 'Subscription Card',
         description: 'Gradient and pattern for the subscription card.',
+        catalogTitle: 'Concept subscription cards',
+        catalogDescription:
+          'Apply any of the 104 concept cards independently. The cabinet theme stays untouched, while existing card slots are synchronized with the selected visual and can be tuned again afterwards.',
+        catalogLabel: 'Concept subscription-card presets',
+        catalogSearchLabel: 'Search concept subscription cards',
+        catalogSearchPlaceholder: 'Name, code, family or effect',
+        catalogFamilyFilter: 'Filter by visual family',
+        catalogAllFamilies: 'All visual families',
+        catalogEffectFilter: 'Filter by animation effect',
+        catalogAllEffects: 'All animation effects',
+        catalogEffect: 'Effect',
+        catalogPattern: 'Pattern',
+        catalogNoPattern: 'No pattern',
+        catalogApplied: 'Applied',
+        catalogNoResults: 'No concept cards match these filters.',
+        catalogShowMore: 'Show more cards',
+        catalogResults: '{{visible}} of {{total}} cards',
+        catalogApply: 'Apply {{code}} {{name}}; effect {{effect}}',
         gradient: 'Card Gradient (CSS)',
         gradientPlaceholder: 'linear-gradient(135deg, #064e3b 0%, #22c55e 100%)',
         generate: 'From primary',
         saveToPalette: 'To palette',
         saveExists: 'This gradient is already in the palette',
+        saveEmpty: 'Set a gradient first — there is nothing to save',
         saved: 'Gradient saved to palette',
         customSwatch: 'Your saved gradient',
         removeSwatch: 'Remove from palette',
-        pattern: 'Card Pattern (CSS background-image, optional)',
-        patternPlaceholder: 'url(…) or none',
+        pattern: 'Card Pattern (CSS gradient, optional)',
+        patternPlaceholder: 'repeating-linear-gradient(…) or none',
+        textMode: 'Card text',
+        textModeHint:
+          'Auto chooses contrast. Light, dark, and custom remain the operator\'s literal decision.',
+        textModes: {
+          auto: 'Automatic contrast',
+          light: 'Light text',
+          dark: 'Dark text',
+          custom: 'Custom colour',
+        },
+        textColor: 'Custom text colour',
+        textColorHint:
+          'The colour is sent to Reiwa unchanged. The live preview warns when contrast is weak.',
+        glass: {
+          title: 'Glass above animation',
+          description:
+            'A separate layer over the card artwork. Turn it off to show the animation and gradient without blur or tint.',
+          tint: 'Glass tint',
+          opacity: 'Glass opacity',
+          blur: 'Glass blur',
+          border: 'Border opacity',
+        },
         builderTitle: 'Gradient Builder',
         builder_linear: 'Linear',
         builder_radial: 'Radial',
@@ -3315,11 +3723,14 @@ export const en = {
         title: 'Card Logo',
         description:
           'Watermark glyph in the corner of the subscription card. Pick a built-in icon or upload your own.',
-        customUrl: 'Custom logo (URL or data:image)',
+        customUrl: 'Custom mark',
         customUrlPlaceholder: 'https://… or data:image/svg+xml;base64,…',
         customHint:
-          'When a custom logo is set it replaces the glyph. SVG or PNG with a transparent background works best.',
-        clearCustom: 'Clear',
+          'SVG, PNG or WebP with a transparent background, square, 256 px or larger. Replaces the selected glyph. The mark is drawn semi-transparent, so fine detail and text on it will not read.',
+        scale: 'Watermark size',
+        opacity: 'Presence',
+        styleHint:
+          "Size and presence apply to the built-in glyphs and to a custom file alike. To remove the mark entirely, pick 'None' in the list above; picking any glyph also clears the uploaded file.",
       },
       cardEffect: {
         title: 'Animated Card Background',
@@ -3334,6 +3745,12 @@ export const en = {
           'Assign a different effect to each subscription card by creation order: slot 1 → first subscription, slot 2 → second, and so on. Subscriptions beyond the defined slots use the global card background above.',
         empty: 'No slots defined — every card uses the global card background above.',
         slotLabel: 'Slot {{index}}',
+        effectInherit: 'Using global effect',
+        effectOverride: 'Custom slot effect',
+        effectUseGlobal: 'Use global',
+        effectCustomize: 'Customize separately',
+        effectModeHint:
+          'This changes only the animation. A slot gradient stays independent until reset.',
         removeSlot: 'Remove',
         gradientLabel: 'Card gradient',
         gradientUseGlobal: 'Reset (global)',
@@ -3341,18 +3758,26 @@ export const en = {
         gradientSwatch: 'Pick slot gradient',
         gradientPlaceholder: 'linear-gradient(...) or empty = global',
         addSlot: 'Add slot',
+        presetKeptSlots_one:
+          'Preset applied. {{count}} card position keeps its own background — reset it in “Background by card position” to follow the preset.',
+        presetKeptSlots_other:
+          'Preset applied. {{count}} card positions keep their own background — reset them in “Background by card position” to follow the preset.',
       },
       appBackground: {
         title: 'App Background',
         description:
-          'The background behind the whole cabinet: plain colour, static gradient, texture, or animation. Rendered once, so it stays light on the device.',
+          'The background behind the whole cabinet: the built-in pattern, a plain colour, a static gradient, a texture, or an animation. Rendered once, so it stays light on the device.',
         kinds: {
-          none: 'None',
+          none: 'Built-in',
+          plain: 'Plain colour',
           gradient: 'Gradient',
           texture: 'Texture',
           effect: 'Animation',
         },
-        noneHint: 'Uses the plain background colour (configured in the "Colors" section).',
+        builtinHint:
+          'The cabinet\'s own pattern: soft glows, a dot grid and diagonals in the primary colour. This is the default — how the cabinet looks until a background is configured. For the colour alone, pick "Plain colour".',
+        plainHint:
+          'Just the plain background colour, with no pattern or animation (the colour is configured in the "Colors" section).',
         gradient: 'Gradient',
         generateFromPrimary: 'Generate from primary colour',
         autoPick: 'Auto-pick colours',
@@ -3374,11 +3799,33 @@ export const en = {
       },
       effects: {
         title: 'Effects & Typography',
-        description: 'Corner radius and font.',
+        description: 'Corner geometry and font.',
         bgEffect: 'Background Effect',
-        borderRadius: 'Border Radius',
+        borderRadius: 'Quick corner style',
+        cardRadius: 'Cards & dialogs',
+        itemRadius: 'Buttons & fields',
+        pillRadius: 'Pills & tabs',
+        capsule: 'Capsule',
+        cornerRadiiHint:
+          'A preset starts with the source concept radii. Each level remains independently editable afterwards.',
         fontFamily: 'Font Family',
         fontFamilyPlaceholder: 'Inter, system-ui, sans-serif',
+      },
+      surfaces: {
+        title: 'Semantic surfaces',
+        description:
+          'Text, glass, borders and blur used across the cabinet. These controls keep both light and dark presets readable.',
+        foreground: 'Foreground',
+        mutedForeground: 'Muted foreground',
+        surface: 'Surface tint',
+        surfaceHigh: 'Raised surface tint',
+        borderSoft: 'Soft border',
+        borderStrong: 'Strong border',
+        surfaceOpacity: 'Surface opacity',
+        surfaceHighOpacity: 'Raised opacity',
+        borderSoftOpacity: 'Soft border opacity',
+        borderStrongOpacity: 'Strong border opacity',
+        glassBlur: 'Glass blur',
       },
       iconColors: {
         title: 'Menu Icon Colors',
@@ -3397,6 +3844,10 @@ export const en = {
           language: 'Language',
           support: 'Support',
           faq: 'Help',
+          paymentMethods: 'Payment methods',
+          addons: 'Add-ons',
+          install: 'Install',
+          tutorial: 'Tutorial',
         },
       },
       preview: {
@@ -3405,11 +3856,17 @@ export const en = {
         liveLabel: 'Preview updates in real-time as you edit',
         welcome: 'Welcome back',
         statusLabel: 'Active',
+        cardTextContrastWarning: 'Check text contrast',
         cardDot: 'Card {{index}}',
+        cardPageRest: 'All other subscriptions',
         remaining: 'Remaining',
         daysMock: '90 days',
         until: 'until {{date}}',
         device: 'Device',
+        devicesTitle: 'Connected devices',
+        lastSeen: 'Last active 01 Aug 2026',
+        copyLink: 'Copy',
+        regenerate: 'Regenerate',
         actions: {
           buy: 'Buy',
           connect: 'Connect',
@@ -3425,10 +3882,17 @@ export const en = {
         archived: 'archived',
         custom: 'custom',
         auto: 'auto',
+        catalogHidden: 'not in catalog',
+        catalogHiddenHint:
+          'Subscribers will not see this plan in the buy catalog. It is shown here so you can style it ahead of time.',
         unlimited: 'Unlimited',
         gradient: 'Gradient',
         fromPrimary: 'From primary',
         accent: 'Accent',
+        text: 'Card text',
+        textHint:
+          'A tariff card follows the subscription card’s text setting by default. Pick another mode to change it for this plan only.',
+        textInherit: 'Same as the subscription card',
         texture: 'Texture',
         effect: 'Animated background',
         textureNone: 'None',
@@ -3448,6 +3912,12 @@ export const en = {
       violet: 'Violet',
       amber: 'Amber',
       mono: 'Mono',
+    },
+    brandLogoFrames: {
+      glass: 'Glass',
+      solid: 'Plate',
+      outline: 'Outline',
+      none: 'No frame',
     },
     cardLogos: {
       DEFAULT: 'Reiwa',
@@ -3770,7 +4240,7 @@ export const en = {
         invite:
           'Available placeholders: {{link}} — user referral link. System buttons «📤 Share» / «📋 Copy» / «◀️ Back to menu» are appended automatically.',
         rules:
-          'Available placeholder: {{rulesLink}} — service rules URL. When the URL is set in Platform Policy, the bot adds an «📜 Open rules» button. «◀️ Back to menu» is always appended. Add your own buttons via «Add button».',
+          'Available placeholder: {{rulesLink}} — service rules URL. The «📜 Open rules» button points at the legal documents when at least one is enabled on the «Legal documents» page, and at the Platform Policy URL otherwise. With neither set there is no button. «◀️ Back to menu» is always appended. Add your own buttons via «Add button».',
         help: 'Available placeholder: {{supportHandle}} — support @username. The main-menu «🆘 Help» button opens the support chat directly; this screen is shown only when no support handle is configured.',
       },
     },
@@ -4100,6 +4570,16 @@ export const en = {
           'Add an English translation — users with English locale will see it. Paste the already-translated text.',
         enValue: 'Value (EN)',
         preview: 'Preview',
+        previewTokenGlyph: '{{token}} → fallback glyph (this entry has no custom_emoji_id)',
+        previewTokenDead:
+          '{{token}} → sent as raw text: this pack entry has neither a glyph nor a custom_emoji_id',
+        previewTokenUnknown: '{{token}} → unknown shortcode, sent as raw text',
+        previewDeadNote:
+          'Highlighted shortcodes reach the user as raw text. Fix or remove them on the "Emoji packs" page.',
+        previewGlyphNote:
+          'Shortcodes without a custom_emoji_id are delivered as their fallback glyph — the pack animation never leaves the panel.',
+        previewPremiumNote:
+          'Animated emoji render only while the bot owner has Telegram Premium; otherwise everyone sees the glyph.',
       },
       toasts: {
         created: 'Text created',

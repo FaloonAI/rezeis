@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
+import { DataUnavailable } from '@/components/data-unavailable'
 import {
   Card,
   CardContent,
@@ -42,25 +43,30 @@ import { remnawaveApi } from '../remnawave-api'
 import { NodeFlag } from '../remnawave-flags'
 import { KEYS } from '../remnawave-query-keys'
 import { TabHeader } from '../shared/tab-header'
+import { truncate } from '@/lib/utils'
 
 export function CatalogTab() {
   const { t } = useTranslation()
-  const { data: profiles, isLoading: loadingProfiles } = useQuery({
+  const profilesQuery = useQuery({
     queryKey: KEYS.configProfiles,
     queryFn: remnawaveApi.getConfigProfiles,
   })
-  const { data: templates, isLoading: loadingTemplates } = useQuery({
+  const templatesQuery = useQuery({
     queryKey: KEYS.subscriptionTemplates,
     queryFn: remnawaveApi.getSubscriptionTemplates,
   })
-  const { data: pages, isLoading: loadingPages } = useQuery({
+  const pagesQuery = useQuery({
     queryKey: KEYS.subscriptionPageConfigs,
     queryFn: remnawaveApi.getSubscriptionPageConfigs,
   })
-  const { data: snippets, isLoading: loadingSnippets } = useQuery({
+  const snippetsQuery = useQuery({
     queryKey: KEYS.snippets,
     queryFn: remnawaveApi.getSnippets,
   })
+  const { data: profiles, isLoading: loadingProfiles } = profilesQuery
+  const { data: templates, isLoading: loadingTemplates } = templatesQuery
+  const { data: pages, isLoading: loadingPages } = pagesQuery
+  const { data: snippets, isLoading: loadingSnippets } = snippetsQuery
   const { data: settings } = useQuery({
     queryKey: KEYS.subscriptionSettings,
     queryFn: remnawaveApi.getSubscriptionSettings,
@@ -109,6 +115,8 @@ export function CatalogTab() {
           title={t('remnaWavePage.catalog.profiles.title')}
           description={t('remnaWavePage.catalog.profiles.description', { count: profiles?.length ?? 0 })}
           loading={loadingProfiles}
+          unavailable={profilesQuery.isError || !profiles}
+          onRetry={() => void profilesQuery.refetch()}
           empty={!profiles || profiles.length === 0}
           emptyText={t('remnaWavePage.catalog.profiles.empty')}
         >
@@ -125,7 +133,7 @@ export function CatalogTab() {
                 <TableRow key={profile.uuid}>
                   <TableCell>
                     <p className="truncate font-medium">{profile.name}</p>
-                    <p className="font-mono text-[10px] text-muted-foreground/70">{profile.uuid.slice(0, 8)}…</p>
+                    <p className="font-mono text-[10px] text-muted-foreground/70">{truncate(profile.uuid, 8)}</p>
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{profile.inbounds.length}</TableCell>
                   <TableCell className="text-right">
@@ -152,6 +160,8 @@ export function CatalogTab() {
           title={t('remnaWavePage.catalog.templates.title')}
           description={t('remnaWavePage.catalog.templates.description', { count: templates?.length ?? 0 })}
           loading={loadingTemplates}
+          unavailable={templatesQuery.isError || !templates}
+          onRetry={() => void templatesQuery.refetch()}
           empty={!templates || templates.length === 0}
           emptyText={t('remnaWavePage.catalog.templates.empty')}
         >
@@ -195,25 +205,35 @@ export function CatalogTab() {
           title={t('remnaWavePage.catalog.pages.title')}
           description={t('remnaWavePage.catalog.pages.description', { count: pages?.length ?? 0 })}
           loading={loadingPages}
+          unavailable={pagesQuery.isError || !pages}
+          onRetry={() => void pagesQuery.refetch()}
           empty={!pages || pages.length === 0}
           emptyText={t('remnaWavePage.catalog.pages.empty')}
         >
+          {/* The per-page subtitle used to render `page.title`, a field neither
+              2.7.4 nor 2.8.0 sends — so it never appeared on any panel. The
+              row's real content is its name, its view position and whether it
+              carries a (panel-opaque) config blob. */}
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10 text-right">{t('remnaWavePage.catalog.columns.position')}</TableHead>
                 <TableHead>{t('remnaWavePage.catalog.columns.name')}</TableHead>
-                <TableHead className="text-right">{t('remnaWavePage.catalog.columns.id')}</TableHead>
+                <TableHead className="text-right">{t('remnaWavePage.catalog.columns.config')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {pages?.map((page) => (
                 <TableRow key={page.uuid}>
+                  <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
+                    {page.viewPosition}
+                  </TableCell>
                   <TableCell>
                     <p className="font-medium">{page.name}</p>
-                    {page.title ? <p className="text-xs text-muted-foreground">{page.title}</p> : null}
+                    <p className="font-mono text-[10px] text-muted-foreground/70">{truncate(page.uuid, 8)}</p>
                   </TableCell>
-                  <TableCell className="text-right font-mono text-[10px] text-muted-foreground/70">
-                    {page.uuid.slice(0, 8)}…
+                  <TableCell className="text-right">
+                    <ConfigBadge configured={page.hasConfig} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -227,31 +247,30 @@ export function CatalogTab() {
           title={t('remnaWavePage.catalog.snippets.title')}
           description={t('remnaWavePage.catalog.snippets.description', { count: snippets?.length ?? 0 })}
           loading={loadingSnippets}
+          unavailable={snippetsQuery.isError || !snippets}
+          onRetry={() => void snippetsQuery.refetch()}
           empty={!snippets || snippets.length === 0}
           emptyText={t('remnaWavePage.catalog.snippets.empty')}
         >
+          {/* A snippet is `{ name, snippet }` upstream — no uuid, no type, no
+              description. `key` was `snippet.uuid`, which mapped to `''` for
+              every row: two snippets were enough for React to see duplicate
+              keys. `name` is the record's only identity and is now the key. */}
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>{t('remnaWavePage.catalog.columns.name')}</TableHead>
-                <TableHead>{t('remnaWavePage.catalog.snippets.type')}</TableHead>
+                <TableHead className="text-right">{t('remnaWavePage.catalog.snippets.entries')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {snippets?.map((snippet) => (
-                <TableRow key={snippet.uuid}>
+                <TableRow key={snippet.name}>
                   <TableCell>
                     <p className="font-medium">{snippet.name}</p>
-                    {snippet.description ? (
-                      <p className="text-xs text-muted-foreground">{snippet.description}</p>
-                    ) : null}
                   </TableCell>
-                  <TableCell>
-                    {snippet.type ? (
-                      <Badge variant="outline" className="px-1.5 text-[10px] font-normal">{snippet.type}</Badge>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
+                  <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
+                    {snippet.entriesCount ?? '—'}
                   </TableCell>
                 </TableRow>
               ))}
@@ -268,12 +287,31 @@ interface SectionCardProps {
   readonly title: string
   readonly description: string
   readonly loading: boolean
+  /**
+   * The section never got an answer. Takes priority over `empty`: the four
+   * counts in the card headers all read `data?.length ?? 0`, so without this
+   * a failed request renders "0 profiles / No config profiles" — a confident
+   * claim about the operator's panel that nobody actually verified.
+   */
+  readonly unavailable?: boolean
+  readonly onRetry?: () => void
   readonly empty: boolean
   readonly emptyText: string
   readonly children: React.ReactNode
 }
 
-function SectionCard({ icon: Icon, title, description, loading, empty, emptyText, children }: SectionCardProps) {
+function SectionCard({
+  icon: Icon,
+  title,
+  description,
+  loading,
+  unavailable = false,
+  onRetry,
+  empty,
+  emptyText,
+  children,
+}: SectionCardProps) {
+  const { t } = useTranslation()
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -288,6 +326,12 @@ function SectionCard({ icon: Icon, title, description, loading, empty, emptyText
           <div className="flex h-24 items-center justify-center">
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden />
           </div>
+        ) : unavailable ? (
+          <DataUnavailable
+            className="mx-6 mb-4"
+            message={t('remnaWavePage.catalog.sectionUnavailable')}
+            onRetry={onRetry}
+          />
         ) : empty ? (
           <p className="px-6 pb-4 text-sm text-muted-foreground">{emptyText}</p>
         ) : (
@@ -295,6 +339,22 @@ function SectionCard({ icon: Icon, title, description, loading, empty, emptyText
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * "Does this row carry a config blob" — the only thing either spec says about
+ * `config` / `pluginConfig`, both of which are declared `{"nullable": true}`
+ * with no type at all.
+ */
+function ConfigBadge({ configured }: { configured: boolean }) {
+  const { t } = useTranslation()
+  return (
+    <Badge variant={configured ? 'success' : 'outline'} className="px-1.5 text-[10px] font-normal">
+      {configured
+        ? t('remnaWavePage.catalog.columns.configured')
+        : t('remnaWavePage.catalog.columns.configEmpty')}
+    </Badge>
   )
 }
 

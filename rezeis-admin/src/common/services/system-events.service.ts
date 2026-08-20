@@ -24,6 +24,8 @@
  * rezeis-admin has no bot — the admin panel shows events in real-time.
  */
 
+import { createHash } from 'node:crypto';
+
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
@@ -48,6 +50,9 @@ import {
 } from './error-report.util';
 import { resolveErrorReportsDir, writeErrorReport } from './error-report-archive.util';
 import { BotNotifierClient } from '../../modules/notifications/services/bot-notifier.client';
+import { ReiwaRelayQueueService } from '../../modules/notifications/services/reiwa-relay-queue.service';
+import type { ReiwaRelayEvent } from '../../modules/notifications/reiwa-relay.constants';
+import { isRelayLoopGuardedEvent } from '../../modules/notifications/reiwa-relay.policy';
 
 // ── Event Types ─────────────────────────────────────────────────────────────
 
@@ -98,6 +103,7 @@ export const EVENT_TYPES = {
   USER_TELEGRAM_LINKED: 'user.telegram_linked',
   USER_EMAIL_LINKED: 'user.email_linked',
   USER_ACCOUNTS_MERGED: 'user.accounts_merged',
+  USER_FIRST_TRAFFIC: 'user.first_traffic',
 
   // Auth
   AUTH_WEB_LOGIN: 'auth.web_login',
@@ -112,18 +118,58 @@ export const EVENT_TYPES = {
   SUBSCRIPTION_DELETED: 'subscription.deleted',
   SUBSCRIPTION_SYNCED: 'subscription.synced',
   SUBSCRIPTION_TRIAL_GRANTED: 'subscription.trial_granted',
+  TRIAL_CLAIM_LATE_SUCCESS_OVER_CAP: 'trial.claim_late_success_over_cap',
   SUBSCRIPTION_DEVICE_REVOKED: 'user_hwid_revoked',
 
   // Payment
   PAYMENT_CHECKOUT_CREATED: 'payment.checkout_created',
   PAYMENT_COMPLETED: 'payment.completed',
   PAYMENT_FAILED: 'payment.failed',
+  /**
+   * Money given back to the customer. Deliberately NOT `payment.failed`: that
+   * type can be bound to a customer email template, and a refund is not a
+   * failed payment — the customer would get "your payment did not go through"
+   * about their own refund.
+   */
+  PAYMENT_REFUNDED: 'payment.refunded',
+  /** Refund smaller than the captured amount — needs an operator decision. */
+  PAYMENT_REFUND_PARTIAL: 'payment.refund_partial',
+  /**
+   * Money arrived, but not the amount we invoiced — or it is frozen at the
+   * provider (Cryptomus/Heleket `wrong_amount` / `locked`, Pally `UNDERPAID`).
+   * Deliberately NOT `payment.failed` and NOT `payment.expired`: the buyer did
+   * pay and the funds are ours, so neither "платёж не прошёл" nor the routine
+   * abandoned-cart expiry describes it. Needs an operator decision.
+   */
+  PAYMENT_AMOUNT_MISMATCH: 'payment.amount_mismatch',
+  /**
+   * The provider's own figure for a payment that COMPLETED came in under what
+   * we booked. Nothing is held, nothing is withheld, the customer has what they
+   * paid for — somebody should still find out why the two records disagree.
+   *
+   * Its own type rather than `payment.amount_mismatch`, which was the first
+   * attempt and does not work: the Telegram card renders the PRESENTATION title
+   * for a type, not the per-call message, so an informational note and a payment
+   * that is actually held produced visually identical cards — «⚠️ Оплачена
+   * неверная сумма» on a payment that went through perfectly normally, with a
+   * `needsManualReview: false` line buried in the metadata as the only
+   * difference. An operator who cannot tell "this one needs me now" from "this
+   * one is a note" without opening it stops opening either.
+   */
+  PAYMENT_NOTIFIED_AMOUNT_SHORT: 'payment.notified_amount_short',
   PAYMENT_EXPIRED: 'payment.expired',
   PAYMENT_WEBHOOK_RECEIVED: 'payment.webhook_received',
   PAYMENT_FULFILLMENT_RECOVERED: 'payment.fulfillment_recovered',
   PAYMENT_METHOD_SAVED: 'payment.method_saved',
   PAYMENT_METHOD_UNBOUND: 'payment.method_unbound',
   PAYMENT_METHOD_AUTOPAY_UPDATED: 'payment.method_autopay_updated',
+  /**
+   * An off-session autopay charge stopped for 3DS/redirect and is waiting on
+   * the customer. Nobody is at fault and nothing failed yet — but the money
+   * does not arrive until the customer acts, so an operator chasing a missing
+   * renewal needs to see this rather than infer it from silence.
+   */
+  PAYMENT_AUTOPAY_CONFIRMATION_REQUIRED: 'payment.autopay_confirmation_required',
 
   // Referral
   REFERRAL_ATTACHED: 'referral.attached',
@@ -140,6 +186,14 @@ export const EVENT_TYPES = {
   PARTNER_WITHDRAWAL_APPROVED: 'partner.withdrawal_approved',
   PARTNER_WITHDRAWAL_REJECTED: 'partner.withdrawal_rejected',
   PARTNER_BALANCE_ADJUSTED: 'partner.balance_adjusted',
+  /**
+   * A partner was debited for a purchase, fulfillment failed, and the refund
+   * to their balance ALSO failed. Deliberately not `partner.balance_adjusted`:
+   * nothing was adjusted — the money is gone and only a human can give it
+   * back. A retry sweep re-drives it, but the operator is told immediately
+   * because the sweep is not guaranteed to succeed either.
+   */
+  PARTNER_BALANCE_REFUND_FAILED: 'partner.balance_refund_failed',
 
   // Promocode
   PROMOCODE_ACTIVATED: 'promocode.activated',
@@ -154,6 +208,39 @@ export const EVENT_TYPES = {
   // Anti-fraud
   FRAUD_SIGNAL_OPENED: 'fraud.signal_opened',
   FRAUD_CONNECTIONS_DROPPED: 'fraud.connections_dropped',
+  /**
+   * A detector named a condition and an operator exemption stopped it becoming
+   * a signal. Edge-triggered — emitted when the exemption STARTS covering a
+   * condition, not on every one of the 288 daily runs that follow. Without it a
+   * whitelist is a detector switched off with nobody told.
+   */
+  FRAUD_CANDIDATE_EXEMPTED: 'fraud.candidate_exempted',
+  FRAUD_EXEMPTION_GRANTED: 'fraud.exemption_granted',
+  FRAUD_EXEMPTION_REVOKED: 'fraud.exemption_revoked',
+  /**
+   * A batch of OPEN signals closed themselves because the condition is no
+   * longer detected. One summary event per reconciliation run, not one per
+   * row — a first deployment can clear a large backlog at once.
+   */
+  FRAUD_SIGNALS_AUTO_RESOLVED: 'fraud.signals_auto_resolved',
+  /** An existing signal's severity was raised by a fresh detection. */
+  FRAUD_SIGNAL_ESCALATED: 'fraud.signal_escalated',
+  /**
+   * The condition still holds but measures lower than the recorded peak.
+   * Edge-triggered, so a signal parked at the lower level does not
+   * re-announce itself every run.
+   */
+  FRAUD_SIGNAL_SEVERITY_RECEDED: 'fraud.signal_severity_receded',
+  /**
+   * An admin moved a fraud signal between statuses.
+   *
+   * Sits in the Anti-fraud block because the block a constant sits in is how
+   * this file expresses category, and its only producer
+   * (`AntiFraudService.transitionStatus`) now emits `FRAUD` like every sibling.
+   * It spent a while in the System block instead — see the note at that emit
+   * site for the two operator-visible defects that came of it.
+   */
+  FRAUD_SIGNAL_TRANSITIONED: 'fraud.signal_transitioned',
 
   // Remnawave panel (forwarded webhook events)
   REMNAWAVE_USER_FIRST_CONNECTED: 'remnawave.user.first_connected',
@@ -165,6 +252,12 @@ export const EVENT_TYPES = {
   REMNAWAVE_USER_TRAFFIC_RESET: 'remnawave.user.traffic_reset',
   REMNAWAVE_BANDWIDTH_THRESHOLD: 'remnawave.user.bandwidth_threshold',
   REMNAWAVE_PANEL_STARTED: 'remnawave.panel.started',
+  /**
+   * Panel-wide device average crossed a band (`RemnawaveDetectors`, polled —
+   * the panel has no webhook for it). An infrastructure fact about the whole
+   * panel, so it names no customer and is not a fraud signal.
+   */
+  REMNAWAVE_HWID_AVERAGE_HIGH: 'remnawave.hwid_average_high',
 
   // Node (forwarded webhook events)
   NODE_CONNECTION_LOST: 'node.connection_lost',
@@ -174,12 +267,66 @@ export const EVENT_TYPES = {
   NODE_ENABLED: 'node.enabled',
   NODE_DISABLED: 'node.disabled',
   NODE_TRAFFIC_NOTIFY: 'node.traffic_notify',
+  /**
+   * Too much of the online population sits behind one country's nodes
+   * (`RemnawaveDetectors`, polled). Same shape as the forwarded node events
+   * above — a fact about the fleet, not about anybody using it.
+   */
+  NODE_GEO_CONCENTRATION: 'node.geo_concentration',
 
   // System
   SYSTEM_STARTUP: 'system.startup',
   SYSTEM_BACKUP_COMPLETED: 'system.backup_completed',
+  /** A database restore finished — the counterpart of `system.backup_completed`. */
+  SYSTEM_RESTORE_COMPLETED: 'system.restore_completed',
   SYSTEM_BROADCAST_SENT: 'system.broadcast_sent',
+  /** One admin action that touched many users at once (block/unblock/delete/…). */
+  SYSTEM_BULK_USERS_EXECUTED: 'system.bulk_users_executed',
   SYSTEM_ERROR: 'system.error',
+  /** Admin-panel (SPA) runtime error reported back by the browser. */
+  CLIENT_ERROR: 'client.error',
+  /** Runtime error forwarded from the reiwa bot over the internal channel. */
+  REIWA_ERROR: 'reiwa.error',
+  /**
+   * A signed webhook to reiwa did not deliver and nothing further is coming —
+   * the queue exhausted its attempts, or the failure was never transient.
+   * Until this existed the only record was a `logger.warn` in an in-memory
+   * ring buffer, so a cabinet that stopped accepting relays was invisible.
+   */
+  REIWA_RELAY_UNDELIVERED: 'reiwa.relay_undelivered',
+  /** Broadcast fan-out began; `system.broadcast_sent` is the terminal one. */
+  BROADCAST_STARTED: 'broadcast.started',
+  BROADCAST_BATCH_COMPLETED: 'broadcast.batch_completed',
+  /**
+   * The operator asked for a one-shot copy of a broadcast in a Telegram
+   * channel and it never entered durable delivery — the relay is not
+   * configured, or the queue refused the job.
+   *
+   * Its own type rather than `system.broadcast_sent`, which it used to borrow.
+   * That type's card reads 📢 «Рассылка отправлена», so the operator got a
+   * headline claiming a send above a body saying a send did not happen — and
+   * every rule, filter and tick-box watching for "broadcast sent" fired in the
+   * middle of staging, on a failure. A warning has to be able to say so in its
+   * own name.
+   */
+  BROADCAST_CHANNEL_POST_UNDELIVERED: 'broadcast.channel_post_undelivered',
+  IMPORT_COMPLETED: 'import.completed',
+  IMPORT_FAILED: 'import.failed',
+  IMPORT_PLAN_ASSIGNED: 'import.plan_assigned',
+  IMPORT_SYNC_ENQUEUED: 'import.sync_enqueued',
+  /** An automation rule's "notify Telegram" action fired. */
+  AUTOMATION_TELEGRAM_NOTIFY: 'automation.telegram_notify',
+  /**
+   * Default type of the automations `system_event` action, used whenever the
+   * rule's params omit `type`. The action lets the operator write their OWN
+   * type string (a capability other rules and webhooks depend on), so most of
+   * that action's output stays unregisterable by construction and is covered
+   * by `UNREGISTERED_EVENTS_SENTINEL` instead — but the DEFAULT is a fixed,
+   * known string, so it gets a real constant, a card and a tick-box like any
+   * other producer. Category is whatever the rule passes (SYSTEM by default),
+   * which is what picks the forum topic.
+   */
+  AUTOMATION_CUSTOM: 'automation.custom',
   SETTINGS_EMAIL_UPDATED: 'settings.email.updated',
   NOTIFICATION_TEMPLATE_CREATED: 'notification.template.created',
   NOTIFICATION_TEMPLATE_UPDATED: 'notification.template.updated',
@@ -187,6 +334,19 @@ export const EVENT_TYPES = {
   NOTIFICATION_TEMPLATE_SEEDED: 'notification.template.seeded',
   SYSTEM_REMNAWAVE_SYNC: 'system.remnawave_sync',
 } as const;
+
+/**
+ * The registered types, as a set, for the Telegram delivery gate.
+ *
+ * This is precisely the set of types an operator can tick: the SPA catalogue in
+ * `notifications-page.tsx` is held equal to `Object.values(EVENT_TYPES)` in both
+ * directions by `test/system-event-registry.spec.ts`. The gate needs that
+ * distinction because the catch-all tick-box may only cover types the operator
+ * had no way to tick — a registered type stays exact-match.
+ */
+export const REGISTERED_EVENT_TYPES: ReadonlySet<string> = new Set<string>(
+  Object.values(EVENT_TYPES),
+);
 
 // ── Service ─────────────────────────────────────────────────────────────────
 
@@ -235,6 +395,14 @@ export class SystemEventsService {
    */
   private botNotifier: BotNotifierClient | null = null;
   private botNotifierResolved = false;
+
+  /**
+   * Lazily-resolved durable relay producer — same `ModuleRef` escape hatch.
+   * `null` in runtimes where `ReiwaRelayModule` is not registered, in which
+   * case delivery falls back to the direct single-attempt client.
+   */
+  private relayQueue: ReiwaRelayQueueService | null = null;
+  private relayQueueResolved = false;
 
   public constructor(
     private readonly prismaService: PrismaService,
@@ -553,10 +721,15 @@ export class SystemEventsService {
     // applies to EVERY path (operator group, reiwa relay, AND the dev-DM
     // fallback). Unselected events go nowhere on Telegram. The panel still
     // has them (audit log + realtime already ran in emit()).
+    //
+    // `knownTypes` separates "the operator was offered this and said no" from
+    // "the operator was never offered this at all" — only the latter can be
+    // covered by the catch-all tick-box.
     if (
       !isEventTelegramAllowed(event.type, {
         eventsMode: tgConfig.eventsMode,
         events: tgConfig.events,
+        knownTypes: REGISTERED_EVENT_TYPES,
       })
     ) {
       return;
@@ -574,6 +747,13 @@ export class SystemEventsService {
       errorEvent && tgConfig.errorReportTelegramTxt && tgConfig.errorReportMode !== 'off';
 
     const resolved = resolveTelegramDeliveryTarget(tgConfig, enriched);
+    if (errorEvent) {
+      this.logger.log(
+        `Telegram error report route: type=${event.type} target=${
+          resolved?.isDevFallback ? 'dev-fallback' : resolved !== null ? 'group' : 'dev-fallback'
+        } topic=${resolved?.topicId ?? 'none'} attachment=${attachTxt ? 'document' : 'card-only'}`,
+      );
+    }
     if (resolved === null) {
       // No operator group AND no manual devChatId configured → automatic
       // dev-fallback: route the event to the reiwa bot's BOT_DEV_ID via the
@@ -600,9 +780,15 @@ export class SystemEventsService {
         // chat/topic. This is what makes category routing + the test message
         // actually work without a token on rezeis.
         const html = errorEvent
-          ? formatErrorEventCardHtml(reportEvent, getRezeisBuildInfo(), false)
+          ? formatErrorEventCardHtml(reportEvent, getRezeisBuildInfo(), attachTxt)
           : this.formatTelegramMessage(enriched);
-        await this.deliverViaReiwaBroadcast(enriched, html, resolved.chatId, resolved.topicId);
+        await this.deliverViaReiwaBroadcast(enriched, {
+          html,
+          chatId: resolved.chatId,
+          topicId: resolved.topicId,
+          attachTxt,
+          reportEvent,
+        });
       }
       return;
     }
@@ -711,6 +897,51 @@ export class SystemEventsService {
     return this.botNotifier;
   }
 
+  /** Same lazy `ModuleRef` lookup for the durable relay queue producer. */
+  private resolveRelayQueue(): ReiwaRelayQueueService | null {
+    if (this.relayQueueResolved) return this.relayQueue;
+    this.relayQueueResolved = true;
+    try {
+      this.relayQueue = this.moduleRef?.get(ReiwaRelayQueueService, { strict: false }) ?? null;
+    } catch {
+      this.relayQueue = null;
+    }
+    return this.relayQueue;
+  }
+
+  /**
+   * Hand one relay event to the durable queue — except for the one system
+   * event that must never enter it.
+   *
+   * `emit()` fans every event out to Telegram, and the relay processor reports
+   * an exhausted job by emitting a system event. Queue that and the failure
+   * feeds itself for as long as the cabinet is down: exhausted job -> alert ->
+   * new relay job -> exhausted -> alert. So `reiwa.relay_undelivered` keeps
+   * the delivery model relays used to have — one direct attempt, outcome
+   * logged — which terminates the chain after a single hop. It loses nothing:
+   * that event is already in `AdminAuditLog` and on the realtime socket before
+   * Telegram is tried at all. See `isRelayLoopGuardedEvent`.
+   */
+  private async relaySystemEvent(
+    systemEventType: string,
+    relayEvent: ReiwaRelayEvent,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    const queue = this.resolveRelayQueue();
+    if (queue !== null && !isRelayLoopGuardedEvent(systemEventType)) {
+      await queue.enqueue(relayEvent, metadata);
+      return;
+    }
+    const notifier = this.resolveBotNotifier();
+    if (notifier === null) return;
+    const outcome = await notifier.deliverRelayEvent(relayEvent, metadata);
+    if (outcome.status !== 'confirmed' && outcome.status !== 'unconfirmed') {
+      this.logger.warn(
+        `Direct relay ${relayEvent} for ${systemEventType} did not deliver: ${outcome.status}`,
+      );
+    }
+  }
+
   /**
    * Automatic dev-fallback: deliver the event card to the reiwa bot's
    * `BOT_DEV_ID` over the internal channel. Best-effort and a no-op when the
@@ -725,8 +956,6 @@ export class SystemEventsService {
       readonly reportEvent: ErrorReportEvent;
     },
   ): Promise<void> {
-    const notifier = this.resolveBotNotifier();
-    if (notifier === null) return;
     const html = opts.errorEvent
       ? formatErrorEventCardHtml(opts.reportEvent, getRezeisBuildInfo(), opts.attachTxt)
       : this.formatTelegramMessage(event);
@@ -737,7 +966,8 @@ export class SystemEventsService {
         // its caption, and a Close button (attached bot-side). The stack
         // trace + raw payload live in the attached .txt, one tap away.
         const txt = formatErrorReportTxt(opts.reportEvent, getRezeisBuildInfo());
-        await notifier.notifyDevDocument({
+        await this.relaySystemEvent(event.type, 'reiwa.dev.notify.document', {
+          eventId: buildDevRelayEventId(event, 'dev-document'),
           filename: buildErrorReportFilename(opts.reportEvent),
           content: txt,
           caption: html,
@@ -745,7 +975,11 @@ export class SystemEventsService {
         });
       } else {
         // Non-error events (or txt attachment disabled): inline card only.
-        await notifier.notifyDev({ text: html, parseMode: 'HTML' });
+        await this.relaySystemEvent(event.type, 'reiwa.dev.notify', {
+          eventId: buildDevRelayEventId(event, 'dev'),
+          text: html,
+          parseMode: 'HTML',
+        });
       }
     } catch (err) {
       this.logger.warn(`Dev-fallback notify failed: ${(err as Error).message}`);
@@ -753,33 +987,82 @@ export class SystemEventsService {
   }
 
   /**
-   * Split-deployment operator delivery: relay the card to a specific
-   * chat/topic through the reiwa bot's broadcast path (the bot owns the
-   * token). Used when an operator group is configured but rezeis has no local
-   * bot token. Best-effort; documents (error `.txt`) are not relayed here —
-   * the card itself carries the actionable summary.
+   * Split-deployment operator delivery through the reiwa bot. Error reports
+   * retain both their `.txt` attachment and the configured forum topic, even
+   * though Rezeis intentionally does not keep the Telegram bot token.
    */
   private async deliverViaReiwaBroadcast(
     event: SystemEventPayload & { timestamp: string },
-    html: string,
-    chatId: string,
-    topicId: number | null,
+    opts: {
+      readonly html: string;
+      readonly chatId: string;
+      readonly topicId: number | null;
+      readonly attachTxt: boolean;
+      readonly reportEvent: ErrorReportEvent;
+    },
   ): Promise<void> {
-    const notifier = this.resolveBotNotifier();
-    if (notifier === null) {
+    if (this.resolveRelayQueue() === null && this.resolveBotNotifier() === null) {
       this.logger.warn(
         `Telegram delivery skipped for ${event.type}: no local bot token and reiwa relay unavailable`,
       );
       return;
     }
     try {
-      await notifier.notifyBroadcast({
-        eventId: `sysevt:${event.type}:${event.timestamp}`,
-        chatId,
-        topicThreadId: topicId ?? undefined,
-        text: html,
-        parseMode: 'HTML',
-      });
+      if (opts.attachTxt) {
+        // `eventId` is built from the event's own emit timestamp, not the send
+        // time, so every retry of this job carries the same key and the bot's
+        // idempotency cache collapses the duplicates.
+        //
+        // Both parts are clipped for the same reason `buildDevRelayEventId`
+        // clips them: the cabinet validates this field with a REQUIRED
+        // `.max(128)` and no soft fallback (unlike the dev routes, which use
+        // `.catch(undefined)`). An over-long key is a 400, the relay reads a
+        // 4xx as non-transient, `ReiwaRelayProcessor` throws
+        // `UnrecoverableError` — so the operator card is LOST OUTRIGHT rather
+        // than merely undeduplicated, and `reiwa.relay_undelivered` fires in
+        // its place. `type` is not a closed set: `ReceiveSystemEventDto`
+        // accepts 200 characters and automation rules mint types at runtime,
+        // so `7 + 200 + 1 + 24` overflows 128 with room to spare.
+        //
+        // CLIPPED UNCONDITIONALLY, not only when the key would overflow. The
+        // conditional form is tempting because it preserves every key that
+        // works today — the budget is 83 characters, so types of 49..83 do
+        // currently produce a valid key and this DOES change theirs. Two
+        // reasons it is still the wrong trade:
+        //
+        //   1. A length-conditional branch puts a SECOND key shape in
+        //      production and reaches it only on the rare long input — the
+        //      branch nobody exercises until the day it matters. That failure
+        //      shape has shipped here repeatedly; a single always-taken path
+        //      is worth more than the keys it renames.
+        //   2. Renaming those keys costs nothing. The key is frozen into the
+        //      BullMQ payload at enqueue and replayed verbatim on every
+        //      attempt, so a job already queued when this deploys keeps
+        //      deduping against itself. Only events emitted AFTER the deploy
+        //      get the new shape, and those have nothing to collide with.
+        //
+        // 48/32 keeps the worst case at 103 characters including the
+        // `:error-report` suffix, and matches `buildDevRelayEventId` so this
+        // file has one rule rather than two.
+        await this.relaySystemEvent(event.type, 'reiwa.channel.broadcast.document', {
+          eventId: `sysevt:${clip(event.type, 48)}:${clip(event.timestamp, 32)}:error-report`,
+          chatId: opts.chatId,
+          topicThreadId: opts.topicId ?? undefined,
+          filename: buildErrorReportFilename(opts.reportEvent),
+          content: formatErrorReportTxt(opts.reportEvent, getRezeisBuildInfo()),
+          caption: opts.html,
+          parseMode: 'HTML',
+        });
+      } else {
+        // Clipped for the reason spelt out on the document branch above.
+        await this.relaySystemEvent(event.type, 'reiwa.channel.broadcast', {
+          eventId: `sysevt:${clip(event.type, 48)}:${clip(event.timestamp, 32)}`,
+          chatId: opts.chatId,
+          topicThreadId: opts.topicId ?? undefined,
+          text: opts.html,
+          parseMode: 'HTML',
+        });
+      }
     } catch (err) {
       this.logger.warn(`Reiwa broadcast relay failed: ${(err as Error).message}`);
     }
@@ -815,21 +1098,63 @@ export class SystemEventsService {
     const meta = event.metadata ?? {};
     const present = EVENT_PRESENTATION[event.type];
     const emoji = present?.emoji ?? severityEmoji(event.severity);
-    const title = present?.title ?? event.message;
 
-    const lines: string[] = [
-      hashtag,
-      '',
-      present
-        ? `${emoji} <b>Событие: ${escapeHtml(present.title)}!</b>`
-        : `${emoji} <b>${escapeHtml(title)}</b>`,
-    ];
+    const lines: string[] = [hashtag, ''];
+    if (present) {
+      lines.push(`${emoji} <b>Событие: ${escapeHtml(present.title)}!</b>`);
+    } else {
+      // No EVENT_PRESENTATION entry — a type chosen at runtime by an
+      // automation rule or by the reiwa ingest, which by construction can
+      // never be in that map. Two things have to hold for the card to stay
+      // readable:
+      //
+      //   * the header is never empty. `message` is what the fallback header
+      //     has always shown, but nothing guarantees it is non-blank —
+      //     `ReceiveSystemEventDto.message` has no `@MinLength`, so an empty
+      //     string used to render as a bare `<b></b>`;
+      //   * the machine type is shown ONCE, in full and as `<code>`. Its only
+      //     other appearance is the hashtag, which mangles dots and drops
+      //     punctuation, so without this line an operator receiving a card for
+      //     a type they do not recognise has no way to find out what fired.
+      const message = event.message.trim();
+      const headline =
+        message.length > 0 ? message : `Событие без описания: ${clip(event.type, 120)}`;
+      lines.push(`${emoji} <b>${escapeHtml(clip(headline, 200))}</b>`);
+      lines.push(`🏷 Незарегистрированный тип: <code>${escapeHtml(clip(event.type, 120))}</code>`);
+    }
 
     // Fraud block — a dedicated, informative card for anti-fraud signals.
     // Uses `fraud*`-prefixed metadata so it never collides with the generic
     // user/promocode blocks below.
     if (event.category === 'FRAUD' && meta['fraudKind'] !== undefined) {
       lines.push(...formatFraudBlock(meta));
+    }
+
+    // Fraud signal lifecycle block — what an operator (or the reconciliation
+    // sweep) just did to a signal. `formatFraudBlock` above cannot carry this:
+    // it is offender-centric and keys off `fraudKind`, which a status change
+    // does not have.
+    //
+    // Keyed on the status PAIR rather than the event type because that pair has
+    // exactly one producer in the codebase (`AntiFraudService.transitionStatus`)
+    // and no other emitter puts `previousStatus`/`newStatus` in metadata — so
+    // the condition cannot quietly start matching somebody else's card.
+    //
+    // Not optional decoration: `code` and the two statuses belong to no other
+    // block, so without this the card would announce «изменён статус сигнала»
+    // and never say which signal, or to what.
+    if (meta['previousStatus'] && meta['newStatus']) {
+      lines.push('');
+      lines.push('🔁 <b>Сигнал:</b>');
+      const signalLines: string[] = [];
+      if (meta['code']) signalLines.push(`🚦 Код: <code>${escapeHtml(meta['code'])}</code>`);
+      signalLines.push(
+        `↔️ Статус: ${humanizeFraudSignalStatus(meta['previousStatus'])} → ` +
+          `${humanizeFraudSignalStatus(meta['newStatus'])}`,
+      );
+      if (meta['signalId'])
+        signalLines.push(`🆔 Сигнал: <code>${escapeHtml(String(meta['signalId']).slice(0, 12))}</code>`);
+      lines.push(`<blockquote>${signalLines.join('\n')}</blockquote>`);
     }
 
     // User block
@@ -882,22 +1207,37 @@ export class SystemEventsService {
       if (!meta['paymentId'] && !meta['amount'] && typeof meta['receiptUrl'] === 'string') {
         planLines.push(`📃 <a href="${escapeHtml(meta['receiptUrl'])}">Чек</a>`);
       }
+      if (meta['subscriptionId'])
+        planLines.push(`🗳 ID: <code>${escapeHtml(meta['subscriptionId'])}</code>`);
       if (meta['planName']) planLines.push(`🏷 План: ${escapeHtml(meta['planName'])}`);
+      if (meta['status'] !== undefined)
+        planLines.push(`🚦 Статус: ${humanizeSubscriptionStatus(meta['status'])}`);
       if (meta['planType']) planLines.push(`📦 Тип: ${humanizePlanType(meta['planType'])}`);
       else if (meta['purchaseType'])
         planLines.push(`📦 Тип: ${humanizePurchaseType(meta['purchaseType'])}`);
-      if (typeof meta['trafficLimitBytes'] === 'number')
+      // Prefer "used / limit" when usage is known (first connect / first traffic
+      // cards). Fall back to limit-only for purchase/renewal events.
+      if (typeof meta['usedTrafficBytes'] === 'number') {
+        const limit =
+          typeof meta['trafficLimitBytes'] === 'number' && meta['trafficLimitBytes'] > 0
+            ? ` / ${fmtBytes(meta['trafficLimitBytes'])}`
+            : '';
+        planLines.push(`📊 Трафик: ${fmtBytes(meta['usedTrafficBytes'])}${limit}`);
+      } else if (typeof meta['trafficLimitBytes'] === 'number') {
         planLines.push(`📊 Лимит трафика: ${fmtBytes(meta['trafficLimitBytes'])}`);
+      }
       if (meta['deviceLimit'] !== undefined)
         planLines.push(`📱 Лимит устройств: ${escapeHtml(meta['deviceLimit'])}`);
       if (meta['durationDays'])
         planLines.push(`⏳ Длительность: ${humanizeDuration(meta['durationDays'])}`);
       if (meta['isTrial'] !== undefined)
         planLines.push(`🎁 Триал: ${meta['isTrial'] ? 'да' : 'нет'}`);
-      if (meta['expireAt'] || meta['expiresAt'])
-        planLines.push(`📅 Действует до: ${fmtDate(meta['expireAt'] ?? meta['expiresAt'])}`);
-      if (meta['subscriptionId'])
-        planLines.push(`🗳 Подписка ID: <code>${escapeHtml(meta['subscriptionId'])}</code>`);
+      const expireRaw = meta['expireAt'] ?? meta['expiresAt'];
+      if (expireRaw !== undefined && expireRaw !== null) {
+        const remaining = fmtRemaining(expireRaw);
+        if (remaining) planLines.push(`⏱ Осталось: ${remaining}`);
+        planLines.push(`📅 Действует до: ${fmtDate(expireRaw)}`);
+      }
       if (meta['source']) planLines.push(`📌 Причина: ${humanizeSource(meta['source'])}`);
       lines.push(`<blockquote>${planLines.join('\n')}</blockquote>`);
     }
@@ -915,14 +1255,16 @@ export class SystemEventsService {
           `🃏 Профиль на панели: <code>${escapeHtml(meta['remnawaveUsername'])}</code>`,
         );
       if (remnaUuid) remnaLines.push(`🔹 UUID: <code>${escapeHtml(remnaUuid)}</code>`);
-      if (typeof meta['usedTrafficBytes'] === 'number') {
+      // When a subscription block already owns usage/limit, skip the duplicate
+      // traffic line here so first-connect / first-traffic cards stay clean.
+      if (typeof meta['usedTrafficBytes'] === 'number' && !meta['subscriptionId']) {
         const limit =
           typeof meta['trafficLimitBytes'] === 'number' && meta['trafficLimitBytes'] > 0
             ? ` / ${fmtBytes(meta['trafficLimitBytes'])}`
             : '';
         remnaLines.push(`📊 Трафик: ${fmtBytes(meta['usedTrafficBytes'])}${limit}`);
       }
-      if (meta['expireAt'] && !meta['planName'])
+      if (meta['expireAt'] && !meta['planName'] && !meta['subscriptionId'])
         remnaLines.push(`📅 Действует до: ${fmtDate(meta['expireAt'])}`);
       lines.push(`<blockquote>${remnaLines.join('\n')}</blockquote>`);
       const panelUrl = buildRemnawavePanelUrl();
@@ -1026,14 +1368,37 @@ export class SystemEventsService {
       lines.push(`<blockquote>${refLines.join('\n')}</blockquote>`);
     }
 
-    // Promocode block
-    if ((meta['code'] || meta['promocodeId']) && event.category !== 'FRAUD') {
+    // Promocode block.
+    //
+    // Gated on the PROMOCODE category — an allow-list — rather than on "any
+    // category except FRAUD", which is what it used to say.
+    //
+    // The deny-list had exactly one victim, and it is already fixed at its
+    // source: `fraud.signal_transitioned` passed category SYSTEM, walked around
+    // the single FRAUD exception, and arrived titled «🎟 Промокод: 🎫 Код:
+    // NODES_OFFLINE». So this is hardening, not a second repair of that card —
+    // with the category corrected it would render right either way.
+    //
+    // It is worth doing anyway because `code` is a generic key and the deny-list
+    // decides by what an event is NOT. `POST /api/internal/events` takes a
+    // free-form `type` with any category from the enum and an unconstrained
+    // `metadata`, so the next service that names a field `code` is captioned as
+    // a coupon until somebody notices and adds a third exception. An allow-list
+    // fails the other way: an unknown producer gets no block rather than a wrong
+    // one, which is the direction to be wrong in.
+    //
+    // Nothing that belongs here loses its block: only `promocode.*` emits under
+    // PROMOCODE, and `promocode.activated` is the sole producer of
+    // `rewardType`/`rewardValue`.
+    if ((meta['code'] || meta['promocodeId']) && event.category === 'PROMOCODE') {
       lines.push('');
       lines.push('🎟 <b>Промокод:</b>');
       const promoLines: string[] = [];
-      if (meta['code']) promoLines.push(`🎫 Код: <code>${meta['code']}</code>`);
-      if (meta['rewardType']) promoLines.push(`💥 Тип награды: ${meta['rewardType']}`);
-      if (meta['rewardValue']) promoLines.push(`🎊 Значение: ${meta['rewardValue']}`);
+      // Escaped like every other interpolation on this card: a promocode is
+      // operator-authored free text and this message is sent in HTML mode.
+      if (meta['code']) promoLines.push(`🎫 Код: <code>${escapeHtml(meta['code'])}</code>`);
+      if (meta['rewardType']) promoLines.push(`💥 Тип награды: ${escapeHtml(meta['rewardType'])}`);
+      if (meta['rewardValue']) promoLines.push(`🎊 Значение: ${escapeHtml(meta['rewardValue'])}`);
       lines.push(`<blockquote>${promoLines.join('\n')}</blockquote>`);
     }
 
@@ -1295,13 +1660,94 @@ export class SystemEventsService {
 
 function eventTypeToHashtag(type: string): string {
   // "payment.completed" → "EventPaymentCompleted"
+  //
+  // The result is interpolated into a `parse_mode: 'HTML'` message, and the
+  // event type is NOT always ours: the automations `system_event` action and
+  // the reiwa `/internal/events` ingest both choose it at runtime. Characters
+  // outside the hashtag alphabet are therefore DROPPED, not escaped — a
+  // Telegram hashtag has no use for them, and dropping them removes the only
+  // route by which a type string could open a tag and forge card structure
+  // (`<b>`, `<blockquote>`, `<a href>`). Every registered type is already
+  // `[a-z0-9_.]`, so this is a no-op for them.
   return (
     'Event' +
     type
       .split('.')
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join('')
+      .replace(/[^A-Za-z0-9_]/g, '')
   );
+}
+
+/** Trims a value to `max` characters, marking the cut with an ellipsis. */
+function clip(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max)}…` : value;
+}
+
+/**
+ * The dedup key for the two dev-fallback relays
+ * ═════════════════════════════════════════════
+ * `reiwa.dev.notify` / `reiwa.dev.notify.document` are `durable`: the queue
+ * gives them four attempts because the dev firehose going quiet during an
+ * incident is the worst outcome on the list. Retrying an unconfirmed delivery
+ * is only safe if the far end can recognise the replay, and the cabinet can —
+ * `claimDevEvent(scope, eventId)` in `bot/listeners/internal-http-listener.ts`,
+ * scoped per endpoint. It just had nothing to key on, because the panel sent
+ * no key. This mints one.
+ *
+ * Two properties matter, and they pull in opposite directions.
+ *
+ * MINTED ONCE, IDENTICAL ON EVERY ATTEMPT. This runs at the producer, before
+ * `ReiwaRelayQueueService.enqueue`, so the value is frozen into the BullMQ job
+ * payload and every retry replays that same payload byte for byte. Nothing in
+ * the key reads the clock at SEND time: the timestamp is `event.timestamp`,
+ * stamped once by `emit()`. Compute it per attempt instead — the obvious
+ * shortcut of `new Date().toISOString()` right here — and every retry would
+ * arrive under a fresh key, the cabinet would claim each one as new, and the
+ * protection would be decoration.
+ *
+ * DISTINCT EVENTS MUST NOT COLLIDE. `sysevt:${type}:${timestamp}`, the shape
+ * the operator-channel relays next door use, is not enough here. Its whole
+ * discriminator is an ISO millisecond, and the firehose's characteristic
+ * traffic is a burst of same-type ERROR events from one failing loop — which
+ * really can land inside one millisecond. A collision is not a harmless
+ * duplicate: `enqueue` derives the BullMQ `jobId` from this key, so the second
+ * card would never even be queued, and the bot would swallow it too. The
+ * digest closes that: it covers everything that makes the event itself, so two
+ * different cards in the same millisecond get different keys, while a genuinely
+ * identical card collapses — which is the behaviour you want anyway.
+ *
+ * Length is bounded ON PURPOSE. The cabinet parses this with
+ * `z.string().trim().min(1).max(128)` and `.catch(undefined)`, so an over-long
+ * key does not fail loudly — it is silently dropped and the event degrades to
+ * exactly the undeduped state this function exists to end. `event.type` is
+ * caller-supplied (automation rules and the reiwa ingest both mint types at
+ * runtime), so it is clipped; the digest still covers it in full. Worst case:
+ * 7 + 49 + 1 + 33 + 1 + 12 + 1 + 16 = 120 characters.
+ */
+function buildDevRelayEventId(
+  event: SystemEventPayload & { timestamp: string },
+  route: 'dev' | 'dev-document',
+): string {
+  let payload: string;
+  try {
+    payload = JSON.stringify(event.metadata ?? {}) ?? '';
+  } catch {
+    // A cyclic or BigInt-bearing payload. Falling back to no payload in the
+    // digest weakens the discriminator to type+timestamp+card-kind for that
+    // one event; throwing here would take down a delivery to protect a key.
+    payload = '';
+  }
+  const digest = createHash('sha256')
+    .update(
+      [route, event.type, event.timestamp, event.severity, event.category, event.message, payload]
+        // NUL cannot occur in any of these, so no combination of field values
+        // can be reassembled into a different one with the same joined string.
+        .join('\u0000'),
+    )
+    .digest('hex')
+    .slice(0, 16);
+  return `sysevt:${clip(event.type, 48)}:${clip(event.timestamp, 32)}:${route}-${digest}`;
 }
 
 function severityEmoji(severity: SystemEventSeverity): string {
@@ -1402,7 +1848,7 @@ function formatFraudBlock(meta: Record<string, unknown>): string[] {
  * type gets its own identity instead of a generic severity icon. Falls back to
  * `severityEmoji` + the raw `event.message` when a type isn't mapped here.
  */
-const EVENT_PRESENTATION: Record<string, { emoji: string; title: string }> = {
+export const EVENT_PRESENTATION: Record<string, { emoji: string; title: string }> = {
   // User
   'user.registered': { emoji: '🆕', title: 'Новый пользователь' },
   'user.web_registered': { emoji: '🆕', title: 'Регистрация через сайт' },
@@ -1412,6 +1858,7 @@ const EVENT_PRESENTATION: Record<string, { emoji: string; title: string }> = {
   'user.role_changed': { emoji: '🛡', title: 'Изменена роль пользователя' },
   'user.telegram_linked': { emoji: '🔗', title: 'Привязан Telegram' },
   'user.email_linked': { emoji: '📧', title: 'Привязан Email' },
+  'user.accounts_merged': { emoji: '🧬', title: 'Аккаунты объединены' },
   user_hwid_revoked: { emoji: '📱', title: 'Сброшено устройство (HWID)' },
 
   // Auth
@@ -1427,14 +1874,40 @@ const EVENT_PRESENTATION: Record<string, { emoji: string; title: string }> = {
   'subscription.deleted': { emoji: '🗑', title: 'Подписка удалена' },
   'subscription.synced': { emoji: '🔄', title: 'Синхронизация подписки' },
   'subscription.trial_granted': { emoji: '🎁', title: 'Выдан триал' },
+  // Emitted with category PAYMENT (see the emit site in
+  // `PaymentSubscriptionMutationService`), which is why its tick-box lives
+  // under «Платежи» even though the constant sits in the Subscription block.
+  'trial.claim_late_success_over_cap': {
+    emoji: '⏳',
+    title: 'Поздняя оплата триала прошла сверх квоты',
+  },
 
   // Payment
   'payment.checkout_created': { emoji: '🧾', title: 'Создан счёт на оплату' },
   'payment.completed': { emoji: '💰', title: 'Платёж получен' },
   'payment.failed': { emoji: '❌', title: 'Платёж не прошёл' },
+  'payment.refunded': { emoji: '↩️', title: 'Платёж возвращён' },
+  'payment.refund_partial': { emoji: '⚠️', title: 'Частичный возврат платежа' },
+  'payment.amount_mismatch': { emoji: '⚠️', title: 'Оплачена неверная сумма' },
+  // Reads as a note, not as a task: ℹ️ against the ⚠️ above, and the outcome
+  // («Платёж проведён») before the discrepancy. The operator has to be able to
+  // skip this one and open the mismatch card without reading either.
+  'payment.notified_amount_short': {
+    emoji: 'ℹ️',
+    title: 'Платёж проведён, но сумма в уведомлении меньше',
+  },
   'payment.expired': { emoji: '⌛', title: 'Счёт на оплату истёк' },
   'payment.webhook_received': { emoji: '📩', title: 'Вебхук платёжки' },
   'payment.fulfillment_recovered': { emoji: '🛟', title: 'Восстановлено исполнение платежа' },
+  'payment.method_saved': { emoji: '💳', title: 'Сохранён способ оплаты' },
+  'payment.method_unbound': { emoji: '🚫', title: 'Отвязан способ оплаты' },
+  'payment.method_autopay_updated': { emoji: '🔁', title: 'Изменено автосписание' },
+  // Not an error and not a completion: the charge is parked until the customer
+  // passes 3DS. Titled as a wait, so it does not read like `payment.failed`.
+  'payment.autopay_confirmation_required': {
+    emoji: '🔐',
+    title: 'Автосписание ждёт подтверждения пользователя',
+  },
 
   // Referral
   'referral.attached': { emoji: '🔗', title: 'Реферал привязан' },
@@ -1451,11 +1924,16 @@ const EVENT_PRESENTATION: Record<string, { emoji: string; title: string }> = {
   'partner.withdrawal_approved': { emoji: '✅', title: 'Вывод средств одобрен' },
   'partner.withdrawal_rejected': { emoji: '❌', title: 'Вывод средств отклонён' },
   'partner.balance_adjusted': { emoji: '⚖️', title: 'Скорректирован баланс партнёра' },
+  'partner.balance_refund_failed': {
+    emoji: '🚨',
+    title: 'Партнёру не вернулся списанный баланс!',
+  },
 
   // Promocode
   'promocode.activated': { emoji: '🎟', title: 'Промокод активирован' },
   'promocode.created': { emoji: '🎟', title: 'Промокод создан' },
   'promocode.depleted': { emoji: '🚫', title: 'Промокод исчерпан' },
+  'promocode.archived': { emoji: '📦', title: 'Промокод архивирован' },
 
   // Support
   'support.ticket_created': { emoji: '🆘', title: 'Новое обращение в поддержку' },
@@ -1464,12 +1942,42 @@ const EVENT_PRESENTATION: Record<string, { emoji: string; title: string }> = {
   // Anti-fraud
   'fraud.signal_opened': { emoji: '🚨', title: 'Антифрод: новый сигнал' },
   'fraud.connections_dropped': { emoji: '✂️', title: 'Антифрод: соединения сброшены' },
+  'fraud.candidate_exempted': { emoji: '🙈', title: 'Антифрод: находка скрыта исключением' },
+  'fraud.exemption_granted': { emoji: '🛡️', title: 'Антифрод: выдано исключение' },
+  'fraud.exemption_revoked': { emoji: '↩️', title: 'Антифрод: исключение отозвано' },
+  'fraud.signal_escalated': { emoji: '⏫', title: 'Антифрод: сигнал усилился' },
+  'fraud.signal_severity_receded': { emoji: '⏬', title: 'Антифрод: сигнал ослаб' },
+  'fraud.signals_auto_resolved': { emoji: '🧹', title: 'Антифрод: сигналы закрылись сами' },
+  'fraud.signal_transitioned': { emoji: '🔁', title: 'Антифрод: изменён статус сигнала' },
 
   // System
   'system.startup': { emoji: '🚀', title: 'Запуск системы' },
   'system.backup_completed': { emoji: '🗄', title: 'Резервная копия создана' },
+  'system.restore_completed': { emoji: '♻️', title: 'База восстановлена из копии' },
   'system.broadcast_sent': { emoji: '📢', title: 'Рассылка отправлена' },
+  'system.bulk_users_executed': { emoji: '👥', title: 'Массовая операция над пользователями' },
   'system.error': { emoji: '🚨', title: 'Системная ошибка' },
+  'broadcast.started': { emoji: '📣', title: 'Рассылка запущена' },
+  'broadcast.batch_completed': { emoji: '📬', title: 'Партия рассылки отправлена' },
+  'broadcast.channel_post_undelivered': { emoji: '📭', title: 'Пост в канал не доставлен' },
+  'import.completed': { emoji: '📥', title: 'Импорт завершён' },
+  'import.plan_assigned': { emoji: '🏷', title: 'Массовое назначение плана' },
+  'import.sync_enqueued': { emoji: '🔄', title: 'Синхронизация после импорта поставлена в очередь' },
+  'automation.telegram_notify': { emoji: '🤖', title: 'Автоматизация: уведомление' },
+  // The DEFAULT type of the `system_event` action. A rule that names its own
+  // type keeps doing so and lands under the catch-all tick-box instead — this
+  // entry exists so the common case (no `type` in the action params) reads
+  // like every other event rather than like an unregistered one.
+  'automation.custom': { emoji: '🤖', title: 'Автоматизация: своё событие' },
+  // These three never reach `formatTelegramMessage` today: `isErrorEvent`
+  // matches ERROR severity OR a kind ending in `.error`, and error events are
+  // rendered by `formatErrorEventCardHtml`, which has its own fixed header.
+  // Registered anyway so the card follows if the severity or the routing ever
+  // changes, and so no type is registered in two lists out of three.
+  'import.failed': { emoji: '🚨', title: 'Импорт не удался' },
+  'client.error': { emoji: '🖥', title: 'Ошибка в админ-панели' },
+  'reiwa.error': { emoji: '🚨', title: 'Ошибка в reiwa' },
+  'reiwa.relay_undelivered': { emoji: '📡', title: 'Вебхук в reiwa не доставлен' },
   'system.remnawave_sync': { emoji: '🔄', title: 'Синхронизация с Remnawave' },
   'settings.email.updated': { emoji: '⚙️', title: 'Обновлены настройки почты' },
   'notification.template.created': { emoji: '📝', title: 'Создан шаблон уведомления' },
@@ -1477,8 +1985,11 @@ const EVENT_PRESENTATION: Record<string, { emoji: string; title: string }> = {
   'notification.template.deleted': { emoji: '🗑', title: 'Удалён шаблон уведомления' },
   'notification.template.seeded': { emoji: '🌱', title: 'Засеяны шаблоны уведомлений' },
 
+  // User traffic usage (detected from Remnawave webhooks; category USER → topic «Пользователи»).
+  'user.first_traffic': { emoji: '📶', title: 'Пользователь начал использовать трафик' },
+
   // Remnawave panel (forwarded webhook events)
-  'remnawave.user.first_connected': { emoji: '🔌', title: 'Первое подключение' },
+  'remnawave.user.first_connected': { emoji: '🔌', title: 'Первое подключение пользователя' },
   'remnawave.user.expired': { emoji: '⌛', title: 'Профиль истёк (Remnawave)' },
   'remnawave.user.limited': { emoji: '🚧', title: 'Достигнут лимит трафика' },
   'remnawave.user.expire_soon': { emoji: '⏰', title: 'Подписка скоро истекает' },
@@ -1487,6 +1998,10 @@ const EVENT_PRESENTATION: Record<string, { emoji: string; title: string }> = {
   'remnawave.user.traffic_reset': { emoji: '♻️', title: 'Сброшен трафик профиля' },
   'remnawave.user.bandwidth_threshold': { emoji: '📊', title: 'Порог трафика достигнут' },
   'remnawave.panel.started': { emoji: '🟢', title: 'Панель Remnawave запущена' },
+  'remnawave.hwid_average_high': {
+    emoji: '📈',
+    title: 'Среднее число устройств на пользователя выросло',
+  },
 
   // Node (forwarded webhook events)
   'node.connection_lost': { emoji: '🔌', title: 'Нода офлайн' },
@@ -1496,7 +2011,30 @@ const EVENT_PRESENTATION: Record<string, { emoji: string; title: string }> = {
   'node.enabled': { emoji: '🟢', title: 'Нода включена' },
   'node.disabled': { emoji: '🔴', title: 'Нода отключена' },
   'node.traffic_notify': { emoji: '📊', title: 'Уведомление о трафике ноды' },
+  'node.geo_concentration': { emoji: '🌍', title: 'Концентрация онлайна в одной стране' },
 };
+
+/**
+ * Human label for a `FraudSignalStatus`. Unknown input is escaped and returned
+ * as-is rather than replaced by a placeholder: a status this function has not
+ * been taught is still the truth about the signal, and hiding it behind
+ * «неизвестно» would make a new enum value invisible instead of merely
+ * untranslated.
+ */
+function humanizeFraudSignalStatus(value: unknown): string {
+  switch (String(value).toUpperCase()) {
+    case 'OPEN':
+      return 'Открыт';
+    case 'ACKNOWLEDGED':
+      return 'Принят в работу';
+    case 'RESOLVED':
+      return 'Решён';
+    case 'DISMISSED':
+      return 'Отклонён';
+    default:
+      return escapeHtml(value);
+  }
+}
 
 /** Human label for a payment/subscription purchase type. */
 function humanizePurchaseType(value: unknown): string {
@@ -1554,6 +2092,8 @@ function humanizeSource(value: unknown): string {
       return 'Синхронизация Remnawave';
     case 'PAYMENT_WEBHOOK':
       return 'Вебхук платёжки';
+    case 'REMNAWAVE_WEBHOOK':
+      return 'Вебхук Remnawave';
     default:
       return escapeHtml(value);
   }
@@ -1678,6 +2218,59 @@ function humanizePlanType(value: unknown): string {
     default:
       return escapeHtml(value);
   }
+}
+
+/** Human label for SubscriptionStatus (and similar panel statuses). */
+function humanizeSubscriptionStatus(value: unknown): string {
+  switch (String(value).toUpperCase()) {
+    case 'ACTIVE':
+      return 'Активна';
+    case 'DISABLED':
+      return 'Отключена';
+    case 'LIMITED':
+      return 'Ограничена';
+    case 'EXPIRED':
+      return 'Истекла';
+    case 'DELETED':
+      return 'Удалена';
+    case 'PENDING':
+      return 'Ожидает';
+    default:
+      return escapeHtml(value);
+  }
+}
+
+/**
+ * Relative remaining lifetime from an expire-at value. Returns null when the
+ * input is not a parseable future/past timestamp so callers can fall back to
+ * the absolute date line alone.
+ */
+function fmtRemaining(value: unknown): string | null {
+  let ms: number | null = null;
+  if (value instanceof Date) {
+    ms = value.getTime();
+  } else if (typeof value === 'number' && Number.isFinite(value)) {
+    ms = value;
+  } else if (typeof value === 'string' && value.length > 0) {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) ms = parsed;
+  }
+  if (ms === null || Number.isNaN(ms)) return null;
+
+  const diffMs = ms - Date.now();
+  if (diffMs <= 0) return 'истекла';
+
+  const totalMinutes = Math.floor(diffMs / 60_000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days} ${pluralRu(days, 'день', 'дня', 'дней')}`);
+  if (hours > 0) parts.push(`${hours} ${pluralRu(hours, 'час', 'часа', 'часов')}`);
+  if (minutes > 0 || parts.length === 0) {
+    parts.push(`${minutes} ${pluralRu(minutes, 'минута', 'минуты', 'минут')}`);
+  }
+  return parts.join(' ');
 }
 
 /**

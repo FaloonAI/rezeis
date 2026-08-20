@@ -54,9 +54,14 @@ export interface StealthnetClient {
 }
 
 /**
- * `secondary_subscriptions` row — STEALTHNET supports multiple
+ * `subscriptions` row (historical dumps may still use
+ * `secondary_subscriptions`). STEALTHNET supports multiple
  * subscriptions per client; each one carries a remnawave UUID and an
  * optional `tariff_id` (pointing at the active plan).
+ *
+ * Extra-device add-ons are **not** a separate catalog table — they live
+ * on the subscription (`extra_devices` + monthly price) and on the tariff
+ * (`included_devices` / `max_extra_devices` / `price_per_extra_device`).
  */
 export interface StealthnetSubscription {
   readonly id: string;
@@ -68,6 +73,11 @@ export interface StealthnetSubscription {
   readonly gifted_to_client_id: string | null;
   readonly created_at: string;
   readonly updated_at: string;
+  /** Panel expire when known; may be null for legacy rows. */
+  readonly expire_at: string | null;
+  /** Paid extra device slots on top of tariff.included_devices. */
+  readonly extra_devices: number;
+  readonly extra_devices_monthly_price: number;
 }
 
 /**
@@ -139,6 +149,21 @@ export interface StealthnetPayment {
   readonly bot_id: string | null;
 }
 
+/**
+ * Historical referral reward already credited by STEALTHNET. It is imported
+ * as an issued audit record only: the corresponding wallet balance is moved
+ * separately by the user importer, so applying it again would double-credit
+ * the referrer.
+ */
+export interface StealthnetReferralCredit {
+  readonly id: string;
+  readonly referrer_id: string;
+  readonly payment_id: string;
+  readonly amount: number;
+  readonly level: number;
+  readonly created_at: string;
+}
+
 export interface StealthnetBackupData {
   readonly clients: readonly StealthnetClient[];
   readonly subscriptions: readonly StealthnetSubscription[];
@@ -146,6 +171,7 @@ export interface StealthnetBackupData {
   readonly tariffCategories: readonly StealthnetTariffCategory[];
   readonly tariffPriceOptions: readonly StealthnetTariffPriceOption[];
   readonly payments: readonly StealthnetPayment[];
+  readonly referralCredits: readonly StealthnetReferralCredit[];
 }
 
 // ── Entry point ─────────────────────────────────────────────────────────────
@@ -218,13 +244,19 @@ function parseSqlDump(sql: string): StealthnetBackupData {
     i = j;
   }
 
+  // STEALTHNET renamed secondary_subscriptions → subscriptions. Prefer the
+  // modern name; fall back so older dumps still parse.
+  const subscriptionBlock =
+    blocksByTable.get('subscriptions') ?? blocksByTable.get('secondary_subscriptions');
+
   return {
     clients: extractClients(blocksByTable.get('clients')),
-    subscriptions: extractSubscriptions(blocksByTable.get('secondary_subscriptions')),
+    subscriptions: extractSubscriptions(subscriptionBlock),
     tariffs: extractTariffs(blocksByTable.get('tariffs')),
     tariffCategories: extractTariffCategories(blocksByTable.get('tariff_categories')),
     tariffPriceOptions: extractTariffPriceOptions(blocksByTable.get('tariff_price_options')),
     payments: extractPayments(blocksByTable.get('payments')),
+    referralCredits: extractReferralCredits(blocksByTable.get('referral_credits')),
   };
 }
 
@@ -436,6 +468,9 @@ function extractSubscriptions(block: CopyBlock | undefined): StealthnetSubscript
   const giftedToIdx = colIndex(block, 'gifted_to_client_id');
   const createdAtIdx = colIndex(block, 'created_at');
   const updatedAtIdx = colIndex(block, 'updated_at');
+  const expireAtIdx = colIndex(block, 'expire_at');
+  const extraDevicesIdx = colIndex(block, 'extra_devices');
+  const extraDevicesPriceIdx = colIndex(block, 'extra_devices_monthly_price');
 
   return block.rows.map((row) => ({
     id: readString(row, idIdx),
@@ -447,6 +482,9 @@ function extractSubscriptions(block: CopyBlock | undefined): StealthnetSubscript
     gifted_to_client_id: readNullableString(row, giftedToIdx),
     created_at: readString(row, createdAtIdx, new Date().toISOString()),
     updated_at: readString(row, updatedAtIdx, new Date().toISOString()),
+    expire_at: readNullableString(row, expireAtIdx),
+    extra_devices: Math.max(0, readInt(row, extraDevicesIdx, 0)),
+    extra_devices_monthly_price: Math.max(0, readNumber(row, extraDevicesPriceIdx, 0)),
   }));
 }
 
@@ -560,4 +598,25 @@ function extractPayments(block: CopyBlock | undefined): StealthnetPayment[] {
     device_count: readNullableInt(row, deviceCountIdx),
     bot_id: readNullableString(row, botIdIdx),
   }));
+}
+
+function extractReferralCredits(block: CopyBlock | undefined): StealthnetReferralCredit[] {
+  if (!block) return [];
+  const idIdx = colIndex(block, 'id');
+  const referrerIdIdx = colIndex(block, 'referrer_id');
+  const paymentIdIdx = colIndex(block, 'payment_id');
+  const amountIdx = colIndex(block, 'amount');
+  const levelIdx = colIndex(block, 'level');
+  const createdAtIdx = colIndex(block, 'created_at');
+
+  return block.rows
+    .map((row) => ({
+      id: readString(row, idIdx),
+      referrer_id: readString(row, referrerIdIdx),
+      payment_id: readString(row, paymentIdIdx),
+      amount: Math.max(0, readInt(row, amountIdx, 0)),
+      level: Math.max(1, readInt(row, levelIdx, 1)),
+      created_at: readString(row, createdAtIdx, new Date().toISOString()),
+    }))
+    .filter((credit) => credit.id.length > 0 && credit.referrer_id.length > 0 && credit.payment_id.length > 0);
 }

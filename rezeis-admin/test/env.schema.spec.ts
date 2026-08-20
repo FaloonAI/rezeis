@@ -91,8 +91,6 @@ describe('validateEnvironment', () => {
       REMNAWAVE_PORT: '3001',
       REMNAWAVE_TOKEN: 'remnawave-token-v2',
       REMNAWAVE_WEBHOOK_SECRET: 'remnawave-webhook-secret-v2',
-      REMNAWAVE_CADDY_TOKEN: 'remnawave-caddy-token-v2',
-      REMNAWAVE_COOKIE: 'remnawave-cookie-v2',
       REZEIS_UPDATE_REPO: 'owner/rezeis',
       REZEIS_REIWA_UPDATE_REPO: 'owner/reiwa',
     });
@@ -188,10 +186,17 @@ describe('validateEnvironment', () => {
     }
   });
 
-  it('disables (does not crash on) a malformed WEBHOOK_SECRET_HEADER', () => {
+  it('drops a malformed WEBHOOK_SECRET_HEADER from the parsed config without crashing', () => {
     // An optional integration secret must not take down the whole panel.
-    // A malformed value is coerced to undefined (signing disabled) + a warning.
+    // A malformed value is coerced to undefined here + a warning.
     // Valid range is 64–256 alphanumeric characters.
+    //
+    // NB: "dropped from the parsed config" is NOT "signing disabled". Nothing
+    // reads this key through ConfigService — webhook.config.ts,
+    // BotNotifierClient, ReiwaCacheInvalidatorService and SystemHealthService
+    // all read `process.env.WEBHOOK_SECRET_HEADER` directly, and Nest only
+    // writes validated values back for keys absent from process.env. So the raw
+    // value keeps being used for signing; see the warning text in env.schema.ts.
     for (const bad of ['short', 'has-dashes-' + 'a'.repeat(54), 'a'.repeat(63), 'a'.repeat(257)]) {
       const env = validateEnvironment({
         ...createRequiredEnvironment(),
@@ -255,6 +260,45 @@ describe('validateEnvironment', () => {
         ...createRequiredEnvironment(),
         EMAIL_ENABLED: 'maybe',
       });
+    });
+  });
+
+  describe('PAYMENT_GATEWAY_CRYPT_KEY', () => {
+    it('is optional, because REZEIS_CRYPT_KEY already guarantees key material', () => {
+      // Making it required would brick every existing install on upgrade. Gateway
+      // secrets fall back to the master key, so nothing is ever stored in plaintext.
+      const environment = validateEnvironment(createRequiredEnvironment());
+      assert.equal(environment.PAYMENT_GATEWAY_CRYPT_KEY, undefined);
+    });
+
+    it('treats a blank value as unset rather than as an empty key', () => {
+      const environment = validateEnvironment({
+        ...createRequiredEnvironment(),
+        PAYMENT_GATEWAY_CRYPT_KEY: '   ',
+      });
+      assert.equal(environment.PAYMENT_GATEWAY_CRYPT_KEY, undefined);
+    });
+
+    it('accepts an override of at least 32 characters', () => {
+      const environment = validateEnvironment({
+        ...createRequiredEnvironment(),
+        PAYMENT_GATEWAY_CRYPT_KEY: 'payment-gateway-key-that-is-32plus-bytes!!',
+      });
+      assert.equal(
+        environment.PAYMENT_GATEWAY_CRYPT_KEY,
+        'payment-gateway-key-that-is-32plus-bytes!!',
+      );
+    });
+
+    it('fails the boot on a too-short override instead of silently ignoring it', () => {
+      // A half-applied crypt key leaves secrets unreadable at the moment a
+      // payment needs them, so this fails closed like the master key does.
+      assert.throws(() =>
+        validateEnvironment({
+          ...createRequiredEnvironment(),
+          PAYMENT_GATEWAY_CRYPT_KEY: 'too-short',
+        }),
+      );
     });
   });
 });

@@ -1,4 +1,5 @@
 import { api } from '@/lib/api'
+import { expectArray } from '@/lib/api-utils'
 
 export type AdPlatform =
   | 'TELEGRAM'
@@ -24,7 +25,7 @@ export type AdRequestStatus =
   | 'EXPIRED'
 
 export interface AdDeepLinks {
-  botStart: string
+  botStart: string | null
   miniAppStart: string | null
   miniAppWeb: string | null
 }
@@ -66,10 +67,26 @@ export interface AdOverview {
   opens: number
   registrations: number
   conversions: number
+  /** Revenue in one reporting currency, converted at the time of each purchase. */
+  revenueMinor: number
+  currency: string
+  /** Conversions with no known rate — excluded from revenueMinor. */
+  unconvertedConversions: number
+}
+
+export interface AdUtmBreakdownRow {
+  utmSource?: string
+  utmMedium?: string
+  utmCampaign?: string
+  opens: number
+  conversions: number
   revenueMinor: number
 }
 
 export interface AdMetrics {
+  unconvertedConversions: number
+  /** Per-UTM rows: opens from clicks, conversions and revenue from purchases. */
+  utmBreakdown?: AdUtmBreakdownRow[]
   opens: number
   registrations: number
   conversions: number
@@ -102,6 +119,8 @@ export interface AdPlacementRequest {
   approvedWindowDays: number | null
   selfFundedBudgetNote: string | null
   status: AdRequestStatus
+  /** The operator's decision note — distinct from the partner's own `notes`. */
+  reviewNotes: string | null
   reviewedBy: string | null
   reviewedAt: string | null
   campaignId: string | null
@@ -122,22 +141,91 @@ export interface CreatePlacementInput {
   partnerId?: string
   attributionWindowDays: number
   promoCodeId?: string
-  spendAmountMinor?: number
-  spendCurrency?: string
+  spendAmountMinor?: number | null
+  spendCurrency?: string | null
   signupBonus?: { type: AdSignupBonusType; trialDurationDays?: number; trialTrafficGb?: number; trialDeviceLimit?: number; tariffPlanId?: string; tariffDurationDays?: number }
+}
+
+export interface UpdatePlacementInput {
+  channel?: string
+  attributionWindowDays?: number
+  promoCodeId?: string | null
+  spendAmountMinor?: number | null
+  spendCurrency?: string | null
+  status?: AdPlacementStatus
+  signupBonus?: {
+    type: AdSignupBonusType
+    trialDurationDays?: number
+    trialTrafficGb?: number
+    trialDeviceLimit?: number
+    tariffPlanId?: string
+    tariffDurationDays?: number
+  }
+}
+
+/** Convert major units (e.g. 3000.50 RUB) to minor (300050). Invalid → undefined. */
+export function majorToMinor(major: string | number): number | undefined {
+  if (typeof major === 'string' && major.trim() === '') return undefined
+  const n = typeof major === 'number' ? major : Number(String(major).replace(',', '.').trim())
+  if (!Number.isFinite(n) || n < 0) return undefined
+  return Math.round(n * 100)
+}
+
+/** Currencies an operator can book a budget in. Free text used to reach the API,
+ * so 'RUR' or 'ЮАНЬ' became the label on revenue, CAC and ROAS. */
+export const SPEND_CURRENCIES = ['RUB', 'USD', 'EUR', 'KZT', 'UAH', 'BYN', 'TRY', 'CNY'] as const
+export type SpendCurrency = (typeof SPEND_CURRENCIES)[number]
+
+/**
+ * PARTNER cost is commission, never operator budget — spend is stripped for them.
+ *
+ * An empty amount now sends an explicit `null` instead of omitting the field:
+ * omitting it means "leave the stored value alone", so a wrong budget could be
+ * typed but never cleared. The operator saw a success toast and the old number
+ * kept dividing into CAC and ROAS.
+ */
+export function placementSpendPayload(
+  ownerType: AdOwnerType,
+  spendMajor: string,
+  currency: string,
+): { spendAmountMinor?: number | null; spendCurrency?: string | null } {
+  if (ownerType === 'PARTNER') return {}
+  const spendAmountMinor = majorToMinor(spendMajor)
+  if (spendAmountMinor === undefined) return { spendAmountMinor: null, spendCurrency: null }
+  const trimmed = currency.trim().toUpperCase()
+  const spendCurrency = (SPEND_CURRENCIES as readonly string[]).includes(trimmed)
+    ? trimmed
+    : SPEND_CURRENCIES[0]
+  return { spendAmountMinor, spendCurrency }
 }
 
 export const getAdOverview = () =>
   api.get<AdOverview>('/admin/advertising/overview').then((r) => r.data)
 
 export const listAdCampaigns = () =>
-  api.get<AdCampaign[]>('/admin/advertising/campaigns').then((r) => r.data)
+  api.get('/admin/advertising/campaigns').then((r) => expectArray<AdCampaign>(r.data))
 
 export const createAdCampaign = (input: CreateCampaignInput) =>
   api.post<AdCampaign>('/admin/advertising/campaigns', input).then((r) => r.data)
 
+export interface UpdateCampaignInput {
+  name?: string
+  status?: AdPlacementStatus
+  notes?: string
+}
+
+/**
+ * `PATCH /campaigns/:id` has existed since the cabinet shipped and had no client:
+ * a campaign could be created but never renamed, paused or closed.
+ */
+export const updateAdCampaign = (id: string, input: UpdateCampaignInput) =>
+  api.patch<AdCampaign>(`/admin/advertising/campaigns/${id}`, input).then((r) => r.data)
+
 export const createAdPlacement = (input: CreatePlacementInput) =>
   api.post<AdPlacement>('/admin/advertising/placements', input).then((r) => r.data)
+
+export const updateAdPlacement = (id: string, input: UpdatePlacementInput) =>
+  api.patch<AdPlacement>(`/admin/advertising/placements/${id}`, input).then((r) => r.data)
 
 export const archiveAdPlacement = (id: string) =>
   api.delete<{ archived: boolean }>(`/admin/advertising/placements/${id}`).then((r) => r.data)
@@ -147,18 +235,69 @@ export const getPlacementMetrics = (id: string) =>
 
 export const getPlacementChartData = (id: string, days = 14) =>
   api
-    .get<AdChartPoint[]>(`/admin/advertising/placements/${id}/chart-data`, { params: { days } })
-    .then((r) => r.data)
+    .get(`/admin/advertising/placements/${id}/chart-data`, { params: { days } })
+    .then((r) => expectArray<AdChartPoint>(r.data))
 
 export const listAdRequests = (status?: string) =>
   api
-    .get<AdPlacementRequest[]>('/admin/advertising/requests', { params: status ? { status } : {} })
-    .then((r) => r.data)
+    .get('/admin/advertising/requests', { params: status ? { status } : {} })
+    .then((r) => expectArray<AdPlacementRequest>(r.data))
+
+export interface ModerateRequestResult {
+  request: AdPlacementRequest
+  campaign: AdCampaign | null
+}
 
 export const approveAdRequest = (id: string, approvedWindowDays?: number) =>
   api
-    .post(`/admin/advertising/requests/${id}/approve`, approvedWindowDays ? { approvedWindowDays } : {})
+    .post<ModerateRequestResult>(
+      `/admin/advertising/requests/${id}/approve`,
+      approvedWindowDays ? { approvedWindowDays } : {},
+    )
     .then((r) => r.data)
 
-export const rejectAdRequest = (id: string) =>
-  api.post(`/admin/advertising/requests/${id}/reject`, {}).then((r) => r.data)
+export const rejectAdRequest = (id: string, notes?: string) =>
+  api
+    .post<AdPlacementRequest>(
+      `/admin/advertising/requests/${id}/reject`,
+      notes && notes.trim() ? { notes: notes.trim() } : {},
+    )
+    .then((r) => r.data)
+
+/** Operator counters when the approved window differs from the partner's proposal. */
+export function isCounterOffer(
+  proposedWindowDays: number,
+  approvedWindowDays: number | null | undefined,
+): boolean {
+  if (approvedWindowDays == null) return false
+  return approvedWindowDays !== proposedWindowDays
+}
+
+/** Human-readable terms line for queue / history rows (testable pure mapper). */
+export function formatRequestTerms(request: Pick<
+  AdPlacementRequest,
+  'proposedWindowDays' | 'approvedWindowDays' | 'status'
+>): { kind: 'proposed' | 'agreed' | 'counter'; proposed: number; approved: number | null } {
+  const proposed = request.proposedWindowDays
+  const approved = request.approvedWindowDays
+  if (approved == null) {
+    return { kind: 'proposed', proposed, approved: null }
+  }
+  if (isCounterOffer(proposed, approved) || request.status === 'COUNTERED') {
+    return { kind: 'counter', proposed, approved }
+  }
+  return { kind: 'agreed', proposed, approved }
+}
+
+const HISTORY_STATUSES: ReadonlySet<AdRequestStatus> = new Set([
+  'APPROVED',
+  'COUNTERED',
+  'ACCEPTED',
+  'ACTIVE',
+  'REJECTED',
+  'EXPIRED',
+])
+
+export function isHistoryRequest(status: AdRequestStatus): boolean {
+  return HISTORY_STATUSES.has(status)
+}

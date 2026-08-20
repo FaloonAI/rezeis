@@ -31,7 +31,14 @@ function readPack(value: unknown): CustomEmojiPackInterface | null {
     const emoji = readEmoji(e);
     if (emoji !== null) emojis.push(emoji);
   }
-  return { id, name, emojis };
+  const setName = readString(obj.setName);
+  return {
+    id,
+    name,
+    ...(setName === null ? {} : { setName }),
+    ...(obj.builtin === true ? { builtin: true } : {}),
+    emojis,
+  };
 }
 
 function readEmoji(value: unknown): CustomEmojiInterface | null {
@@ -48,6 +55,28 @@ function readEmoji(value: unknown): CustomEmojiInterface | null {
     fallback: readString(obj.fallback),
     customEmojiId: readString(obj.customEmojiId),
   };
+}
+
+/**
+ * Read the operator's "the bot owner has Telegram Premium" switch out of the
+ * same `Settings.systemNotifications` blob the packs live in — written by
+ * `BotEmojiStudioService.setOwnerHasPremium` under `botEmoji.ownerHasPremium`.
+ *
+ * Defaults to **true** when unset, matching reiwa's own default
+ * (`renderBotCopyHtml(…, ownerHasPremium = true)`) and the two readers already
+ * in the bot-config module (`bot-emoji-studio.service.ts`,
+ * `internal-bot-config.service.ts`). An instance that never touched the switch
+ * therefore keeps rendering premium emoji exactly as it does today; only an
+ * operator who declared "no Premium" changes behaviour.
+ *
+ * It lives here, beside `readCustomEmojiPacks`, because both answers come out
+ * of the same JSON column: a renderer that needs the packs already holds the
+ * row that carries the flag.
+ */
+export function readBotEmojiOwnerHasPremium(systemNotifications: unknown): boolean {
+  const botEmoji = asObject(asObject(systemNotifications).botEmoji);
+  const flag = botEmoji.ownerHasPremium;
+  return typeof flag === 'boolean' ? flag : true;
 }
 
 /** Builds a slug→emoji lookup across all packs (last write wins on collision). */

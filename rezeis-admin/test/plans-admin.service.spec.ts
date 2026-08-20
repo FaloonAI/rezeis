@@ -3,10 +3,60 @@ import { describe, it } from 'node:test';
 
 import { PlanAvailability, PlanType } from '@prisma/client';
 
+import { PlanSquadPropagationService } from '../src/modules/plans/services/plan-squad-propagation.service';
 import { PlansAdminService } from '../src/modules/plans/services/plans-admin.service';
 import { PlansAdminValidators } from '../src/modules/plans/services/plans-admin.validators';
 
 describe('PlansAdminService', () => {
+  for (const transition of ['upgrade', 'replacement'] as const) {
+    it(`rejects a TRIAL plan as a ${transition} target`, async () => {
+      const trialTargetId = '22222222-2222-4222-8222-222222222222';
+      const prismaService = {
+        plan: {
+          findFirst: async () => null,
+          findMany: async () => [
+            {
+              id: trialTargetId,
+              isActive: true,
+              isArchived: false,
+              availability: PlanAvailability.TRIAL,
+            },
+          ],
+        },
+        user: { findMany: async () => [] },
+      };
+      const service = createService(prismaService, {
+        getInternalSquadOptions: async () => [],
+        getExternalSquadOptions: async () => [],
+      });
+
+      await assert.rejects(
+        () =>
+          service.createPlan(
+            {
+              name: `${transition} source`,
+              type: PlanType.BOTH,
+              availability: PlanAvailability.ALL,
+              deviceLimit: 1,
+              isArchived: transition === 'replacement',
+              archivedRenewMode: transition === 'replacement' ? 'REPLACE_ON_RENEW' : 'SELF_RENEW',
+              upgradeToPlanIds: transition === 'upgrade' ? [trialTargetId] : [],
+              replacementPlanIds: transition === 'replacement' ? [trialTargetId] : [],
+              durations: [{ days: 30, prices: [{ currency: 'USD', price: '9.99' }] }],
+            },
+            {
+              currentAdmin: { id: 'admin-1' } as never,
+              requestMetadata: { requestId: null, remoteAddress: null, userAgent: null },
+            },
+          ),
+        {
+          name: 'BadRequestException',
+          message: `Replacement and upgrade plans must be active non-trial public plans: ${trialTargetId}`,
+        },
+      );
+    });
+  }
+
   it('rejects creating a second active trial plan before persisting', async () => {
     const prismaService = {
       plan: {
@@ -44,6 +94,68 @@ describe('PlansAdminService', () => {
       {
         name: 'BadRequestException',
         message: 'Only one active trial plan is allowed',
+      },
+    );
+  });
+
+  it('rejects converting an existing regular plan into a TRIAL plan', async () => {
+    const currentPlan = {
+      id: 'plan-regular',
+      orderIndex: 1,
+      name: 'Regular',
+      description: null,
+      tag: null,
+      icon: null,
+      isActive: true,
+      isArchived: false,
+      archivedRenewMode: 'SELF_RENEW',
+      type: PlanType.BOTH,
+      availability: PlanAvailability.ALL,
+      trafficLimit: 1024,
+      deviceLimit: 1,
+      trafficLimitStrategy: 'NO_RESET',
+      internalSquads: [],
+      externalSquad: null,
+      upgradeToPlanIds: [],
+      replacementPlanIds: [],
+      allowedUserIds: [],
+      trialSettings: { maxClaims: 1, free: true, availabilityScope: 'ALL' },
+      createdAt: new Date('2026-04-19T12:00:00.000Z'),
+      updatedAt: new Date('2026-04-19T12:00:00.000Z'),
+      durations: [
+        {
+          id: 'duration-1',
+          days: 30,
+          prices: [{ currency: 'USD', price: { toString: (): string => '9.99' } }],
+        },
+      ],
+    };
+    const prismaService = {
+      plan: {
+        findUnique: async () => currentPlan,
+        findFirst: async () => ({ id: currentPlan.id }),
+      },
+      user: { findMany: async () => [] },
+    };
+    const service = createService(prismaService, {
+      getInternalSquadOptions: async () => [],
+      getExternalSquadOptions: async () => [],
+    });
+
+    await assert.rejects(
+      () =>
+        service.updatePlan(
+          currentPlan.id,
+          { availability: PlanAvailability.TRIAL },
+          {
+            currentAdmin: { id: 'admin-1' } as never,
+            requestMetadata: { requestId: null, remoteAddress: null, userAgent: null },
+          },
+        ),
+      {
+        name: 'BadRequestException',
+        message:
+          'Existing non-trial plans cannot be converted to TRIAL; create a dedicated trial plan.',
       },
     );
   });
@@ -397,11 +509,13 @@ function createService(
   prismaService: object,
   remnawaveApiService: object,
   planSnapshotSyncService: object = { syncPlanSnapshotMetadata: async () => 0 },
+  profileSyncQueueService: object = { enqueue: async () => undefined },
 ): PlansAdminService {
   return new PlansAdminService(
     prismaService as never,
     remnawaveApiService as never,
     planSnapshotSyncService as never,
     new PlansAdminValidators(prismaService as never, remnawaveApiService as never),
+    new PlanSquadPropagationService(prismaService as never, profileSyncQueueService as never),
   );
 }

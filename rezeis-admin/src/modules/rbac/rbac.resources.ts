@@ -47,6 +47,26 @@ export const RBAC_ACTIONS = [
   /// Separated from `edit` because of its destructive, cross-account blast
   /// radius.
   'merge',
+  /// User registration telemetry (IP / UA / Referer / UTM) on the Analytics
+  /// tab. Separated from `view` so PII can be granted via custom roles without
+  /// opening full user edit rights.
+  'view_registration',
+  /// Bulk raw registration PII export (CSV). Elevated vs `view_registration`
+  /// because exports are high-blast-radius (full IP/UA/Referer/UTM dumps).
+  'export_registration',
+  /// Issuing a payment refund to the customer through the provider. Separated
+  /// from `edit` because it moves real money out and cannot be undone — a role
+  /// that may correct transaction metadata must not implicitly be able to
+  /// refund. Granted to nobody by default; the operator assigns it explicitly.
+  'refund',
+  /// Reading payment gateway credentials in the clear (API keys, signing
+  /// secrets, RSA private keys). Separated from `view` because the day-to-day
+  /// job — see which gateways are live, reorder them, fix a VAT code — never
+  /// requires the credential itself, while `view` was handing every one of them
+  /// to anyone who could open the settings screen. `view` still returns the
+  /// secrets, masked, so managing a gateway does not require this. Granted to
+  /// nobody by default; the operator assigns it explicitly.
+  'view_secrets',
 ] as const;
 
 export type RbacAction = (typeof RBAC_ACTIONS)[number];
@@ -61,10 +81,19 @@ export type RbacAction = (typeof RBAC_ACTIONS)[number];
 export const RBAC_RESOURCES: Readonly<Record<string, readonly RbacAction[]>> = {
   // Operations
   dashboard: ['view'],
-  users: ['view', 'create', 'edit', 'delete', 'bulk_operations', 'merge'],
+  users: [
+    'view',
+    'create',
+    'edit',
+    'delete',
+    'bulk_operations',
+    'merge',
+    'view_registration',
+    'export_registration',
+  ],
   subscriptions: ['view', 'create', 'edit', 'delete'],
-  payments: ['view', 'create', 'edit', 'delete', 'export'],
-  payment_gateways: ['view', 'edit'],
+  payments: ['view', 'create', 'edit', 'delete', 'export', 'refund'],
+  payment_gateways: ['view', 'view_secrets', 'edit'],
   payment_webhooks: ['view', 'resolve', 'run'],
   support_tickets: ['view', 'create', 'edit', 'delete', 'resolve', 'archive'],
   analytics: ['view', 'export'],
@@ -207,6 +236,7 @@ export const SYSTEM_ROLES: readonly SystemRoleSeed[] = [
     permissions: [
       { resource: 'dashboard', action: 'view' },
       { resource: 'users', action: 'view' },
+      { resource: 'users', action: 'view_registration' },
       { resource: 'users', action: 'edit' },
       { resource: 'users', action: 'create' },
       { resource: 'users', action: 'bulk_operations' },
@@ -251,6 +281,7 @@ export const SYSTEM_ROLES: readonly SystemRoleSeed[] = [
     permissions: [
       { resource: 'dashboard', action: 'view' },
       { resource: 'users', action: 'view' },
+      { resource: 'users', action: 'view_registration' },
       { resource: 'subscriptions', action: 'view' },
       { resource: 'payments', action: 'view' },
       { resource: 'support_tickets', action: 'view' },
@@ -270,6 +301,12 @@ export const SYSTEM_ROLES: readonly SystemRoleSeed[] = [
       { resource: 'payments', action: 'view' },
       { resource: 'payments', action: 'edit' },
       { resource: 'payments', action: 'export' },
+      // `view` + `edit` cover the whole finance job: see which gateways are
+      // live, reorder them, enable one, paste a rotated credential in. Reading
+      // the stored credentials back is deliberately NOT part of it —
+      // `payment_gateways:view_secrets` follows `payments:refund` and is
+      // granted to nobody by default, because a role that configures gateways
+      // does not need to exfiltrate the keys already configured.
       { resource: 'payment_gateways', action: 'view' },
       { resource: 'payment_gateways', action: 'edit' },
       { resource: 'payment_webhooks', action: 'view' },

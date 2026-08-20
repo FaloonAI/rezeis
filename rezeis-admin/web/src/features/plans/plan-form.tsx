@@ -4,7 +4,9 @@ import { Plus, Trash2, Archive, ArrowUpRight, Users, Check, ChevronDown, Info } 
 import { useTranslation } from 'react-i18next'
 import { useForm, type FieldErrors, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { Link } from 'react-router'
 
+import { DataUnavailable } from '@/components/data-unavailable'
 import { Badge, badgeVariants } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -27,11 +29,16 @@ import { toast } from 'sonner'
 
 import { api } from '@/lib/api'
 import { getErrorMessage } from '@/lib/http-errors'
-import { cn } from '@/lib/utils'
+import { cn, truncate } from '@/lib/utils'
 import { remnawaveApi } from '@/features/remnawave/remnawave-api'
 import { IconPicker } from '@/features/settings/icon-picker'
 import { EmojiTextInput } from '@/features/broadcast/emoji-text-input'
 import { usePlans, type Plan } from './plans-api'
+import {
+  describePlanLimitChanges,
+  summarizePlanLimitDirection,
+  type PlanLimitChange,
+} from './plan-limit-scope'
 import {
   PLAN_AVAILABILITIES,
   PLAN_CURRENCIES,
@@ -141,16 +148,26 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
     prices: d.prices.map((p) => ({ currency: p.currency, price: p.price })),
   })))
 
-  const { data: internalSquads } = useQuery({
+  const internalSquadsQuery = useQuery({
     queryKey: ['remnawave', 'internal-squads'],
     queryFn: remnawaveApi.getInternalSquads,
     retry: 1,
   })
-  const { data: externalSquads } = useQuery({
+  const externalSquadsQuery = useQuery({
     queryKey: ['remnawave', 'external-squads'],
     queryFn: remnawaveApi.getExternalSquads,
     retry: 1,
   })
+  const { data: internalSquads } = internalSquadsQuery
+  const { data: externalSquads } = externalSquadsQuery
+  // "No squads available" on a disabled control is a claim about the
+  // operator's Remnawave panel. It is only true once the panel has answered.
+  const internalSquadsUnavailable =
+    internalSquadsQuery.isError ||
+    (!internalSquadsQuery.isPending && internalSquads === undefined)
+  const externalSquadsUnavailable =
+    externalSquadsQuery.isError ||
+    (!externalSquadsQuery.isPending && externalSquads === undefined)
 
   // All plans for upgrade/replacement picker (exclude current plan)
   const { data: allPlans } = usePlans()
@@ -218,6 +235,30 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
       setResolvingAllowedUser(false)
     }
   }
+
+  // Which limits this edit moves, and which way. Recomputed as the operator
+  // types so the notice below appears at the moment of the decision rather than
+  // after Save — unlike the squad propagation banner, there is no background
+  // work to follow here, only a rule to state while it can still be changed.
+  // `plan?.id` is the test for "this plan is saved, so it may have subscribers":
+  // the create dialog passes no id and stays silent.
+  const limitChanges = useMemo<readonly PlanLimitChange[]>(
+    () =>
+      describePlanLimitChanges({
+        isSavedPlan: plan?.id !== undefined,
+        savedType: initialDraft.type,
+        draftType: type,
+        savedTrafficLimitGB: initialDraft.trafficLimitGB,
+        draftTrafficLimitGB: trafficLimitGB,
+        savedDeviceLimit: initialDraft.deviceLimit,
+        draftDeviceLimit: deviceLimit,
+      }),
+    [plan?.id, initialDraft, type, trafficLimitGB, deviceLimit],
+  )
+  const limitDirection = useMemo(
+    () => summarizePlanLimitDirection(limitChanges),
+    [limitChanges],
+  )
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     const draft: PlanFormDraft = {
@@ -308,6 +349,32 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
           <Label>{t('planForm.icon')}</Label>
           <IconPicker value={icon} onChange={setIcon} autoLabel={t('planForm.iconNone')} />
           <p className="text-xs text-muted-foreground">{t('planForm.iconHint')}</p>
+          {/* Where the colour lives. A `Plan` row carries an icon and nothing
+              else about how its card looks — gradient, accent, texture and
+              effect are stored per plan in `brandingSettings.planCardStyles`
+              and edited in WEB Reiwa → Tariff cards. The icon picker is the
+              only appearance control on this form, so the form reads as "looks
+              are configured here" and an operator searched it for a colour
+              picker that has never been in it, with nothing on screen pointing
+              anywhere else.
+
+              Opens in a new tab deliberately: this form renders inside a
+              dialog on the plans page, so an in-place navigation would unmount
+              it and discard a half-filled plan without warning. It lands on the
+              page's default tab, not on Tariff cards — `WebReiwaPage` keeps its
+              tab in `useState` with no URL binding, so there is nothing to deep
+              link to yet. */}
+          <p className="text-xs text-muted-foreground">
+            {t('planForm.cardAppearanceHint')}{' '}
+            <Link
+              to="/web-reiwa"
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-primary underline-offset-4 hover:underline"
+            >
+              {t('planForm.cardAppearanceLink')}
+            </Link>
+          </p>
         </div>
       </div>
 
@@ -490,6 +557,13 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
       </div>
       )}
 
+      {/* Sits OUTSIDE the block above on purpose: switching the plan type to
+          UNLIMITED hides both inputs while still changing the persisted limits,
+          and that is the largest limit change an operator can make. */}
+      {limitDirection !== null && (
+        <LimitScopeNotice changes={limitChanges} direction={limitDirection} />
+      )}
+
       <Separator />
 
       {/* Squads */}
@@ -500,6 +574,8 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
             <Label className="text-sm">{t('planForm.internalSquads')}</Label>
             <InternalSquadsPicker
               squads={internalSquads ?? []}
+              unavailable={internalSquadsUnavailable}
+              onRetry={() => void internalSquadsQuery.refetch()}
               value={selectedInternalSquads}
               onChange={setSelectedInternalSquads}
             />
@@ -519,6 +595,12 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
                 ))}
               </SelectContent>
             </Select>
+            {externalSquadsUnavailable && (
+              <DataUnavailable
+                message={t('planForm.squadsUnavailable')}
+                onRetry={() => void externalSquadsQuery.refetch()}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -775,7 +857,7 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
                   aria-label={t('planForm.allowedUsers.removeAria', { userId: uid })}
                   onClick={() => setAllowedUserIds((prev) => prev.filter((x) => x !== uid))}
                 >
-                  {allowedUserLabels[uid] ?? `${uid.slice(0, 12)}…`}
+                  {allowedUserLabels[uid] ?? truncate(uid, 12)}
                   <Trash2 className="h-3 w-3" aria-hidden />
                 </button>
               ))}
@@ -822,6 +904,56 @@ export function PlanForm({ plan, onSubmit, isLoading }: Props) {
 function FieldError({ message }: { readonly message?: string }) {
   if (!message) return null
   return <p className="text-xs font-medium text-destructive" role="alert">{message}</p>
+}
+
+/**
+ * States, at the moment a limit is edited, that the change does NOT reach the
+ * people already on this plan until they renew or upgrade.
+ *
+ * That is the product's rule, not an accident — `BulkPlanAssignmentService`
+ * defers the same reshape by default so an admin action never silently shrinks
+ * a paying customer, and `bulk-assign-plan-dialog` already says so for the bulk
+ * path. The plan editor was the one place that changed limits and said nothing,
+ * which is what made correct behaviour read as a bug.
+ *
+ * The rule is the same in both directions; the sentence is not. On a cut the
+ * operator needs to know nobody was reduced today, on a raise they need to know
+ * the gift has not been delivered yet — so support is not told otherwise.
+ */
+function LimitScopeNotice({
+  changes,
+  direction,
+}: {
+  readonly changes: readonly PlanLimitChange[]
+  readonly direction: 'raise' | 'cut' | 'mixed'
+}) {
+  const { t } = useTranslation()
+  const formatLimit = (field: PlanLimitChange['field'], value: number): string =>
+    value === 0
+      ? t('planForm.limitScope.unlimited')
+      : field === 'traffic'
+        ? t('planForm.limitScope.trafficValue', { value })
+        : String(value)
+
+  return (
+    <div className="flex gap-3 rounded-md border p-3" role="status">
+      <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <div className="space-y-1">
+        <p className="text-sm font-medium">{t('planForm.limitScope.title')}</p>
+        <ul className="text-xs text-muted-foreground">
+          {changes.map((change) => (
+            <li key={change.field}>
+              {t(`planForm.limitScope.${change.field}Change`, {
+                from: formatLimit(change.field, change.from),
+                to: formatLimit(change.field, change.to),
+              })}
+            </li>
+          ))}
+        </ul>
+        <p className="text-xs text-muted-foreground">{t(`planForm.limitScope.${direction}`)}</p>
+      </div>
+    </div>
+  )
 }
 
 function createInitialPlanDraft(plan?: PlanInput): PlanFormDraft {
@@ -899,10 +1031,20 @@ interface InternalSquadOption {
  */
 function InternalSquadsPicker({
   squads,
+  unavailable = false,
+  onRetry,
   value,
   onChange,
 }: {
   readonly squads: ReadonlyArray<InternalSquadOption>
+  /**
+   * The squad list never arrived. Without this the empty `squads` array is
+   * indistinguishable from a panel with no squads, and the control says
+   * "No squads available" on a disabled trigger — a confident false claim
+   * about the operator's infrastructure, made while creating a plan.
+   */
+  readonly unavailable?: boolean
+  readonly onRetry?: () => void
   readonly value: ReadonlyArray<string>
   readonly onChange: (next: string[]) => void
 }) {
@@ -926,6 +1068,10 @@ function InternalSquadsPicker({
         ? value.filter((id) => id !== uuid)
         : [...value, uuid],
     )
+  }
+
+  if (unavailable) {
+    return <DataUnavailable message={t('planForm.squadsUnavailable')} onRetry={onRetry} />
   }
 
   return (
@@ -985,7 +1131,7 @@ function InternalSquadsPicker({
         <div className="flex flex-wrap gap-1.5">
           {value.map((uuid) => (
             <Badge key={uuid} variant="secondary" className="font-normal">
-              {byUuid.get(uuid) ?? uuid.slice(0, 8)}
+              {byUuid.get(uuid) ?? truncate(uuid, 8)}
             </Badge>
           ))}
         </div>

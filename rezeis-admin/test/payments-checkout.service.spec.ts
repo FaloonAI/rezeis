@@ -7,6 +7,8 @@ import {
   PaymentGatewayType,
   PurchaseChannel,
   PurchaseType,
+  SubscriptionStatus,
+  SyncJobStatus,
   TransactionStatus,
 } from '@prisma/client';
 
@@ -173,6 +175,10 @@ describe('PaymentsCheckoutService', () => {
     assert.equal(state.providerCreateCalls, 0)
     assert.equal(state.applyCompletedCalls, 1)
     assert.equal(state.enqueueCalls, 1)
+    // Deliberately no post-fulfilment hooks: no money moved. A 0-value
+    // AdConversion would consume this user's unique conversion slot and hide
+    // their later real purchase from the placement's revenue.
+    assert.deepEqual(state.postFulfillmentHookCalls, [])
   })
 
   it('propagates entitlement deny from transaction draft creation', async () => {
@@ -208,6 +214,33 @@ describe('PaymentsCheckoutService', () => {
 
     assert.equal(state.providerCreateCalls, 0)
     assert.equal(state.transactionUpdates.length, 0)
+  })
+
+  it('releases a paid-trial reservation when provider checkout creation fails', async () => {
+    const { service, state } = createService({
+      providerError: new ServiceUnavailableException('provider unavailable'),
+    })
+
+    await assert.rejects(
+      () =>
+        service.checkout({
+          userId: 'user-1',
+          purchaseType: PurchaseType.NEW,
+          planId: 'plan-1',
+          durationDays: 30,
+          gatewayType: PaymentGatewayType.YOOKASSA,
+          channel: PurchaseChannel.WEB,
+        }),
+      /provider unavailable/,
+    )
+
+    assert.equal(state.providerCreateCalls, 1)
+    assert.equal(
+      state.transactionUpdateMany.some((data) => data.status === TransactionStatus.FAILED),
+      true,
+    )
+    assert.equal(state.trialClaimUpdates.length, 1)
+    assert.equal(state.trialClaimUpdates[0]?.data.releaseReason, 'PROVIDER_CHECKOUT_CREATION_FAILED')
   })
 
   it('normalizes provider failure diagnostics in payment status responses', async () => {
@@ -250,6 +283,327 @@ describe('PaymentsCheckoutService', () => {
 
     assert.equal(status.failureReason, 'PAYMENT_PROVIDER_TIMEOUT')
   })
+
+  it('does not apply profile provisioning to unfinished or non-creation payments', async () => {
+    for (const fixture of [
+      {
+        initialStatus: TransactionStatus.PENDING,
+        purchaseType: PurchaseType.NEW,
+      },
+      {
+        initialStatus: TransactionStatus.COMPLETED,
+        purchaseType: PurchaseType.RENEW,
+      },
+    ] as const) {
+      const { service, state } = createService(fixture)
+
+      const status = await service.getPaymentStatus({
+        paymentId: 'payment-1',
+        userId: 'user-1',
+      })
+
+      assert.equal(status.subscriptionProvisioningStatus, 'NOT_APPLICABLE')
+      assert.equal(status.subscriptionProvisioningFailureCode, null)
+      assert.equal(state.subscriptionQueries.length, 0)
+    }
+  })
+
+  it('does not treat an ADDON_PURCHASE transaction as a new subscription', async () => {
+    const { service, state } = createService({
+      initialStatus: TransactionStatus.COMPLETED,
+      purchaseType: PurchaseType.ADDITIONAL,
+      subscriptionId: 'subscription-1',
+      transactionPlanSnapshot: {
+        snapshotSource: 'ADDON_PURCHASE',
+        addOnId: 'addon-1',
+        targetSubscriptionId: 'subscription-1',
+      },
+      subscription: {
+        status: SubscriptionStatus.ACTIVE,
+        remnawaveId: 'remnawave-1',
+        configUrl: 'https://subscription.example.com/config',
+      },
+    })
+
+    const status = await service.getPaymentStatus({
+      paymentId: 'payment-1',
+      userId: 'user-1',
+    })
+
+    assert.equal(status.subscriptionProvisioningStatus, 'NOT_APPLICABLE')
+    assert.equal(status.subscriptionProvisioningFailureCode, null)
+    assert.equal(state.subscriptionQueries.length, 0)
+  })
+
+  it('reports FULFILLING while a completed creation payment has no subscription id', async () => {
+    const { service, state } = createService({
+      initialStatus: TransactionStatus.COMPLETED,
+      purchaseType: PurchaseType.ADDITIONAL,
+    })
+
+    const status = await service.getPaymentStatus({
+      paymentId: 'payment-1',
+      userId: 'user-1',
+    })
+
+    assert.equal(status.subscriptionProvisioningStatus, 'FULFILLING')
+    assert.equal(status.subscriptionProvisioningFailureCode, null)
+    assert.equal(state.subscriptionQueries.length, 0)
+  })
+
+  it('reports PROFILE_PENDING for a local subscription without a complete panel profile', async () => {
+    const { service, state } = createService({
+      initialStatus: TransactionStatus.COMPLETED,
+      subscriptionId: 'subscription-1',
+      subscription: {
+        status: SubscriptionStatus.ACTIVE,
+        remnawaveId: 'remnawave-1',
+        configUrl: null,
+      },
+      syncJob: {
+        status: SyncJobStatus.RUNNING,
+        attempts: 1,
+        recoveryData: {},
+      },
+    })
+
+    const status = await service.getPaymentStatus({
+      paymentId: 'payment-1',
+      userId: 'user-1',
+    })
+
+    assert.equal(status.subscriptionProvisioningStatus, 'PROFILE_PENDING')
+    assert.equal(status.subscriptionProvisioningFailureCode, null)
+    assert.equal(state.subscriptionQueries.length, 1)
+    assert.deepEqual(state.subscriptionQueries[0], {
+      where: { id: 'subscription-1' },
+      select: {
+        status: true,
+        remnawaveId: true,
+        configUrl: true,
+        syncJobs: {
+          where: {
+            action: 'CREATE',
+            supersededAt: null,
+          },
+          select: {
+            status: true,
+            attempts: true,
+            recoveryData: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    })
+  })
+
+  it('tracks an UPGRADE that must create a missing panel profile', async () => {
+    for (const fixture of [
+      {
+        syncJob: {
+          status: SyncJobStatus.RUNNING,
+          attempts: 1,
+          recoveryData: {},
+        },
+        expectedStatus: 'PROFILE_PENDING',
+        expectedFailureCode: null,
+      },
+      {
+        syncJob: {
+          status: SyncJobStatus.FAILED,
+          attempts: 5,
+          recoveryData: { classification: 'TERMINAL' },
+        },
+        expectedStatus: 'FAILED',
+        expectedFailureCode: 'PROFILE_SYNC_FAILED',
+      },
+    ] as const) {
+      const { service, state } = createService({
+        initialStatus: TransactionStatus.COMPLETED,
+        purchaseType: PurchaseType.UPGRADE,
+        subscriptionId: 'subscription-1',
+        subscription: {
+          status: SubscriptionStatus.ACTIVE,
+          remnawaveId: null,
+          configUrl: null,
+        },
+        syncJob: fixture.syncJob,
+      })
+
+      const status = await service.getPaymentStatus({
+        paymentId: 'payment-1',
+        userId: 'user-1',
+      })
+
+      assert.equal(status.subscriptionProvisioningStatus, fixture.expectedStatus)
+      assert.equal(
+        status.subscriptionProvisioningFailureCode,
+        fixture.expectedFailureCode,
+      )
+      assert.equal(state.subscriptionQueries.length, 1)
+    }
+  })
+
+  it('keeps exhausted transient CREATE failures retryable', async () => {
+    const { service } = createService({
+      initialStatus: TransactionStatus.COMPLETED,
+      subscriptionId: 'subscription-1',
+      subscription: {
+        status: SubscriptionStatus.ACTIVE,
+        remnawaveId: null,
+        configUrl: null,
+      },
+      syncJob: {
+        status: SyncJobStatus.FAILED,
+        attempts: 5,
+        recoveryData: { classification: 'TRANSIENT' },
+      },
+    })
+
+    const status = await service.getPaymentStatus({
+      paymentId: 'payment-1',
+      userId: 'user-1',
+    })
+
+    assert.equal(status.subscriptionProvisioningStatus, 'PROFILE_PENDING')
+    assert.equal(status.subscriptionProvisioningFailureCode, null)
+  })
+
+  it('reports READY only for a non-deleted exact subscription with both panel fields', async () => {
+    const readyFixture = {
+      initialStatus: TransactionStatus.COMPLETED,
+      subscriptionId: 'subscription-1',
+      subscription: {
+        status: SubscriptionStatus.ACTIVE,
+        remnawaveId: 'remnawave-1',
+        configUrl: 'https://subscription.example.com/config',
+      },
+    } as const
+    const { service } = createService(readyFixture)
+
+    const readyStatus = await service.getPaymentStatus({
+      paymentId: 'payment-1',
+      userId: 'user-1',
+    })
+
+    assert.equal(readyStatus.subscriptionProvisioningStatus, 'READY')
+    assert.equal(readyStatus.subscriptionProvisioningFailureCode, null)
+
+    const { service: deletedService } = createService({
+      ...readyFixture,
+      subscription: {
+        ...readyFixture.subscription,
+        status: SubscriptionStatus.DELETED,
+      },
+    })
+    const deletedStatus = await deletedService.getPaymentStatus({
+      paymentId: 'payment-1',
+      userId: 'user-1',
+    })
+
+    assert.equal(deletedStatus.subscriptionProvisioningStatus, 'PROFILE_PENDING')
+    assert.equal(deletedStatus.subscriptionProvisioningFailureCode, null)
+  })
+
+  it('exposes only a stable failure code for a terminal exhausted CREATE job', async () => {
+    const rawLastError =
+      'Profile create failed https://panel.example/api/users?token=super-secret configUrl'
+    const { service } = createService({
+      initialStatus: TransactionStatus.COMPLETED,
+      subscriptionId: 'subscription-1',
+      subscription: {
+        status: SubscriptionStatus.ACTIVE,
+        remnawaveId: null,
+        configUrl: null,
+      },
+      syncJob: {
+        status: SyncJobStatus.FAILED,
+        attempts: 5,
+        recoveryData: { classification: 'TERMINAL' },
+        lastError: rawLastError,
+      },
+    })
+
+    const status = await service.getPaymentStatus({
+      paymentId: 'payment-1',
+      userId: 'user-1',
+    })
+    const serialized = JSON.stringify(status)
+
+    assert.equal(status.subscriptionProvisioningStatus, 'FAILED')
+    assert.equal(status.subscriptionProvisioningFailureCode, 'PROFILE_SYNC_FAILED')
+    assert.equal(serialized.includes(rawLastError), false)
+    assert.equal(serialized.includes('super-secret'), false)
+    assert.equal(serialized.includes('panel.example'), false)
+  })
+
+  it('fulfills immediately when provider returns succeeded off-session', async () => {
+    const { service, state } = createService({
+      providerCheckout: {
+        gatewayId: 'provider-succeeded-1',
+        checkoutUrl: null,
+        providerMode: 'IMMEDIATE',
+        providerStatus: 'succeeded',
+        gatewayData: { provider: 'YOOKASSA', providerStatus: 'succeeded', providerMode: 'IMMEDIATE' },
+      },
+    })
+
+    const checkout = await service.checkout({
+      userId: 'user-1',
+      purchaseType: PurchaseType.NEW,
+      planId: 'plan-1',
+      durationDays: 30,
+      gatewayType: PaymentGatewayType.YOOKASSA,
+      channel: PurchaseChannel.WEB,
+    })
+
+    assert.equal(checkout.transactionStatus, TransactionStatus.COMPLETED)
+    assert.equal(checkout.checkoutUrl, null)
+    assert.equal(state.applyCompletedCalls, 1)
+    assert.equal(state.enqueueCalls, 1)
+    assert.equal(state.transactionUpdateMany.some((data) => data.fulfilledAt instanceof Date), true)
+    // Money captured off-session on a saved card: partner commission, МойНалог
+    // income and the advertising conversion are owed here. Only the webhook and
+    // the pending-expiry poll used to run them, so this whole path paid nobody.
+    assert.equal(state.postFulfillmentHookCalls.length, 1)
+  })
+
+  it('does not provision twice when the immediate claim was already fulfilled', async () => {
+    // Simulate race: reconciler already claimed fulfilledAt before create-response path.
+    const alreadyFulfilledAt = new Date('2026-07-21T12:00:00.000Z')
+    const { service, state } = createService({
+      immediateClaimCount: 0,
+      fulfilledAt: alreadyFulfilledAt,
+      // Pre-mark COMPLETED so findUnique after a lost claim returns terminal state.
+      initialStatus: TransactionStatus.COMPLETED,
+      providerCheckout: {
+        gatewayId: 'provider-succeeded-1',
+        checkoutUrl: null,
+        providerMode: 'IMMEDIATE',
+        providerStatus: 'succeeded',
+        gatewayData: { provider: 'YOOKASSA', providerStatus: 'succeeded' },
+      },
+    })
+    const checkout = await service.checkout({
+      userId: 'user-1',
+      purchaseType: PurchaseType.NEW,
+      planId: 'plan-1',
+      durationDays: 30,
+      gatewayType: PaymentGatewayType.YOOKASSA,
+      channel: PurchaseChannel.WEB,
+    })
+    assert.equal(checkout.transactionStatus, TransactionStatus.COMPLETED)
+    assert.equal(state.applyCompletedCalls, 0)
+    assert.equal(state.enqueueCalls, 0)
+  })
+
+  it('persists a canceled provider result without provisioning', async () => {
+    const { service, state } = createService({ providerCheckout: { gatewayId: 'provider-canceled-1', checkoutUrl: null, providerMode: 'IMMEDIATE', providerStatus: 'CANCELLED', gatewayData: { provider: 'YOOKASSA', cancellation_details: { reason: 'permission_revoked' } } } })
+    const checkout = await service.checkout({ userId: 'user-1', purchaseType: PurchaseType.NEW, planId: 'plan-1', durationDays: 30, gatewayType: PaymentGatewayType.YOOKASSA, channel: PurchaseChannel.WEB })
+    assert.equal(checkout.transactionStatus, TransactionStatus.CANCELED)
+    assert.equal(state.applyCompletedCalls, 0)
+  })
 })
 
 function createService(input: {
@@ -257,16 +611,49 @@ function createService(input: {
   readonly gatewayCurrency?: Currency
   readonly gatewaySettings?: Record<string, unknown>
   readonly transactionGatewayData?: Record<string, unknown>
+  readonly transactionPlanSnapshot?: Record<string, unknown>
   readonly draftError?: Error
+  readonly providerError?: Error
   readonly accessMode?: 'PUBLIC' | 'INVITED' | 'PURCHASE_BLOCKED' | 'REG_BLOCKED' | 'RESTRICTED'
   readonly amount?: string
+  readonly immediateClaimCount?: number
+  readonly fulfilledAt?: Date | null
+  /** Optional starting status for race fixtures (default PENDING). */
+  readonly initialStatus?: TransactionStatus
+  readonly purchaseType?: PurchaseType
+  readonly subscriptionId?: string | null
+  readonly subscription?: null | {
+    readonly status: SubscriptionStatus
+    readonly remnawaveId: string | null
+    readonly configUrl: string | null
+  }
+  readonly syncJob?: null | {
+    readonly status: SyncJobStatus
+    readonly attempts: number
+    readonly recoveryData: Record<string, unknown>
+    readonly lastError?: string | null
+  }
+  providerCheckout?: {
+    gatewayId: string
+    checkoutUrl: string | null
+    providerMode: string
+    providerStatus: string | null
+    gatewayData: Record<string, unknown>
+  }
 } = {}) {
   const transactionUpdates: Record<string, unknown>[] = []
   const state = {
     transactionUpdates,
+    transactionUpdateMany: [] as Record<string, unknown>[],
+    trialClaimUpdates: [] as Array<{
+      readonly where: Record<string, unknown>
+      readonly data: Record<string, unknown>
+    }>,
     providerCreateCalls: 0,
     applyCompletedCalls: 0,
     enqueueCalls: 0,
+    postFulfillmentHookCalls: [] as string[],
+    subscriptionQueries: [] as unknown[],
   }
   const paymentId = 'payment-1'
   const gatewayType = input.gatewayType ?? PaymentGatewayType.YOOKASSA
@@ -274,21 +661,24 @@ function createService(input: {
     id: 'transaction-1',
     paymentId,
     userId: 'user-1',
-    subscriptionId: null,
-    status: TransactionStatus.PENDING,
-    purchaseType: PurchaseType.NEW,
+    subscriptionId: input.subscriptionId ?? null,
+    status: (input.initialStatus ?? TransactionStatus.PENDING) as TransactionStatus,
+    purchaseType: input.purchaseType ?? PurchaseType.NEW,
     channel: PurchaseChannel.WEB,
     gatewayType,
     currency: input.gatewayCurrency ?? Currency.USD,
     amount: { toString: () => input.amount ?? '9.99' },
     paymentAsset: null,
     gatewayId: null,
+    fulfilledAt: input.fulfilledAt ?? null,
     gatewayData: input.transactionGatewayData ?? null,
-    planSnapshot: {
-      id: 'plan-1',
-      name: 'Starter',
-      selectedDurationDays: 30,
-    },
+    planSnapshot:
+      input.transactionPlanSnapshot ??
+      {
+        id: 'plan-1',
+        name: 'Starter',
+        selectedDurationDays: 30,
+      },
     createdAt: new Date('2026-04-19T12:00:00.000Z'),
     updatedAt: new Date('2026-04-19T12:00:00.000Z'),
   }
@@ -306,25 +696,66 @@ function createService(input: {
       findUnique: async () => transaction,
       update: async (args: { readonly data: Record<string, unknown> }) => {
         transactionUpdates.push(args.data)
+        Object.assign(transaction, args.data)
         return {
           ...transaction,
-          gatewayId: args.data.gatewayId,
-          gatewayData: args.data.gatewayData,
+        }
+      },
+      updateMany: async (args: { readonly data: Record<string, unknown> }) => {
+        state.transactionUpdateMany.push(args.data)
+        if ('fulfilledAt' in args.data && input.immediateClaimCount === 0) {
+          transaction.status = TransactionStatus.COMPLETED
+          transaction.fulfilledAt = input.fulfilledAt ?? new Date()
+          return { count: 0 }
+        }
+        Object.assign(transaction, args.data)
+        return { count: 1 }
+      },
+      findUniqueOrThrow: async () => transaction,
+    },
+    trialClaim: {
+      updateMany: async (args: {
+        readonly where: Record<string, unknown>
+        readonly data: Record<string, unknown>
+      }) => {
+        state.trialClaimUpdates.push(args)
+        return { count: 1 }
+      },
+    },
+    subscription: {
+      findUnique: async (args: unknown) => {
+        state.subscriptionQueries.push(args)
+        if (input.subscription === null || input.subscription === undefined) {
+          return null
+        }
+        return {
+          ...input.subscription,
+          syncJobs:
+            input.syncJob === null || input.syncJob === undefined
+              ? []
+              : [
+                  {
+                    ...input.syncJob,
+                  },
+                ],
         }
       },
     },
   }
+  Object.assign(prismaService, {
+    $transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback(prismaService),
+  })
   const paymentsTransactionsService = {
-    createDraft: async () => {
+    createCheckoutDraft: async () => {
       if (input.draftError !== undefined) {
         throw input.draftError
       }
       return {
         id: 'transaction-1',
         paymentId,
-        status: TransactionStatus.PENDING,
+        status: TransactionStatus.PENDING as TransactionStatus,
         gatewayType,
-        purchaseType: PurchaseType.NEW,
+        purchaseType: input.purchaseType ?? PurchaseType.NEW,
         channel: PurchaseChannel.WEB,
         currency: input.gatewayCurrency ?? Currency.USD,
         amount: '9.99',
@@ -334,6 +765,12 @@ function createService(input: {
   const paymentProviderExecutionService = {
     createCheckout: async () => {
       state.providerCreateCalls += 1
+      if (input.providerError !== undefined) {
+        throw input.providerError
+      }
+      if (input.providerCheckout !== undefined) {
+        return input.providerCheckout
+      }
       return {
         gatewayId: 'provider-1',
         checkoutUrl: 'https://checkout.example.com',
@@ -376,6 +813,13 @@ function createService(input: {
       // SavedPaymentMethodService — only used when savedPaymentMethodId is set.
       {
         resolveActiveForCharge: async () => null,
+      } as never,
+      // PaymentReconciliationService — referral / partner / МойНалог / ad-conversion
+      // hooks. Only the paths that capture real money must call it.
+      {
+        runPostFulfillmentHooksBestEffort: async (transaction: { id: string }) => {
+          state.postFulfillmentHookCalls.push(transaction.id)
+        },
       } as never,
     ),
     state,

@@ -60,6 +60,23 @@ export class ReferralQualificationService {
 
     const settings = await this.loadReferralSettings();
 
+    // Operator kill-switch. `enabled` was parsed but never checked, so turning
+    // the referral program off in the panel kept qualifying referrals and
+    // handing out rewards. Only an explicit `false` disables — an absent flag
+    // stays enabled so existing installs are unaffected.
+    //
+    // Scope: this gates the REFERRAL program only. The partner program is a
+    // separate system with its own `partnerSettings.enabled`
+    // (`PartnerEarningsService.processPartnerEarning`) and its own payout path,
+    // and it must keep working when referral rewards are switched off — the two
+    // only share the invite-code mechanic, not the economics.
+    if (settings.enabled === false) {
+      this.logger.debug(
+        `Skipping qualification for ${transactionId}: referral program is disabled`,
+      );
+      return;
+    }
+
     // Extract planId from planSnapshot JSON
     const planSnapshot = readRecord(transaction.planSnapshot);
     const transactionPlanId = readOptionalString(planSnapshot, 'id');
@@ -133,12 +150,6 @@ export class ReferralQualificationService {
         }
       }
 
-      const referrerPartner = await tx.partner.findUnique({
-        where: { userId: referral.referrerId },
-        select: { isActive: true },
-      });
-      const referrerIsActivePartner = referrerPartner?.isActive === true;
-
       await tx.referral.update({
         where: { id: referral.id },
         data: {
@@ -148,50 +159,11 @@ export class ReferralQualificationService {
         },
       });
 
-      const rewardConfig = settings.reward;
-      const rewardType: ReferralRewardType =
-        rewardConfig?.type === 'EXTRA_DAYS'
-          ? ReferralRewardType.EXTRA_DAYS
-          : ReferralRewardType.POINTS;
-
-      const firstAmount = rewardConfig?.config?.FIRST ?? 0;
-      const secondAmount = rewardConfig?.config?.SECOND ?? 0;
-
-      if (!referrerIsActivePartner && rewardConfig) {
-        if (firstAmount > 0) {
-          await tx.referralReward.create({
-            data: {
-              referralId: referral.id,
-              userId: referral.referrerId,
-              type: rewardType,
-              amount: firstAmount,
-            },
-          });
-        }
-
-        if (secondAmount > 0) {
-          const l2Referral = await tx.referral.findUnique({
-            where: { referredId: referral.referrerId },
-            select: { id: true, referrerId: true },
-          });
-          if (l2Referral) {
-            const l2Partner = await tx.partner.findUnique({
-              where: { userId: l2Referral.referrerId },
-              select: { isActive: true },
-            });
-            if (l2Partner?.isActive !== true) {
-              await tx.referralReward.create({
-                data: {
-                  referralId: l2Referral.id,
-                  userId: l2Referral.referrerId,
-                  type: rewardType,
-                  amount: secondAmount,
-                },
-              });
-            }
-          }
-        }
-      }
+      await this.createConfiguredRewards(tx, {
+        referralId: referral.id,
+        referrerId: referral.referrerId,
+        reward: settings.reward,
+      });
 
       return { referral, transaction };
     });
@@ -209,6 +181,151 @@ export class ReferralQualificationService {
           userId: qualified.transaction.userId,
           transactionId: qualified.transaction.id,
         },
+      );
+    }
+  }
+
+  /**
+   * Explicit admin qualification for a valid, already attached edge. The
+   * operation is idempotent and creates the same *pending* reward rows as the
+   * payment path; rewards are not issued here, so the usual reviewed issue
+   * workflow (including profile sync for EXTRA_DAYS) remains in control.
+   */
+  public async qualifyReferralManually(input: {
+    readonly referredUserId: string;
+    readonly actorAdminId: string | null;
+  }): Promise<{ readonly referralId: string; readonly qualified: boolean; readonly rewardsCreated: number }> {
+    const settings = await this.loadReferralSettings();
+    // Deliberately NOT gated on `settings.enabled`. Turning the program off
+    // stops the automatic engine; an admin explicitly qualifying one referral
+    // by hand is a deliberate, audited act (`grantedBy` is stamped below) and
+    // is exactly how a support case gets settled after the program is paused.
+    const result = await this.prismaService.$transaction(async (tx) => {
+      await tx.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "referrals" WHERE "referred_id" = ${input.referredUserId} FOR UPDATE`,
+      );
+      const referral = await tx.referral.findUnique({
+        where: { referredId: input.referredUserId },
+        select: { id: true, referrerId: true, qualifiedAt: true },
+      });
+      if (!referral) {
+        throw new NotFoundException('Referral attribution not found for user');
+      }
+      if (referral.qualifiedAt !== null) {
+        return { referralId: referral.id, referrerId: referral.referrerId, qualified: false, rewardsCreated: 0 };
+      }
+
+      await tx.referral.update({
+        where: { id: referral.id },
+        data: { qualifiedAt: new Date() },
+      });
+      const rewardsCreated = await this.createConfiguredRewards(tx, {
+        referralId: referral.id,
+        referrerId: referral.referrerId,
+        reward: settings.reward,
+        grantedBy: input.actorAdminId,
+      });
+      return { referralId: referral.id, referrerId: referral.referrerId, qualified: true, rewardsCreated };
+    });
+
+    if (result.qualified) {
+      this.events.info(
+        EVENT_TYPES.REFERRAL_QUALIFIED,
+        'REFERRAL',
+        'Referral manually qualified',
+        {
+          referralId: result.referralId,
+          referrerId: result.referrerId,
+          referredUserId: input.referredUserId,
+          userId: input.referredUserId,
+          manual: true,
+          actorAdminId: input.actorAdminId,
+          rewardsCreated: result.rewardsCreated,
+        },
+      );
+    }
+
+    return {
+      referralId: result.referralId,
+      qualified: result.qualified,
+      rewardsCreated: result.rewardsCreated,
+    };
+  }
+
+  /**
+   * Reverses the referral qualification produced by a now-refunded /
+   * charged-back transaction. Only un-qualifies the edge that THIS transaction
+   * qualified (`qualifiedTransactionId === transactionId`), then revokes every
+   * reward on that edge:
+   *   - pending (not issued) → mark revoked (never pays out).
+   *   - already issued → reverse the effect (debit POINTS, roll back EXTRA_DAYS)
+   *     and mark revoked so it can't be reversed twice.
+   *
+   * Idempotent: an already-cleared qualification (or already-revoked reward) is
+   * skipped. All writes run in one transaction so the edge and its rewards
+   * reverse atomically.
+   */
+  public async reverseQualificationForTransaction(transactionId: string): Promise<void> {
+    try {
+      await this.prismaService.$transaction(async (tx) => {
+        const referral = await tx.referral.findFirst({
+          where: { qualifiedTransactionId: transactionId },
+          select: { id: true },
+        });
+        if (referral === null) return;
+
+        const rewards = await tx.referralReward.findMany({
+          where: { referralId: referral.id, revokedAt: null },
+          select: { id: true, userId: true, type: true, amount: true, isIssued: true },
+        });
+
+        const now = new Date();
+        for (const reward of rewards) {
+          if (reward.isIssued) {
+            // Reverse the applied effect before revoking.
+            if (reward.type === ReferralRewardType.POINTS) {
+              await tx.user.update({
+                where: { id: reward.userId },
+                data: { points: { decrement: reward.amount } },
+              });
+            } else if (reward.type === ReferralRewardType.EXTRA_DAYS) {
+              const user = await tx.user.findUnique({
+                where: { id: reward.userId },
+                select: { currentSubscriptionId: true },
+              });
+              if (user?.currentSubscriptionId) {
+                const subscription = await tx.subscription.findUnique({
+                  where: { id: user.currentSubscriptionId },
+                  select: { id: true, expiresAt: true },
+                });
+                if (subscription !== null && subscription.expiresAt !== null) {
+                  const rolledBack = new Date(subscription.expiresAt);
+                  rolledBack.setUTCDate(rolledBack.getUTCDate() - reward.amount);
+                  await tx.subscription.update({
+                    where: { id: subscription.id },
+                    data: { expiresAt: rolledBack },
+                  });
+                }
+              }
+            }
+          }
+          await tx.referralReward.update({
+            where: { id: reward.id },
+            data: { revokedAt: now, revokeReason: `Refund/chargeback on transaction ${transactionId}` },
+          });
+        }
+
+        // Clear the qualification so a legitimate later re-payment can re-qualify.
+        await tx.referral.update({
+          where: { id: referral.id },
+          data: { qualifiedAt: null, qualifiedTransactionId: null, qualifiedPurchaseChannel: null },
+        });
+      });
+    } catch (error: unknown) {
+      this.logger.error(
+        `Referral qualification reversal failed for transaction ${transactionId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
       );
     }
   }
@@ -266,8 +383,8 @@ export class ReferralQualificationService {
             select: { id: true, expiresAt: true },
           });
 
-          if (subscription) {
-            const baseDate = subscription.expiresAt ?? now;
+          if (subscription !== null && subscription.expiresAt !== null) {
+            const baseDate = new Date(Math.max(subscription.expiresAt.getTime(), now.getTime()));
             const newExpiresAt = new Date(baseDate);
             newExpiresAt.setUTCDate(newExpiresAt.getUTCDate() + reward.amount);
 
@@ -316,6 +433,65 @@ export class ReferralQualificationService {
 
     return normalizeReferralSettings(settings.referralSettings);
   }
+
+  private async createConfiguredRewards(
+    tx: Prisma.TransactionClient,
+    input: {
+      readonly referralId: string;
+      readonly referrerId: string;
+      readonly reward: ReferralSettingsJson['reward'] | undefined;
+      readonly grantedBy?: string | null;
+    },
+  ): Promise<number> {
+    if (!input.reward) return 0;
+    const referrerPartner = await tx.partner.findUnique({
+      where: { userId: input.referrerId },
+      select: { isActive: true },
+    });
+    if (referrerPartner?.isActive === true) return 0;
+
+    const rewardType =
+      input.reward.type === 'EXTRA_DAYS'
+        ? ReferralRewardType.EXTRA_DAYS
+        : ReferralRewardType.POINTS;
+    let created = 0;
+    const firstAmount = input.reward.config.FIRST ?? 0;
+    if (firstAmount > 0) {
+      await tx.referralReward.create({
+        data: {
+          referralId: input.referralId,
+          userId: input.referrerId,
+          type: rewardType,
+          amount: firstAmount,
+          ...(input.grantedBy ? { grantedBy: input.grantedBy } : {}),
+        },
+      });
+      created += 1;
+    }
+
+    const secondAmount = input.reward.config.SECOND ?? 0;
+    if (secondAmount <= 0) return created;
+    const l2Referral = await tx.referral.findUnique({
+      where: { referredId: input.referrerId },
+      select: { id: true, referrerId: true },
+    });
+    if (!l2Referral) return created;
+    const l2Partner = await tx.partner.findUnique({
+      where: { userId: l2Referral.referrerId },
+      select: { isActive: true },
+    });
+    if (l2Partner?.isActive === true) return created;
+    await tx.referralReward.create({
+      data: {
+        referralId: l2Referral.id,
+        userId: l2Referral.referrerId,
+        type: rewardType,
+        amount: secondAmount,
+        ...(input.grantedBy ? { grantedBy: input.grantedBy } : {}),
+      },
+    });
+    return created + 1;
+  }
 }
 
 // ── Module-level helpers ──────────────────────────────────────────────────────
@@ -361,8 +537,13 @@ function normalizeReferralSettings(raw: unknown): ReferralSettingsJson {
   const record = readRecord(raw);
   const result: ReferralSettingsJson = {};
 
-  if (typeof record['enabled'] === 'boolean') {
-    result.enabled = record['enabled'];
+  // The admin form falls back to a legacy `enable` key when reading, so an
+  // older install can hold the switch under that name. Now that this flag
+  // actually gates accrual, reading only `enabled` would show the toggle OFF
+  // in the panel while rewards kept being handed out.
+  const enabledFlag = record['enabled'] ?? record['enable'];
+  if (typeof enabledFlag === 'boolean') {
+    result.enabled = enabledFlag;
   }
 
   // Only `ON_FIRST_PAYMENT` changes behavior (it gates accrual to the referred

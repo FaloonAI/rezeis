@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { Prisma, SubscriptionStatus, SyncAction } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { ProfileSyncQueueService } from '../../profile-sync/profile-sync-queue.service';
 
 export interface BulkPlanAssignmentInput {
   /** Plan ID to assign */
@@ -52,7 +53,10 @@ export interface BulkPlanAssignmentResult {
 export class BulkPlanAssignmentService {
   private readonly logger = new Logger(BulkPlanAssignmentService.name);
 
-  public constructor(private readonly prismaService: PrismaService) {}
+  public constructor(
+    private readonly prismaService: PrismaService,
+    private readonly profileSyncQueueService: ProfileSyncQueueService,
+  ) {}
 
   public async assignPlan(input: BulkPlanAssignmentInput): Promise<BulkPlanAssignmentResult> {
     // Load the plan with durations
@@ -119,8 +123,6 @@ export class BulkPlanAssignmentService {
     }
 
     if (input.importRecordId) {
-      // Find all users who have subscriptions created during this import
-      // by looking at subscriptions with planSnapshot.importedFrom matching the import source
       const importRecord = await this.prismaService.importRecord.findUnique({
         where: { id: input.importRecordId },
       });
@@ -128,11 +130,28 @@ export class BulkPlanAssignmentService {
         throw new NotFoundException(`Import record '${input.importRecordId}' not found`);
       }
 
-      // Get all subscriptions that were imported from this source type
-      // and created around the same time as the import
+      // Durable link (preferred): importers stamp `planSnapshot.importRecordId`
+      // onto every subscription they create/update, so we can target EXACTLY
+      // the subscriptions produced by this import — regardless of how long the
+      // import ran or how many other imports of the same source type happened
+      // around it.
+      const byRecord = await this.prismaService.subscription.findMany({
+        where: { planSnapshot: { path: ['importRecordId'], equals: importRecord.id } },
+        select: { userId: true },
+        distinct: ['userId'],
+      });
+      if (byRecord.length > 0) {
+        return byRecord.map((s) => s.userId);
+      }
+
+      // Legacy fallback: subscriptions imported BEFORE the durable stamp
+      // existed carry no `importRecordId`. Fall back to the old heuristic
+      // (source type + a creation-time window around the import) so re-plan
+      // still works for those historical imports. The window is intentionally
+      // wide on the tail because a large import can run well past 5 minutes.
       const importTime = importRecord.createdAt;
       const windowStart = new Date(importTime.getTime() - 60_000); // 1 min before
-      const windowEnd = new Date(importTime.getTime() + 300_000); // 5 min after
+      const windowEnd = new Date(importTime.getTime() + 6 * 60 * 60_000); // 6 h after
 
       const subscriptions = await this.prismaService.subscription.findMany({
         where: {
@@ -142,6 +161,12 @@ export class BulkPlanAssignmentService {
         select: { userId: true },
         distinct: ['userId'],
       });
+
+      this.logger.warn(
+        `Bulk plan assignment: import ${importRecord.id} has no durable importRecordId stamp on its ` +
+          `subscriptions (legacy import); falling back to the source-type + time-window heuristic ` +
+          `(matched ${subscriptions.length} users). New imports use the exact stamp.`,
+      );
 
       return subscriptions.map((s) => s.userId);
     }
@@ -156,6 +181,7 @@ export class BulkPlanAssignmentService {
       name: string;
       tag: string | null;
       type: string;
+      icon: string | null;
       trafficLimit: number | null;
       deviceLimit: number;
       trafficLimitStrategy: string;
@@ -195,6 +221,10 @@ export class BulkPlanAssignmentService {
         name: plan.name,
         tag: plan.tag,
         type: plan.type,
+        // This is a FULL snapshot replacement, so the icon has to be written
+        // here too — attaching a real plan to imported subscriptions is exactly
+        // the case where the card should stop showing the status-glyph fallback.
+        icon: plan.icon,
         trafficLimit: plan.trafficLimit,
         deviceLimit: plan.deviceLimit,
         trafficLimitStrategy: plan.trafficLimitStrategy,
@@ -234,14 +264,24 @@ export class BulkPlanAssignmentService {
           subscription.status === SubscriptionStatus.LIMITED)
       ) {
         const action = subscription.remnawaveId ? SyncAction.UPDATE : SyncAction.CREATE;
-        await this.prismaService.profileSyncJob.create({
+        const syncJob = await this.prismaService.profileSyncJob.create({
           data: {
             subscriptionId: subscription.id,
             action,
             payload: { bulkPlanAssignment: true, planId: plan.id, applyImmediately: true } satisfies Prisma.InputJsonValue,
           },
+          select: { id: true },
         });
         syncJobsCreated += 1;
+        try {
+          await this.profileSyncQueueService.enqueue(syncJob.id);
+        } catch (error: unknown) {
+          this.logger.warn(
+            `Bulk plan assignment persisted sync job ${syncJob.id} for ${subscription.id}; sweep will retry enqueue: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
       }
     }
 

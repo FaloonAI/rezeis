@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { ArgumentsHost, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  ArgumentsHost,
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { AdminSafeExceptionFilter } from '../src/common/filters/admin-safe-exception.filter';
 
@@ -108,6 +114,147 @@ describe('AdminSafeExceptionFilter', () => {
     assert.equal(body.message, 'Route not found');
     assert.equal(body.errorCode, 'NOT_FOUND');
     assert.equal(body.path, '/api/missing/:redacted');
+  });
+
+  it('preserves allowlisted product codes for BFF branching (subscription limit)', () => {
+    const captured = runFilter(
+      new BadRequestException({
+        code: 'SUBSCRIPTION_LIMIT_REACHED',
+        message: 'The user has reached the maximum number of active subscriptions.',
+      }),
+      {
+        originalUrl: '/api/internal/payments/transactions/draft',
+        headers: { 'x-request-id': 'request.safe-limit-1' },
+      },
+    );
+
+    assert.equal(captured.statusCode, 400);
+    const body = assertResponseBody(captured.body);
+    assert.equal(body.statusCode, 400);
+    assert.equal(body.code, 'SUBSCRIPTION_LIMIT_REACHED');
+    assert.equal(body.errorCode, 'SUBSCRIPTION_LIMIT_REACHED');
+    assert.equal(
+      body.message,
+      'The user has reached the maximum number of active subscriptions.',
+    );
+    assert.equal(body.requestId, 'request.safe-limit-1');
+  });
+
+  it('preserves the safe paid-user deletion conflict contract', () => {
+    const captured = runFilter(
+      new ConflictException({
+        code: 'USER_DELETE_PROTECTED_HISTORY',
+        message:
+          'This user has protected payment, partner-ledger, or reward history and cannot be permanently deleted. Block the account instead; audit records must be preserved.',
+      }),
+      {
+        originalUrl: '/api/admin/users/12345',
+        headers: { 'x-request-id': 'request.safe-user-delete-1' },
+      },
+    );
+
+    assert.equal(captured.statusCode, 409);
+    const body = assertResponseBody(captured.body);
+    assert.equal(body.code, 'USER_DELETE_PROTECTED_HISTORY');
+    assert.equal(body.errorCode, 'USER_DELETE_PROTECTED_HISTORY');
+    assert.equal(
+      body.message,
+      'This user has protected payment, partner-ledger, or reward history and cannot be permanently deleted. Block the account instead; audit records must be preserved.',
+    );
+  });
+
+  /**
+   * The two paid-trial refusals must arrive at the BFF as distinguishable
+   * codes. Stripped, both collapse into an untyped 400 that the BFF reports as
+   * a generic checkout failure — so the buyer whose own unfinished attempt is
+   * blocking them is told, once again, that their trial is simply used up.
+   *
+   * The messages are asserted verbatim because the filter also redacts any
+   * message matching its sensitive-text patterns; a reworded message that
+   * happens to trip one would leave the code correct but the explanation gone.
+   */
+  for (const { code, message } of [
+    {
+      code: 'TRIAL_ALREADY_USED',
+      message: 'User has reached the trial claim limit',
+    },
+    {
+      code: 'TRIAL_PENDING_CHECKOUT_STALE',
+      message:
+        'A paid-trial checkout is still pending for this user; finish or abandon it before starting another.',
+    },
+    {
+      code: 'PAYMENT_ALREADY_AT_PROVIDER',
+      message:
+        'This checkout already exists at the payment provider; finish it or let it expire.',
+    },
+    {
+      code: 'PAYMENT_PROVIDER_CREATE_IN_FLIGHT',
+      message: 'A provider request is still in flight for this payment; retry shortly.',
+    },
+  ]) {
+    it(`preserves the ${code} contract for BFF branching`, () => {
+      const captured = runFilter(new BadRequestException({ code, message }), {
+        originalUrl: '/api/internal/payments/transactions/draft',
+        headers: { 'x-request-id': `request.safe-${code}` },
+      });
+
+      assert.equal(captured.statusCode, 400);
+      const body = assertResponseBody(captured.body);
+      assert.equal(body.code, code);
+      assert.equal(body.errorCode, code);
+      assert.equal(body.message, message);
+    });
+  }
+
+  /**
+   * The registration refusals, checked at the seam rather than in isolation.
+   *
+   * This one was written after the failure it describes. `LEGAL_CONSENT_REQUIRED`
+   * was thrown by the register path and read by the reiwa BFF, but nobody added
+   * it here — so the filter silently dropped the code, the BFF found none, and
+   * "accept the terms" reached the visitor as "registration is disabled" while
+   * registration was in fact enabled. Every layer was individually correct and
+   * separately tested; the seam between them was not.
+   *
+   * So this asserts the whole contract each code carries: 403, the code
+   * surviving the filter, and the sibling `errorCode` the BFF also reads.
+   */
+  for (const code of [
+    'REGISTRATION_DISABLED',
+    'INVITE_REQUIRED',
+    'LEGAL_CONSENT_REQUIRED',
+  ]) {
+    it(`preserves the ${code} refusal so the BFF can tell registration failures apart`, () => {
+      const captured = runFilter(
+        new ForbiddenException({ code, message: 'Registration refused' }),
+        {
+          originalUrl: '/api/internal/web-auth/register',
+          headers: { 'x-request-id': `request.safe-${code}` },
+        },
+      );
+
+      assert.equal(captured.statusCode, 403);
+      const body = assertResponseBody(captured.body);
+      assert.equal(body.code, code, `${code} must survive the filter`);
+      assert.equal(body.errorCode, code);
+    });
+  }
+
+  it('does not forward non-allowlisted product codes from exception bodies', () => {
+    const captured = runFilter(
+      new BadRequestException({
+        code: 'INTERNAL_DB_LEAK_CODE',
+        message: 'Plain client-facing validation issue',
+      }),
+      { originalUrl: '/api/internal/x', headers: {} },
+    );
+
+    assert.equal(captured.statusCode, 400);
+    const body = assertResponseBody(captured.body);
+    assert.equal(body.code, undefined);
+    assert.equal(body.errorCode, 'BAD_REQUEST');
+    assert.equal(body.message, 'Plain client-facing validation issue');
   });
 });
 

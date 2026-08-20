@@ -47,13 +47,47 @@ const environmentSchema = z
     REZEIS_PORT: z.coerce.number().int().min(1).max(65535).default(8000),
     API_DOCS_ENABLED: envBoolean(false),
     ADMIN_CORS_ORIGINS: z.preprocess(normalizeOptionalString, z.string().min(1).optional()),
+    // Default `uniquelocal`: the panel almost always sits behind a local
+    // reverse proxy (nginx/caddy on the same host / private network), so
+    // trusting private + loopback hops lets `req.ip` resolve to the real
+    // client address for rate-limiting, blocked-IP checks and audit. Public
+    // proxy addresses are still NOT trusted, so a client cannot spoof
+    // X-Forwarded-For. Set `disabled` only when the app is directly
+    // internet-facing with no proxy in front.
     ADMIN_TRUST_PROXY: z.preprocess(
       normalizeOptionalString,
-      z.enum(['disabled', 'loopback', 'linklocal', 'uniquelocal']).default('disabled'),
+      z.enum(['disabled', 'loopback', 'linklocal', 'uniquelocal']).default('uniquelocal'),
     ),
     REZEIS_LOCALES: z.string().min(1).default('ru,en'),
     REZEIS_DEFAULT_LOCALE: z.string().min(1).default('ru'),
     REZEIS_CRYPT_KEY: z.string().min(32, 'REZEIS_CRYPT_KEY must be at least 32 characters'),
+    /**
+     * Optional override for the key that encrypts payment gateway credentials
+     * at rest (API keys, signing secrets, RSA private keys in
+     * `PaymentGateway.settings`). Left unset — the normal case — those secrets
+     * are encrypted under `REZEIS_CRYPT_KEY` with a `payment-gateway` domain
+     * separator, exactly like the TOTP / OAuth / AI-config secrets.
+     *
+     * Optional rather than required on purpose. `REZEIS_CRYPT_KEY` above is
+     * already mandatory and fails the boot when absent, so key material always
+     * exists and encryption can never silently degrade to storing plaintext —
+     * `encryptSettingValue` throws instead of deriving a key from an empty
+     * string. Making THIS variable mandatory would add a second hard boot
+     * requirement that bricks every existing install on upgrade, which is not a
+     * trade worth making on a live payments path for zero security gain.
+     *
+     * Set it when payment credentials need a rotation schedule of their own.
+     * Rows written under the previous key stay readable (decryption tries both)
+     * and are rewritten under this one on their next save. Min 32 characters,
+     * matching the master key.
+     */
+    PAYMENT_GATEWAY_CRYPT_KEY: z.preprocess(
+      normalizeOptionalString,
+      z
+        .string()
+        .min(32, 'PAYMENT_GATEWAY_CRYPT_KEY must be at least 32 characters')
+        .optional(),
+    ),
 
     // ── Webhook ──────────────────────────────────────────────────────────────
     WEBHOOK_ENABLED: envBoolean(false),
@@ -62,13 +96,32 @@ const environmentSchema = z
       const normalized = normalizeOptionalString(value);
       // WEBHOOK_SECRET_HEADER is an OPTIONAL integration secret (signs the
       // reiwa push channel + outbound webhooks). A malformed value must NOT
-      // crash the whole panel — disable webhook signing and warn loudly so the
-      // operator fixes it. Core secrets like REZEIS_CRYPT_KEY still fail closed.
+      // crash the whole panel — warn loudly so the operator fixes it. Core
+      // secrets like REZEIS_CRYPT_KEY still fail closed.
+      //
+      // What dropping it here does and does NOT do: this schema's output is
+      // consumed via ConfigService, and NOTHING reads this key that way. All
+      // four consumers — webhook.config.ts, BotNotifierClient,
+      // ReiwaCacheInvalidatorService and SystemHealthService — read
+      // `process.env.WEBHOOK_SECRET_HEADER` directly, and Nest's
+      // `assignVariablesToProcess` only fills in keys ABSENT from process.env,
+      // so it never overwrites the raw malformed value. Signing therefore
+      // continues with the value as typed. The warning below says exactly that
+      // instead of the older text, which claimed signing was "DISABLED" — a
+      // claim this preprocess step has no power to make good on. Making it true
+      // by routing those reads through the config would silently kill the relay
+      // of every install whose non-conforming secret currently matches reiwa's
+      // (reiwa validates nothing), which is an outage traded for tidiness.
       if (typeof normalized === 'string' && !webhookSecretPattern.test(normalized)) {
         console.warn(
-          '[env] WEBHOOK_SECRET_HEADER is set but is not 64–256 alphanumeric characters — ' +
-            'webhook signing (reiwa push / outbound webhooks) is DISABLED. ' +
-            'Set a valid value (e.g. `openssl rand -hex 32`) or leave it empty.',
+          '[env] WEBHOOK_SECRET_HEADER is set but is not 64–256 alphanumeric characters. ' +
+            'It is NOT ignored: the reiwa push channel, outbound webhooks and the reiwa ' +
+            'metrics panel all read it straight from the environment, so this exact value ' +
+            'is still used for signing. Delivery keeps working only while reiwa\'s ' +
+            'REZEIS_WEBHOOK_SECRET holds the byte-identical string, and every delivery ' +
+            'fails signature verification the moment it does not. Replace it on BOTH sides ' +
+            'with a conforming secret (`openssl rand -hex 32`), or leave it empty to ' +
+            'disable signing.',
         );
         return undefined;
       }
@@ -83,8 +136,6 @@ const environmentSchema = z
     ),
     REMNAWAVE_TOKEN: z.preprocess(normalizeOptionalString, z.string().min(1).optional()),
     REMNAWAVE_WEBHOOK_SECRET: z.preprocess(normalizeOptionalString, z.string().min(1).optional()),
-    REMNAWAVE_CADDY_TOKEN: z.preprocess(normalizeOptionalString, z.string().min(1).optional()),
-    REMNAWAVE_COOKIE: z.preprocess(normalizeOptionalString, z.string().min(1).optional()),
 
     // ── Database ─────────────────────────────────────────────────────────────
     DATABASE_HOST: z.string().min(1).default('localhost'),
@@ -194,6 +245,20 @@ const environmentSchema = z
         path: ['ADMIN_CORS_ORIGINS'],
         message: error instanceof Error ? error.message : 'Invalid ADMIN_CORS_ORIGINS value',
       });
+    }
+
+    // Remnawave webhooks fail closed in production without a secret (the
+    // service refuses every unsigned payload). Warn loudly at boot so the gap
+    // is obvious rather than surfacing only as a silently empty Activity Feed.
+    // This is a warning, not a hard failure, to avoid bricking a panel that
+    // simply doesn't use Remnawave webhooks — the runtime guard already
+    // rejects spoofed traffic.
+    if (env.NODE_ENV === 'production' && !env.REMNAWAVE_WEBHOOK_SECRET) {
+      console.warn(
+        '[env] REMNAWAVE_WEBHOOK_SECRET is not set in production — all incoming ' +
+          'Remnawave webhooks will be REJECTED (fail-closed). Set it to the ' +
+          "panel's WEBHOOK_SECRET_HEADER value to receive node/subscription events.",
+      );
     }
   });
 

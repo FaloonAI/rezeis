@@ -1,8 +1,11 @@
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 
-import { advertisingConfig } from '../../../common/config/advertising.config';
+import {
+  advertisingConfig,
+  AdvertisingConfiguration,
+} from '../../../common/config/advertising.config';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import {
   CreateCampaignDto,
@@ -14,6 +17,7 @@ import {
 import { AdCampaignView, AdPlacementView } from '../interfaces/advertising.interface';
 import { mapCampaign, mapPlacement } from '../utils/advertising-mappers';
 import { generateTrackingCode, isValidTrackingCode } from '../utils/tracking-code.util';
+import { ReiwaAdvertisingLinkConfigService } from './reiwa-advertising-link-config.service';
 
 @Injectable()
 export class AdvertisingCampaignService {
@@ -23,6 +27,7 @@ export class AdvertisingCampaignService {
     private readonly prismaService: PrismaService,
     @Inject(advertisingConfig.KEY)
     private readonly config: ConfigType<typeof advertisingConfig>,
+    private readonly reiwaAdvertisingLinks: ReiwaAdvertisingLinkConfigService,
   ) {}
 
   public async listCampaigns(): Promise<AdCampaignView[]> {
@@ -30,7 +35,8 @@ export class AdvertisingCampaignService {
       orderBy: { createdAt: 'desc' },
       include: { placements: { orderBy: { createdAt: 'asc' } } },
     });
-    return campaigns.map((c) => mapCampaign(c, this.config));
+    const linkConfig = await this.resolveLinkConfig();
+    return campaigns.map((c) => mapCampaign(c, linkConfig));
   }
 
   public async getCampaign(id: string): Promise<AdCampaignView> {
@@ -41,7 +47,7 @@ export class AdvertisingCampaignService {
     if (campaign === null) {
       throw new NotFoundException('Campaign not found');
     }
-    return mapCampaign(campaign, this.config);
+    return mapCampaign(campaign, await this.resolveLinkConfig());
   }
 
   public async createCampaign(input: CreateCampaignDto, createdBy: string | null): Promise<AdCampaignView> {
@@ -54,7 +60,7 @@ export class AdvertisingCampaignService {
       },
       include: { placements: true },
     });
-    return mapCampaign(campaign, this.config);
+    return mapCampaign(campaign, await this.resolveLinkConfig());
   }
 
   public async updateCampaign(id: string, input: UpdateCampaignDto): Promise<AdCampaignView> {
@@ -68,12 +74,24 @@ export class AdvertisingCampaignService {
       },
       include: { placements: { orderBy: { createdAt: 'asc' } } },
     });
-    return mapCampaign(campaign, this.config);
+    return mapCampaign(campaign, await this.resolveLinkConfig());
   }
 
   public async createPlacement(input: CreatePlacementDto): Promise<AdPlacementView> {
     await this.requireCampaign(input.campaignId);
     const ownerType = input.ownerType ?? 'COMPANY';
+    if (ownerType === 'PARTNER') {
+      if (!input.partnerId) {
+        throw new BadRequestException('Partner placement requires a partner');
+      }
+      const partner = await this.prismaService.partner.findUnique({
+        where: { id: input.partnerId },
+        select: { id: true },
+      });
+      if (partner === null) {
+        throw new BadRequestException('Partner not found');
+      }
+    }
     // PARTNER placements never carry an operator-funded budget (their cost is
     // the commission we pay), so the budget is dropped for them.
     const spendAmount = ownerType === 'PARTNER' ? null : input.spendAmountMinor ?? null;
@@ -96,7 +114,7 @@ export class AdvertisingCampaignService {
         status: 'ACTIVE',
       },
     });
-    return mapPlacement(placement, this.config);
+    return mapPlacement(placement, await this.resolveLinkConfig());
   }
 
   public async updatePlacement(id: string, input: UpdatePlacementDto): Promise<AdPlacementView> {
@@ -105,46 +123,67 @@ export class AdvertisingCampaignService {
       throw new NotFoundException('Placement not found');
     }
     const isPartner = existing.ownerType === 'PARTNER';
+    // PARTNER cost is commission only — force null budget even if legacy rows
+    // still carry spend from a bad write or owner-type change.
+    const spendAmount = isPartner ? null : input.spendAmountMinor;
+    // Three-way, and the difference matters: undefined = leave as is,
+    // null = clear, string = set. Calling toUpperCase on a null would throw.
+    const spendCurrency = isPartner
+      ? null
+      : input.spendCurrency === undefined
+        ? undefined
+        : input.spendCurrency === null
+          ? null
+          : input.spendCurrency.toUpperCase();
     const placement = await this.prismaService.adPlacement.update({
       where: { id },
       data: {
         channel: input.channel === undefined ? undefined : input.channel.trim() || null,
         attributionWindowDays: input.attributionWindowDays,
         promoCodeId: input.promoCodeId === undefined ? undefined : input.promoCodeId || null,
-        spendAmount: isPartner ? undefined : input.spendAmountMinor,
-        spendCurrency: isPartner ? undefined : input.spendCurrency?.toUpperCase(),
+        spendAmount,
+        spendCurrency,
         status: input.status,
         signupBonusType: input.signupBonus?.type,
         signupBonus:
           input.signupBonus === undefined ? undefined : buildSignupBonusJson(input.signupBonus),
       },
     });
-    return mapPlacement(placement, this.config);
+    return mapPlacement(placement, await this.resolveLinkConfig());
   }
 
   /**
-   * Archives a placement. A placement with recorded clicks or conversions is
-   * never hard-deleted (it would orphan attribution history); it is set to
-   * ARCHIVED instead. An untouched placement is removed outright.
+   * Archives a placement. Never deletes: the tracking code is printed in live
+   * creatives, and a hard delete took it with them — every later click on paid
+   * advertising then landed on "placement not found" and was dropped, silently,
+   * with no way to recover what the code used to be.
+   *
+   * "Untouched" was also measured wrong: it counted clicks and conversions but
+   * not users already attributed to the placement, and web registration can set
+   * `acquisitionPlacementId` without ever writing a click row. Those users would
+   * have been left pointing at a row that no longer exists — counted as
+   * registrations forever, but never able to produce a conversion.
+   *
+   * The return value keeps its shape for API compatibility; `archived` is now
+   * always true, so the operator UI can stop claiming an outcome it never
+   * verified.
    */
   public async deletePlacement(id: string): Promise<{ archived: boolean }> {
     const existing = await this.prismaService.adPlacement.findUnique({
       where: { id },
-      include: { _count: { select: { clicks: true, conversions: true } } },
+      select: { id: true, status: true },
     });
     if (existing === null) {
       throw new NotFoundException('Placement not found');
     }
-    const used = existing._count.clicks > 0 || existing._count.conversions > 0;
-    if (used) {
-      await this.prismaService.adPlacement.update({
-        where: { id },
-        data: { status: 'ARCHIVED' },
-      });
+    if (existing.status === 'ARCHIVED') {
       return { archived: true };
     }
-    await this.prismaService.adPlacement.delete({ where: { id } });
-    return { archived: false };
+    await this.prismaService.adPlacement.update({
+      where: { id },
+      data: { status: 'ARCHIVED' },
+    });
+    return { archived: true };
   }
 
   private async requireCampaign(id: string): Promise<void> {
@@ -152,6 +191,10 @@ export class AdvertisingCampaignService {
     if (campaign === null) {
       throw new NotFoundException('Campaign not found');
     }
+  }
+
+  private async resolveLinkConfig(): Promise<AdvertisingConfiguration> {
+    return { ...this.config, ...(await this.reiwaAdvertisingLinks.resolve()) };
   }
 
   /** Mints a tracking code not already used by another placement. */

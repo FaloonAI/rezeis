@@ -3,6 +3,8 @@ import { ConfigModule } from '@nestjs/config';
 
 import { advertisingConfig } from '../../common/config/advertising.config';
 import { AuthModule } from '../auth/auth.module';
+import { FxModule } from '../fx/fx.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { PartnersModule } from '../partners/partners.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { AdminAdRequestsController } from './controllers/admin-ad-requests.controller';
@@ -15,6 +17,7 @@ import { AdMetricsService } from './services/ad-metrics.service';
 import { AdPlacementRequestService } from './services/ad-placement-request.service';
 import { AdSignupBonusService } from './services/ad-signup-bonus.service';
 import { AdvertisingCampaignService } from './services/advertising-campaign.service';
+import { ReiwaAdvertisingLinkConfigService } from './services/reiwa-advertising-link-config.service';
 
 /**
  * Advertising cabinet — marketing attribution layered beside the referral
@@ -23,7 +26,14 @@ import { AdvertisingCampaignService } from './services/advertising-campaign.serv
  * `AdConversionService` is consumed by the payments reconciliation hook.
  */
 @Module({
-  imports: [ConfigModule.forFeature(advertisingConfig), AuthModule, PartnersModule, SubscriptionsModule],
+  imports: [
+    ConfigModule.forFeature(advertisingConfig),
+    AuthModule,
+    FxModule,
+    NotificationsModule,
+    PartnersModule,
+    SubscriptionsModule,
+  ],
   controllers: [
     AdminAdvertisingController,
     AdminAdRequestsController,
@@ -37,6 +47,7 @@ import { AdvertisingCampaignService } from './services/advertising-campaign.serv
     AdConversionService,
     AdMetricsService,
     AdSignupBonusService,
+    ReiwaAdvertisingLinkConfigService,
   ],
   exports: [AdConversionService, AdPlacementRequestService],
 })

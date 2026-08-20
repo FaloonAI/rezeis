@@ -38,6 +38,70 @@ type RoleWithCounts = Prisma.AdminRoleGetPayload<{ include: typeof ROLE_INCLUDE 
  */
 const PERMISSION_CACHE_TTL_MS = 60_000;
 
+/**
+ * Resources a legacy bare-ADMIN (no assigned RBAC role) is implicitly
+ * allowed to touch. Deliberately EXCLUDES money-affecting, destructive and
+ * secret-bearing surfaces — `admins`, `rbac_roles`, `add_on_entitlements`,
+ * `config_portability`, `backups`, `api_tokens`, `system_logs`,
+ * `automations`, `webhooks`, `external_auth`, `auth_providers`,
+ * `blocked_ips`. Those require DEV / superadmin or an explicit custom role.
+ * Mirrors the day-to-day operator surface (users, subscriptions, payments,
+ * support, catalog, growth, appearance) without wildcard escalation.
+ */
+const LEGACY_ADMIN_ALLOWED_RESOURCES: ReadonlySet<string> = new Set([
+  'dashboard',
+  'users',
+  'subscriptions',
+  'payments',
+  'payment_gateways',
+  'payment_webhooks',
+  'support_tickets',
+  'analytics',
+  'auto_renew',
+  'plans',
+  'promocodes',
+  'broadcasts',
+  'add_ons',
+  'faq',
+  'referrals',
+  'referral_settings',
+  'partners',
+  'partner_settings',
+  'withdrawals',
+  'quests',
+  'settings',
+  'bot_config',
+  'remnawave',
+  'notifications',
+  'subpage_config',
+  'landing_config',
+  'email',
+  'appearance',
+  'branding',
+  'imports',
+  'audit',
+  'advertising',
+  'fraud_signals',
+]);
+
+/**
+ * Even within allowed resources, these specific high-blast-radius actions
+ * stay locked for a legacy bare-ADMIN. `users:export_registration` is a bulk
+ * raw PII dump (elevated, S7). `payments:refund` moves real money out to a
+ * customer and cannot be undone — a legacy admin inherits every action of an
+ * allowed resource, so without this entry the refund button would silently
+ * appear for accounts that were never explicitly granted it.
+ * `payment_gateways:view_secrets` is the same trap: `payment_gateways` is an
+ * allowed resource, so adding the action to the catalog would have handed every
+ * pre-RBAC admin the plaintext API keys, signing secrets and RSA private keys
+ * of every gateway — the exact exposure that action exists to close.
+ */
+const LEGACY_ADMIN_DENIED_TOKENS: ReadonlySet<string> = new Set([
+  'users:export_registration',
+  'payments:refund',
+  'payment_gateways:view_secrets',
+]);
+
 interface PermissionCacheEntry {
   readonly fingerprint: string;
   readonly grantedAll: boolean;
@@ -380,20 +444,24 @@ export class RbacService implements OnModuleInit {
         }
       }
     } else if (admin.role === UserRole.ADMIN) {
-      // Legacy fallback for accounts that pre-date RBAC: grant every
-      // `view` and generic `edit/create/delete` so the panel keeps
-      // working until the operator assigns a real role.
+      // Legacy fallback for accounts that pre-date RBAC (no rbacRoleId — the
+      // UI's "No role" option). Grant only an EXPLICIT allowlist of safe
+      // (resource, action) pairs so the panel keeps working, rather than
+      // "everything minus a few deletes". The previous grant-all-then-subtract
+      // logic implicitly handed a bare ADMIN money-affecting, destructive and
+      // secret-bearing surfaces (add_on_entitlements, config_portability:export
+      // which contains webhook secrets, backups, api_tokens, system_logs,
+      // automations, webhooks, …) — effectively near-superadmin. Those
+      // resources are simply absent from the allowlist below; they now require
+      // DEV / superadmin or an explicit custom role.
       for (const [resource, actions] of Object.entries(RBAC_RESOURCES)) {
+        if (!LEGACY_ADMIN_ALLOWED_RESOURCES.has(resource)) continue;
         for (const action of actions) {
+          if (LEGACY_ADMIN_DENIED_TOKENS.has(permissionToToken(resource, action))) {
+            continue;
+          }
           granted.add(permissionToToken(resource, action));
         }
-      }
-      // Sensitive surfaces stay locked behind explicit DEV/superadmin.
-      for (const action of RBAC_RESOURCES.rbac_roles) {
-        granted.delete(permissionToToken('rbac_roles', action));
-      }
-      for (const action of RBAC_RESOURCES.admins) {
-        granted.delete(permissionToToken('admins', action));
       }
     }
 

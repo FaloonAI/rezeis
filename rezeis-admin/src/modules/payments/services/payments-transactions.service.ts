@@ -1,14 +1,23 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import {
+  PlanAvailability,
   Prisma,
   PurchaseChannel,
   PurchaseType,
   Transaction,
   TransactionStatus,
+  TrialClaimStatus,
 } from '@prisma/client';
 
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { readTrialSettings, TrialSettings } from '../../plans/utils/trial-settings.util';
 import { SubscriptionQuoteService } from '../../subscriptions/services/subscription-quote.service';
+import {
+  countCommittedTrialClaimUnits,
+  lockTrialClaimUser,
+  findResumablePaidTrialClaim,
+  reservePaidTrialClaim,
+} from '../../subscriptions/services/trial-claim-ledger.util';
 import { CreateTransactionDraftDto } from '../dto/create-transaction-draft.dto';
 import { ListTransactionsQueryDto } from '../dto/list-transactions-query.dto';
 import { AdminPaymentTransactionInterface } from '../interfaces/admin-payment-transaction.interface';
@@ -98,12 +107,39 @@ export class PaymentsTransactionsService {
   public async createDraft(
     input: CreateTransactionDraftDto,
   ): Promise<AdminPaymentTransactionInterface> {
+    return this.createDraftInternal(input, false);
+  }
+
+  /**
+   * Trusted checkout entry point. Unlike the admin draft endpoint it may
+   * reserve a paid-trial quota slot because its callers proceed directly to a
+   * provider charge or partner-balance debit.
+   */
+  public async createCheckoutDraft(
+    input: CreateTransactionDraftDto,
+  ): Promise<AdminPaymentTransactionInterface> {
+    return this.createDraftInternal(input, true);
+  }
+
+  private async createDraftInternal(
+    input: CreateTransactionDraftDto,
+    allowPaidTrialReservation: boolean,
+  ): Promise<AdminPaymentTransactionInterface> {
     if ((input.purchaseType as unknown as string) === 'TRIAL') {
       throw new BadRequestException({
         code: 'PAYMENT_DRAFT_TRIAL_UNSUPPORTED',
         message: 'Trial purchases cannot be converted to transaction drafts.',
       });
     }
+    const channel = input.channel ?? PurchaseChannel.WEB;
+
+    // Idempotent checkout replay must be resolved before quote eligibility:
+    // the draft's own unresolved RESERVED unit intentionally consumes the last
+    // slot and would otherwise make its replay quote look ineligible.
+    const replay = await this.findReusablePendingDraftByRequest(input, channel);
+    const replayAvailability =
+      replay === null ? null : readSnapshotAvailability(replay.planSnapshot);
+
     // Enforce the per-user subscription cap for purchases that CREATE a new
     // subscription (NEW / ADDITIONAL). Previously the cap lived only in the
     // action-policy (UI gating), so a direct checkout call — or the reiwa
@@ -125,7 +161,6 @@ export class PaymentsTransactionsService {
         });
       }
     }
-    const channel = input.channel ?? PurchaseChannel.WEB;
     const quote = await this.subscriptionQuoteService.getQuote({
       userId: input.userId,
       purchaseType: input.purchaseType,
@@ -135,6 +170,13 @@ export class PaymentsTransactionsService {
       channel,
       gatewayType: input.gatewayType,
       currencyOverride: input.currencyOverride,
+      // `replayAvailability` is only non-null when `replay` is, so the added
+      // `replay !== null` selects the same branch — it is there so the compiler
+      // can see the link the reader already knows, instead of a bare `!`. Same
+      // shape as the paid-trial guard below.
+      ...(replay !== null && replayAvailability === PlanAvailability.TRIAL
+        ? { excludeTrialTransactionId: replay.id }
+        : {}),
     });
     if (
       !quote.isEligible ||
@@ -148,21 +190,98 @@ export class PaymentsTransactionsService {
         warnings: quote.warnings,
       });
     }
+    // Bind the values the guard above just proved non-null. The paid-trial path
+    // does its work inside a `$transaction` callback, and narrowing on a
+    // property does not cross that function boundary — the compiler must be able
+    // to see the proof at the point of use, not only where it was made.
+    const selectedPlan = quote.selectedPlan;
+    const price = quote.price;
+    if (selectedPlan.availability === PlanAvailability.TRIAL && !allowPaidTrialReservation) {
+      throw trialDraftRequiresCheckout();
+    }
     const draftPlanSnapshot = buildTransactionDraftSnapshot({
       purchaseType: input.purchaseType,
-      selectedPlan: quote.selectedPlan,
+      selectedPlan,
       selectedDurationDays: quote.selectedDuration.days,
     });
-    const existingPendingDraft = await this.findExistingPendingDraft({
+    const draftMatch = {
       userId: input.userId,
       subscriptionId: input.sourceSubscriptionId ?? quote.selectedSubscriptionId ?? null,
       purchaseType: input.purchaseType,
       channel,
       gatewayType: input.gatewayType,
-      currency: quote.price.currency,
-      amount: quote.price.price,
+      currency: price.currency,
+      amount: price.price,
       planSnapshot: draftPlanSnapshot,
-    });
+    } as const;
+
+    if (replay !== null && replayAvailability === PlanAvailability.TRIAL) {
+      if (!matchesPendingDraft(replay, draftMatch)) {
+        throw new BadRequestException({
+          code: 'TRIAL_PENDING_CHECKOUT_STALE',
+          message:
+            'The pending paid-trial checkout no longer matches current terms and must be resolved before starting another.',
+        });
+      }
+      await this.ensureExistingTrialReservation(replay, selectedPlan.trialSettings);
+      return mapAdminPaymentTransaction(replay);
+    }
+
+    if (selectedPlan.availability === PlanAvailability.TRIAL) {
+      const transaction = await this.prismaService.$transaction(async (tx) => {
+        await lockTrialClaimUser(tx, input.userId);
+        const existingPendingDraft = await this.findExistingPendingDraft(draftMatch, tx);
+        if (existingPendingDraft !== null) {
+          const existingClaim = await tx.trialClaim.findUnique({
+            where: { transactionId: existingPendingDraft.id },
+          });
+          if (existingClaim === null || existingClaim.status === 'RELEASED') {
+            const usedUnits = await countCommittedTrialClaimUnits(tx, input.userId);
+            if (usedUnits >= selectedPlan.trialSettings.maxClaims) {
+              throw trialClaimLimitReached();
+            }
+          }
+          await reservePaidTrialClaim(tx, {
+            userId: input.userId,
+            planId: selectedPlan.id,
+            transactionId: existingPendingDraft.id,
+          });
+          return existingPendingDraft;
+        }
+        const usedUnits = await countCommittedTrialClaimUnits(tx, input.userId);
+        if (usedUnits >= selectedPlan.trialSettings.maxClaims) {
+          // The draft could not be reused (different gateway, currency or
+          // amount), so a second reservation would be required — which the
+          // quota forbids. Name the real obstacle: if the block comes from the
+          // buyer's own unfinished attempt, that attempt is resolvable.
+          const resumable = await findResumablePaidTrialClaim(tx, input.userId);
+          throw resumable === null ? trialClaimLimitReached() : trialPendingCheckoutBlocks();
+        }
+        const created = await tx.transaction.create({
+          data: {
+            userId: input.userId,
+            subscriptionId: input.sourceSubscriptionId ?? quote.selectedSubscriptionId ?? null,
+            status: TransactionStatus.PENDING,
+            purchaseType: input.purchaseType,
+            channel,
+            gatewayType: input.gatewayType,
+            currency: price.currency,
+            amount: price.price,
+            planSnapshot: draftPlanSnapshot as Prisma.InputJsonValue,
+            deviceTypes: input.deviceType ? [input.deviceType] : [],
+          },
+        });
+        await reservePaidTrialClaim(tx, {
+          userId: input.userId,
+          planId: selectedPlan.id,
+          transactionId: created.id,
+        });
+        return created;
+      });
+      return mapAdminPaymentTransaction(transaction);
+    }
+
+    const existingPendingDraft = await this.findExistingPendingDraft(draftMatch);
     if (existingPendingDraft !== null) {
       return mapAdminPaymentTransaction(existingPendingDraft);
     }
@@ -174,8 +293,8 @@ export class PaymentsTransactionsService {
         purchaseType: input.purchaseType,
         channel,
         gatewayType: input.gatewayType,
-        currency: quote.price.currency,
-        amount: quote.price.price,
+        currency: price.currency,
+        amount: price.price,
         planSnapshot: draftPlanSnapshot as Prisma.InputJsonValue,
         deviceTypes: input.deviceType ? [input.deviceType] : [],
       },
@@ -192,8 +311,8 @@ export class PaymentsTransactionsService {
     readonly currency: Transaction['currency'];
     readonly amount: string;
     readonly planSnapshot: Record<string, unknown>;
-  }): Promise<Transaction | null> {
-    const pendingTransactions = await this.prismaService.transaction.findMany({
+  }, client: Pick<Prisma.TransactionClient, 'transaction'> = this.prismaService): Promise<Transaction | null> {
+    const pendingTransactions = await client.transaction.findMany({
       where: {
         userId: input.userId,
         subscriptionId: input.subscriptionId,
@@ -206,14 +325,63 @@ export class PaymentsTransactionsService {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 10,
     });
-    const expectedPlanSnapshot = stableJsonStringify(input.planSnapshot);
+    return pendingTransactions.find((transaction) => matchesPendingDraft(transaction, input)) ?? null;
+  }
+
+  private async findReusablePendingDraftByRequest(
+    input: CreateTransactionDraftDto,
+    channel: PurchaseChannel,
+  ): Promise<Transaction | null> {
+    const pending = await this.prismaService.transaction.findMany({
+      where: {
+        userId: input.userId,
+        subscriptionId: input.sourceSubscriptionId ?? null,
+        status: TransactionStatus.PENDING,
+        purchaseType: input.purchaseType,
+        channel,
+        gatewayType: input.gatewayType,
+        ...(input.currencyOverride === undefined ? {} : { currency: input.currencyOverride }),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 10,
+    });
     return (
-      pendingTransactions.find(
-        (transaction) =>
-          transaction.amount.toString() === input.amount &&
-          stableJsonStringify(transaction.planSnapshot) === expectedPlanSnapshot,
-      ) ?? null
+      pending.find((transaction) => {
+        const snapshot = readSnapshotRecord(transaction.planSnapshot);
+        return (
+          snapshot?.['id'] === input.planId &&
+          snapshot['selectedDurationDays'] === input.durationDays &&
+          snapshot['purchaseType'] === input.purchaseType
+        );
+      }) ?? null
     );
+  }
+
+  private async ensureExistingTrialReservation(
+    transaction: Transaction,
+    settings: TrialSettings,
+  ): Promise<void> {
+    await this.prismaService.$transaction(async (tx) => {
+      await lockTrialClaimUser(tx, transaction.userId);
+      const existing = await tx.trialClaim.findUnique({
+        where: { transactionId: transaction.id },
+      });
+      if (
+        existing?.status === TrialClaimStatus.RESERVED ||
+        existing?.status === TrialClaimStatus.CONSUMED
+      ) {
+        return;
+      }
+      const usedUnits = await countCommittedTrialClaimUnits(tx, transaction.userId);
+      if (usedUnits >= settings.maxClaims) {
+        throw trialClaimLimitReached();
+      }
+      await reservePaidTrialClaim(tx, {
+        userId: transaction.userId,
+        planId: readSnapshotPlanId(transaction.planSnapshot),
+        transactionId: transaction.id,
+      });
+    });
   }
 }
 
@@ -249,26 +417,94 @@ function buildTransactionDraftSnapshot(input: {
   readonly selectedPlan: {
     readonly id: string;
     readonly name: string;
+    readonly availability: PlanAvailability;
     readonly tag: string | null;
     readonly type: string;
     readonly trafficLimit: number | null;
     readonly deviceLimit: number;
     readonly trafficLimitStrategy: string;
+    readonly trialSettings?: TrialSettings;
   };
   readonly selectedDurationDays: number;
 }): Record<string, unknown> {
   return {
     id: input.selectedPlan.id,
     name: input.selectedPlan.name,
+    availability: input.selectedPlan.availability,
     tag: input.selectedPlan.tag,
     type: input.selectedPlan.type,
     trafficLimit: input.selectedPlan.trafficLimit,
     deviceLimit: input.selectedPlan.deviceLimit,
     trafficLimitStrategy: input.selectedPlan.trafficLimitStrategy,
+    ...(input.selectedPlan.availability === PlanAvailability.TRIAL
+      ? { trialSettings: input.selectedPlan.trialSettings ?? readTrialSettings(null) }
+      : {}),
     selectedDurationDays: input.selectedDurationDays,
     purchaseType: input.purchaseType,
     snapshotSource: 'ADMIN_TRANSACTION_DRAFT',
   };
+}
+
+function readSnapshotRecord(value: Prisma.JsonValue): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readSnapshotAvailability(value: Prisma.JsonValue): PlanAvailability | null {
+  const availability = readSnapshotRecord(value)?.['availability'];
+  return Object.values(PlanAvailability).includes(availability as PlanAvailability)
+    ? (availability as PlanAvailability)
+    : null;
+}
+
+function readSnapshotPlanId(value: Prisma.JsonValue): string | null {
+  const id = readSnapshotRecord(value)?.['id'];
+  return typeof id === 'string' && id.length > 0 ? id : null;
+}
+
+function trialDraftRequiresCheckout(): BadRequestException {
+  return new BadRequestException({
+    code: 'TRIAL_DRAFT_REQUIRES_CHECKOUT',
+    message: 'Paid trial drafts must be created by a checkout that reserves trial capacity.',
+  });
+}
+
+function trialClaimLimitReached(): BadRequestException {
+  return new BadRequestException({
+    code: 'TRIAL_ALREADY_USED',
+    message: 'User has reached the trial claim limit',
+  });
+}
+
+/**
+ * The quota is full only because of the buyer's OWN unfinished attempt.
+ *
+ * Reported apart from `TRIAL_ALREADY_USED` because the two demand opposite
+ * things of the buyer: one says the trial is spent and there is nothing to do,
+ * the other says an attempt is still open and can be finished or abandoned.
+ * Telling someone their trial is used up while it is sitting in their own
+ * unpaid draft is how the original report started.
+ */
+function trialPendingCheckoutBlocks(): BadRequestException {
+  return new BadRequestException({
+    code: 'TRIAL_PENDING_CHECKOUT_STALE',
+    message:
+      'A paid-trial checkout is still pending for this user; finish or abandon it before starting another.',
+  });
+}
+
+function matchesPendingDraft(
+  transaction: Transaction,
+  input: {
+    readonly amount: string;
+    readonly planSnapshot: Record<string, unknown>;
+  },
+): boolean {
+  return (
+    transaction.amount.toString() === input.amount &&
+    stableJsonStringify(transaction.planSnapshot) === stableJsonStringify(input.planSnapshot)
+  );
 }
 
 function stableJsonStringify(value: unknown): string {
