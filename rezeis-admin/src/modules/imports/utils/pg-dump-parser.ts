@@ -105,8 +105,8 @@ export function pgBigInt(v: string | null): number {
  * Handles optional double-quoted elements. Sufficient for `uuid[]` / `bigint[]`
  * which never contain commas or quotes inside an element.
  */
-export function pgArray(v: string | null): string[] {
-  if (v === null) return [];
+export function pgArray(v: string | null | undefined): string[] {
+  if (v == null) return [];
   const t = v.trim();
   if (!t.startsWith('{') || !t.endsWith('}')) return [];
   const inner = t.slice(1, -1).trim();
@@ -117,7 +117,7 @@ export function pgArray(v: string | null): string[] {
     .filter((x) => x.length > 0);
 }
 
-export function pgNumberArray(v: string | null): number[] {
+export function pgNumberArray(v: string | null | undefined): number[] {
   return pgArray(v)
     .map((x) => Number.parseInt(x, 10))
     .filter((n) => Number.isFinite(n));
