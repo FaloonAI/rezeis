@@ -1,6 +1,6 @@
 # Next Session Handoff — Rezeis Remediation
 
-Updated: 2026-08-01
+Updated: 2026-08-20
 
 ## User Context
 
@@ -64,6 +64,15 @@ Run these from `V:\REZEIS_ADMIN_RUID_USER\rezeis` or the listed subdirectory.
 Current recommendation override after the S5 subscriptions read/stat RBAC slice: continue the bounded S5 residual RBAC audit with the next small admin route group that has an existing permission resource. Start by auditing one auth-only admin controller and implement only a concrete missing gate/test if found; keep the slice narrow and do not globalize `RbacGuard`. The F5 accessibility sweep remains closed for this remediation phase unless a concrete blocking keyboard/focus regression is reported.
 
 Current recommendation: continue P2 frontend correctness with the next F4 critical form schema surface, preferably broadcast payload composition, notification JSON, or branding URLs. The OAuth provider settings F4 slice is closed for now: provider cards use a Zod/react-hook-form validation boundary before submit, block malformed backend/frontend domains, Generic OAuth2 authorization/token URLs, allowlist emails, and Telegram ID allowlists before calling `/admin/oauth/config/:type`, and submit normalized comma-separated allowlists after validation passes. The plans F4 slice is closed for now: plan create/edit submit uses a Zod/react-hook-form validation boundary, blocks malformed limits, duplicate durations/currencies, unsupported currencies, invalid trial/archive/allowed-user combinations, and normalizes unlimited traffic (`0`) to backend `null` before mutation. F3 production devtools/client-log redaction is closed for this slice: React Query Devtools are dynamically imported only in Vite development mode, production build output no longer references the devtools package, and client crash reports/local diagnostics redact query strings, authorization/cookie fragments, token/password/secret assignments, emails, UUIDs, JWT-like values, and long hex secrets. F2 query-key factories/realtime invalidation is closed for this slice: shared admin query-key factories now cover touched backup, broadcast, dashboard, subscriptions, payments, imports, settings, notifications, and email settings surfaces; realtime invalidation uses those factories; payment/admin events invalidate actual query prefixes; realtime auth failure uses the same hard session-clear path as HTTP 401; and notification-template plus SMTP settings changes now emit realtime-visible system events. F1 auth readiness is closed for this slice: protected admin routes now wait for `/admin/auth/me` plus effective permissions/mustChangePassword before rendering the workspace, permission probe failures keep the workspace locked with retry, and `/change-password` is authenticated-only without mounting the full admin shell. The S7/S5 payment transaction slice is closed for now: `AdminPaymentTransactionsController` has explicit `RbacGuard` + `payments:view/create` metadata, the payments nav/page/quick-search no longer expose payment surfaces without the matching grants, and the legacy payments webhook tab now uses the current `/admin/payments/webhooks/events` contract. `gatewayId` and `providerEventId` remain operational identifiers available only behind explicit payment/webhook RBAC, not a separate reveal flow. Do not globalize `RbacGuard` yet.
+
+## Current Remnawave Follow-up
+
+- PR #9 is open: `https://github.com/FaloonAI/rezeis/pull/9`.
+- Fork CI is running; backend, web, React Doctor, and PostgreSQL checks must finish before merge.
+- Backend sync-state commit is pushed and backend typecheck passes.
+- The focused admin card identity test passes after switching its mock to `getPanelUserOutcome`.
+- Remaining in this slice: restore frontend shape/UI/localization changes, add explicit coverage for `MISSING`, `UNAVAILABLE`, `PENDING`, and `FAILED`, run web checks, and review CI failures.
+- After PR #9: audit `/admin/users` contract drift, then add composable user/subscription filters and quick-search categories.
 
 ## Completion Estimate And Remaining Work
 
